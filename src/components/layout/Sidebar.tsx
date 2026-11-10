@@ -21,6 +21,12 @@ import {
   UserCheck,
   CalendarCheck,
   Wallet,
+  Receipt,
+  Layers,
+  FileSignature,
+  SlidersHorizontal,
+  FolderKanban,
+  BarChart3,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -144,6 +150,47 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           href: '/audit-logs',
           icon: FileText,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+      ],
+    },
+    {
+      heading: 'Payroll',
+      items: [
+        {
+          title: 'Payroll & Payslips',
+          href: '/payroll',
+          icon: Receipt,
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Payslip Batches',
+          href: '/payroll/batches',
+          icon: FolderKanban,
+          allowed: ['Admin'],
+        },
+        {
+          title: 'Employee Contracts',
+          href: '/payroll/contracts',
+          icon: FileSignature,
+          allowed: ['Admin'],
+        },
+        {
+          title: 'Monthly Inputs',
+          href: '/payroll/inputs',
+          icon: SlidersHorizontal,
+          allowed: ['Admin'],
+        },
+        {
+          title: 'Salary Structures',
+          href: '/payroll/structures',
+          icon: Layers,
+          allowed: ['Admin'],
+        },
+        {
+          title: 'Payroll Reports',
+          href: '/payroll/reports',
+          icon: BarChart3,
+          allowed: ['Admin'],
         },
       ],
     },
