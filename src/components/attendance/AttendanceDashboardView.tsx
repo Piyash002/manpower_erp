@@ -14,6 +14,7 @@ import {
   Check,
   X,
   UserCheck,
+  CalendarPlus,
 } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -76,7 +77,7 @@ export function AttendanceDashboardView() {
   const now = new Date();
   const todayDhaka = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(now);
 
-  const [activeTab, setActiveTab] = useState<'my' | 'roster' | 'range' | 'corrections'>(
+  const [activeTab, setActiveTab] = useState<'my' | 'roster' | 'range' | 'corrections' | 'leaves'>(
     isAdmin ? 'roster' : 'my'
   );
 
@@ -109,6 +110,17 @@ export function AttendanceDashboardView() {
     reason: '',
   });
 
+  // Leaves State
+  const [leaves, setLeaves] = useState<any[]>([]);
+  const [isLeaveModalOpen, setIsLeaveModalOpen] = useState(false);
+  const [leaveForm, setLeaveForm] = useState({
+    employee_id: '',
+    leave_type: 'Casual',
+    start_date: todayDhaka,
+    end_date: todayDhaka,
+    reason: '',
+  });
+
   // HR Manual Edit Modal
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualForm, setManualForm] = useState({
@@ -131,6 +143,7 @@ export function AttendanceDashboardView() {
       const reqs: Promise<Response>[] = [
         fetch(`/api/attendance/daily?mode=my&month=${myMonth}&year=${myYear}`),
         fetch('/api/attendance/corrections'),
+        fetch('/api/hrm/leaves'),
       ];
       if (isAdmin) {
         reqs.push(
@@ -145,12 +158,14 @@ export function AttendanceDashboardView() {
         );
       }
 
-      const [myRes, corrRes, rosRes, rngRes] = await Promise.all(reqs);
+      const [myRes, corrRes, leaveRes, rosRes, rngRes] = await Promise.all(reqs);
       const myJson = await myRes.json();
       const corrJson = await corrRes.json();
+      const leaveJson = await leaveRes.json();
 
       if (myJson.success) setMyData(myJson.data);
       if (corrJson.success) setCorrections(corrJson.data || []);
+      if (leaveJson.success) setLeaves(leaveJson.data || []);
 
       if (rosRes) {
         const rosJson = await rosRes.json();
@@ -285,6 +300,44 @@ export function AttendanceDashboardView() {
     loadAll();
   };
 
+  const handleSubmitLeave = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    setBanner(null);
+    try {
+      const res = await fetch('/api/hrm/leaves', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(leaveForm),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Leave submission failed');
+      setIsLeaveModalOpen(false);
+      setLeaveForm({ ...leaveForm, reason: '' });
+      setBanner({ type: 'ok', msg: json.message });
+      loadAll();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleReviewLeave = async (leaveId: string, status: 'Approved' | 'Rejected') => {
+    const res = await fetch('/api/hrm/leaves', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ leave_id: leaveId, status }),
+    });
+    const json = await res.json();
+    if (!res.ok || !json.success) {
+      setBanner({ type: 'err', msg: json.message || 'Leave review failed' });
+      return;
+    }
+    setBanner({ type: 'ok', msg: json.message });
+    loadAll();
+  };
+
   const getStatusBadge = (status?: string) => {
     switch (status) {
       case 'Present':
@@ -333,6 +386,14 @@ export function AttendanceDashboardView() {
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setIsLeaveModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+          >
+            <CalendarPlus className="w-3.5 h-3.5 text-emerald-600" />
+            <span>Request Leave</span>
+          </button>
           {myEmp && (
             <button
               type="button"
@@ -491,6 +552,15 @@ export function AttendanceDashboardView() {
           }`}
         >
           Corrections ({corrections.filter((c) => c.status === 'Pending').length} Pending)
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab('leaves')}
+          className={`px-3 py-1.5 rounded-md transition-all ${
+            activeTab === 'leaves' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
+          }`}
+        >
+          Leaves ({leaves.filter((l) => l.status === 'Pending').length} Pending)
         </button>
       </div>
 
@@ -899,6 +969,181 @@ export function AttendanceDashboardView() {
           </table>
         </div>
       )}
+
+      {/* TAB 5: LEAVE REQUESTS */}
+      {activeTab === 'leaves' && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+          <table className="w-full text-left text-sm">
+            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+              <tr>
+                <th className="px-4 py-3">Employee</th>
+                <th className="px-4 py-3">Leave Type</th>
+                <th className="px-4 py-3">Duration</th>
+                <th className="px-4 py-3">Reason</th>
+                <th className="px-4 py-3 text-center">Status</th>
+                {isAdmin && <th className="px-4 py-3 text-right">Approval</th>}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100 text-xs">
+              {leaves.length === 0 ? (
+                <tr>
+                  <td colSpan={6} className="py-12 text-center text-slate-400">
+                    No leave requests recorded yet.
+                  </td>
+                </tr>
+              ) : (
+                leaves.map((lv) => (
+                  <tr key={lv._id} className="hover:bg-slate-50/70">
+                    <td className="px-4 py-3 whitespace-nowrap font-semibold text-slate-900">
+                      {lv.employee_id?.firstName} {lv.employee_id?.lastName}{' '}
+                      <span className="font-mono text-slate-400">
+                        ({lv.employee_id?.employee_id})
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap font-semibold">{lv.leave_type}</td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      {formatDate(lv.start_date)} → {formatDate(lv.end_date)}
+                    </td>
+                    <td className="px-4 py-3 max-w-xs truncate">{lv.reason || '—'}</td>
+                    <td className="px-4 py-3 text-center">
+                      <Badge
+                        variant={
+                          lv.status === 'Approved'
+                            ? 'success'
+                            : lv.status === 'Rejected'
+                              ? 'danger'
+                              : 'warning'
+                        }
+                      >
+                        {lv.status}
+                      </Badge>
+                    </td>
+                    {isAdmin && (
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {lv.status === 'Pending' ? (
+                          <div className="inline-flex items-center gap-1">
+                            <button
+                              type="button"
+                              onClick={() => handleReviewLeave(lv._id, 'Approved')}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-emerald-600 rounded"
+                            >
+                              <Check className="w-3 h-3" /> Approve
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleReviewLeave(lv._id, 'Rejected')}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded"
+                            >
+                              <X className="w-3 h-3" /> Reject
+                            </button>
+                          </div>
+                        ) : (
+                          <span className="text-slate-400">{lv.reviewed_by || 'Admin'}</span>
+                        )}
+                      </td>
+                    )}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+
+      {/* Leave Request Modal */}
+      <Modal
+        isOpen={isLeaveModalOpen}
+        onClose={() => setIsLeaveModalOpen(false)}
+        title="Submit Leave Request"
+        maxWidth="md"
+      >
+        <form onSubmit={handleSubmitLeave} className="space-y-4">
+          {isAdmin && (
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Employee (Leave blank for self)
+              </label>
+              <select
+                value={leaveForm.employee_id}
+                onChange={(e) => setLeaveForm({ ...leaveForm, employee_id: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              >
+                <option value="">Self (Linked Employee Profile)</option>
+                {(rosterData?.roster || []).map((r: any) => (
+                  <option key={r.employee._id} value={r.employee._id}>
+                    {r.employee.firstName} {r.employee.lastName} ({r.employee.employee_id})
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Leave Type *</label>
+            <select
+              value={leaveForm.leave_type}
+              onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            >
+              <option value="Casual">Casual Leave</option>
+              <option value="Sick">Sick Leave</option>
+              <option value="Earned">Earned Leave</option>
+              <option value="Emergency">Emergency Leave</option>
+              <option value="Unpaid">Unpaid Leave</option>
+            </select>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Start Date *</label>
+              <input
+                type="date"
+                required
+                value={leaveForm.start_date}
+                onChange={(e) => setLeaveForm({ ...leaveForm, start_date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">End Date *</label>
+              <input
+                type="date"
+                required
+                value={leaveForm.end_date}
+                onChange={(e) => setLeaveForm({ ...leaveForm, end_date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Reason</label>
+            <textarea
+              rows={2}
+              value={leaveForm.reason}
+              onChange={(e) => setLeaveForm({ ...leaveForm, reason: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsLeaveModalOpen(false)}
+              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+            >
+              Submit Leave
+            </button>
+          </div>
+        </form>
+      </Modal>
 
       {/* HR Manual Entry Modal */}
       <Modal
