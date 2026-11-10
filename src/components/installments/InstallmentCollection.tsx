@@ -17,6 +17,7 @@ import {
   Download,
   FileSpreadsheet,
   ChevronDown,
+  ChevronRight,
   ArrowUpDown,
   RotateCcw,
   ExternalLink,
@@ -36,6 +37,7 @@ interface InstallmentItem {
     trade_name: string;
     batch?: string;
     destination_country: string;
+    total_payable?: number;
     total_paid: number;
     total_due: number;
     status: string;
@@ -49,6 +51,16 @@ interface InstallmentItem {
   status: 'Paid' | 'Partial' | 'Pending' | 'Overdue';
   isOverdue: boolean;
   isDueThisMonth: boolean;
+}
+
+interface GroupedStudentLedger {
+  student: InstallmentItem['student'];
+  items: InstallmentItem[];
+  unpaidItems: InstallmentItem[];
+  nextInstallment: InstallmentItem;
+  filteredInstallmentDue: number;
+  hasOverdue: boolean;
+  overallStatus: 'Paid' | 'Partial' | 'Pending' | 'Overdue';
 }
 
 interface StatsData {
@@ -115,9 +127,67 @@ function InstallmentCollectionContent() {
     amount: number;
     studentName: string;
     studentNo: string;
+    remainingDue?: number;
+    nextDueDate?: string | null;
   } | null>(null);
 
+  const [expandedStudentIds, setExpandedStudentIds] = useState<Record<string, boolean>>({});
   const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const groupedStudents = useMemo<GroupedStudentLedger[]>(() => {
+    const map = new Map<string, InstallmentItem[]>();
+    for (const item of installments) {
+      const sid = item.student._id;
+      const arr = map.get(sid);
+      if (arr) {
+        arr.push(item);
+      } else {
+        map.set(sid, [item]);
+      }
+    }
+
+    const result: GroupedStudentLedger[] = [];
+    for (const [, rawItems] of map.entries()) {
+      const sortedItems = [...rawItems].sort(
+        (a, b) =>
+          new Date(a.due_date).getTime() - new Date(b.due_date).getTime() ||
+          a.installment_no - b.installment_no
+      );
+      const student = sortedItems[0].student;
+      const unpaidItems = sortedItems.filter((i) => i.remaining_due > 0);
+      const nextInstallment = unpaidItems[0] || sortedItems[0];
+      const filteredInstallmentDue = unpaidItems.reduce((sum, i) => sum + i.remaining_due, 0);
+      const hasOverdue = unpaidItems.some((i) => i.isOverdue);
+
+      let overallStatus: GroupedStudentLedger['overallStatus'] = 'Pending';
+      if (student.total_due <= 0 || unpaidItems.length === 0) {
+        overallStatus = 'Paid';
+      } else if (hasOverdue) {
+        overallStatus = 'Overdue';
+      } else if (student.total_paid > 0 || sortedItems.some((i) => i.status === 'Partial')) {
+        overallStatus = 'Partial';
+      }
+
+      result.push({
+        student,
+        items: sortedItems,
+        unpaidItems,
+        nextInstallment,
+        filteredInstallmentDue,
+        hasOverdue,
+        overallStatus,
+      });
+    }
+
+    return result;
+  }, [installments]);
+
+  const toggleExpandStudent = (studentId: string) => {
+    setExpandedStudentIds((prev) => ({
+      ...prev,
+      [studentId]: !prev[studentId],
+    }));
+  };
 
   const handleExportInstallmentsCSV = () => {
     if (installments.length === 0) return;
@@ -217,14 +287,27 @@ function InstallmentCollectionContent() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [search, activeTab, selectedMonth, selectedBatch, selectedTrade, sortBy]);
 
-  const openPaymentModal = (item: InstallmentItem) => {
+  const openPaymentModal = (item: InstallmentItem, candidateItems?: InstallmentItem[]) => {
     setSelectedItem(item);
     setPaymentAmount(item.remaining_due.toString());
     setPaymentMethod('Cash');
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setPaymentRef('');
     setPaymentNote(`Installment #${item.installment_no} Collection`);
-    setNextDueDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
+
+    // Pick sensible default Next Due Date: upcoming installment after `item` if later than today, else +30 days
+    const unpaidAfter = (candidateItems || [])
+      .filter((i) => i._id !== item._id && i.remaining_due > 0)
+      .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
+    const fallbackNextDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const preferredDateObj =
+      unpaidAfter[0] && new Date(unpaidAfter[0].due_date).getTime() > Date.now()
+        ? new Date(unpaidAfter[0].due_date)
+        : new Date(item.due_date).getTime() > Date.now()
+          ? new Date(item.due_date)
+          : fallbackNextDate;
+    setNextDueDate(preferredDateObj.toISOString().split('T')[0]);
+
     setPayError('');
     setIsPayModalOpen(true);
   };
@@ -275,6 +358,11 @@ function InstallmentCollectionContent() {
         amount: amt,
         studentName: selectedItem.student.name,
         studentNo: selectedItem.student.student_no,
+        remainingDue:
+          typeof data.total_due === 'number'
+            ? data.total_due
+            : Math.max(0, selectedItem.student.total_due - amt),
+        nextDueDate: data.next_due_date || null,
       });
 
       fetchInstallments();
@@ -686,7 +774,9 @@ function InstallmentCollectionContent() {
           <div className="flex items-center gap-2 text-xs ml-auto">
             {stats?.filteredDueAmount !== undefined && (
               <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-100 rounded-md font-semibold whitespace-nowrap">
-                Filtered Due: {formatBDT(stats.filteredDueAmount)} ({installments.length})
+                {activeTab === 'paid'
+                  ? `Filtered Cleared: ${installments.length} vouchers`
+                  : `Total Due: ${formatBDT(stats.filteredDueAmount)} (${groupedStudents.length} candidate${groupedStudents.length === 1 ? '' : 's'})`}
               </span>
             )}
             {(selectedMonth !== 'all' ||
@@ -745,134 +835,304 @@ function InstallmentCollectionContent() {
                 <tr>
                   <th className="px-4 py-3">Candidate</th>
                   <th className="px-4 py-3">Trade &amp; Batch</th>
-                  <th className="px-4 py-3">Due Schedule</th>
-                  <th className="px-4 py-3 text-right">Due Balance</th>
+                  <th className="px-4 py-3">
+                    {activeTab === 'paid' ? 'Cleared Schedule' : 'Next Due Date'}
+                  </th>
+                  <th className="px-4 py-3 text-right">
+                    {activeTab === 'paid' ? 'Amount Paid' : 'Account Balance'}
+                  </th>
                   <th className="px-4 py-3 text-center">Status</th>
                   <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {installments.map((item) => {
-                  const student = item.student;
-                  return (
-                    <tr
-                      key={item._id}
-                      className={`hover:bg-slate-50/80 transition-colors ${
-                        item.isOverdue ? 'bg-rose-50/20' : ''
-                      }`}
-                    >
-                      {/* 1. Candidate Column */}
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
-                            {student.name.charAt(0).toUpperCase()}
-                          </div>
-                          <div className="min-w-0">
-                            <Link
-                              href={`/students/${student._id}`}
-                              className="font-semibold text-slate-900 hover:text-emerald-700 transition-colors block truncate"
-                            >
-                              {student.name}
-                            </Link>
-                            <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 whitespace-nowrap">
-                              <span className="font-mono text-[11px] font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
-                                {student.student_no}
-                              </span>
-                              <span>•</span>
-                              <span className="font-mono">{student.mobile}</span>
+                {activeTab === 'paid'
+                  ? installments.map((item) => {
+                      const student = item.student;
+                      return (
+                        <tr key={item._id} className="hover:bg-slate-50/80 transition-colors">
+                          {/* 1. Candidate */}
+                          <td className="px-4 py-3.5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
+                                {student.name.charAt(0).toUpperCase()}
+                              </div>
+                              <div className="min-w-0">
+                                <Link
+                                  href={`/students/${student._id}`}
+                                  className="font-semibold text-slate-900 hover:text-emerald-700 transition-colors block truncate"
+                                >
+                                  {student.name}
+                                </Link>
+                                <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                                  <span className="font-mono text-[11px] font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                                    {student.student_no}
+                                  </span>
+                                  <span>•</span>
+                                  <span className="font-mono">{student.mobile}</span>
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </td>
+                          </td>
 
-                      {/* 2. Trade & Batch Column */}
-                      <td className="px-4 py-3.5">
-                        <div className="text-xs font-semibold text-slate-800 max-w-[200px] truncate" title={student.trade_name}>
-                          {student.trade_name}
-                        </div>
-                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 whitespace-nowrap">
-                          {student.batch ? (
-                            <span className="font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
-                              {student.batch}
-                            </span>
-                          ) : (
-                            <span className="text-slate-400">No Batch</span>
-                          )}
-                          <span>•</span>
-                          <span>{student.destination_country}</span>
-                        </div>
-                      </td>
-
-                      {/* 3. Due Schedule Column */}
-                      <td className="px-4 py-3.5 whitespace-nowrap">
-                        <div className="flex items-center gap-2">
-                          <span className="font-semibold text-slate-800 text-xs">
-                            {formatDate(item.due_date)}
-                          </span>
-                          <span className="text-[11px] font-mono text-slate-400">
-                            #{item.installment_no}
-                          </span>
-                        </div>
-                        <div className="mt-1">{getDueBadge(item)}</div>
-                      </td>
-
-                      {/* 4. Due Balance Column */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <div
-                          className={`font-bold text-sm font-mono ${
-                            item.remaining_due > 0 ? 'text-rose-700' : 'text-emerald-600'
-                          }`}
-                        >
-                          {item.remaining_due > 0 ? formatBDT(item.remaining_due) : formatBDT(item.amount)}
-                        </div>
-                        <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
-                          {item.remaining_due > 0 ? (
-                            student.total_due > item.remaining_due ? (
-                              <>Total Due: {formatBDT(student.total_due)}</>
-                            ) : (
-                              <>Inst: {formatBDT(item.amount)}</>
-                            )
-                          ) : (
-                            <>Paid in full</>
-                          )}
-                        </div>
-                      </td>
-
-                      {/* 5. Status Column */}
-                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                        {getStatusBadge(item.status)}
-                      </td>
-
-                      {/* 6. Action Column */}
-                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                        <div className="flex items-center justify-end gap-1.5">
-                          {item.remaining_due > 0 ? (
-                            <button
-                              onClick={() => openPaymentModal(item)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors whitespace-nowrap"
-                              title="Collect payment for this installment"
+                          {/* 2. Trade & Batch */}
+                          <td className="px-4 py-3.5">
+                            <div
+                              className="text-xs font-semibold text-slate-800 max-w-[200px] truncate"
+                              title={student.trade_name}
                             >
-                              <CreditCard className="w-3.5 h-3.5" />
-                              <span>Collect</span>
-                            </button>
-                          ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 py-1 px-2.5 bg-emerald-50 rounded-md">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Paid
-                            </span>
-                          )}
+                              {student.trade_name}
+                            </div>
+                            <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 whitespace-nowrap">
+                              {student.batch ? (
+                                <span className="font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                                  {student.batch}
+                                </span>
+                              ) : (
+                                <span className="text-slate-400">No Batch</span>
+                              )}
+                              <span>•</span>
+                              <span>{student.destination_country}</span>
+                            </div>
+                          </td>
 
-                          <Link
-                            href={`/students/${student._id}`}
-                            className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
-                            title="View candidate profile"
+                          {/* 3. Cleared Schedule */}
+                          <td className="px-4 py-3.5 whitespace-nowrap">
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-800 text-xs">
+                                {item.paid_on ? formatDate(item.paid_on) : formatDate(item.due_date)}
+                              </span>
+                              <span className="text-[11px] font-mono text-slate-400">
+                                #{item.installment_no}
+                              </span>
+                            </div>
+                            <div className="mt-1">{getDueBadge(item)}</div>
+                          </td>
+
+                          {/* 4. Amount */}
+                          <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                            <div className="font-bold text-sm font-mono text-emerald-600">
+                              {formatBDT(item.amount)}
+                            </div>
+                            <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                              Paid in full
+                            </div>
+                          </td>
+
+                          {/* 5. Status */}
+                          <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                            {getStatusBadge(item.status)}
+                          </td>
+
+                          {/* 6. Action */}
+                          <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                            <div className="flex items-center justify-end gap-1.5">
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 py-1 px-2.5 bg-emerald-50 rounded-md">
+                                <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                              </span>
+                              <Link
+                                href={`/students/${student._id}`}
+                                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+                                title="View candidate profile"
+                              >
+                                <Eye className="w-4 h-4" />
+                              </Link>
+                            </div>
+                          </td>
+                        </tr>
+                      );
+                    })
+                  : groupedStudents.map((group) => {
+                      const student = group.student;
+                      const nextInst = group.nextInstallment;
+                      const isExpanded = !!expandedStudentIds[student._id];
+                      const totalPackage =
+                        student.total_payable || (student.total_paid || 0) + (student.total_due || 0);
+                      const hasMultipleInstallments = group.items.length > 1;
+
+                      return (
+                        <React.Fragment key={student._id}>
+                          <tr
+                            className={`hover:bg-slate-50/80 transition-colors ${
+                              group.hasOverdue ? 'bg-rose-50/20' : ''
+                            }`}
                           >
-                            <Eye className="w-4 h-4" />
-                          </Link>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
+                            {/* 1. Candidate Column (Single clean row per student) */}
+                            <td className="px-4 py-3.5">
+                              <div className="flex items-center gap-3">
+                                <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
+                                  {student.name.charAt(0).toUpperCase()}
+                                </div>
+                                <div className="min-w-0">
+                                  <Link
+                                    href={`/students/${student._id}`}
+                                    className="font-semibold text-slate-900 hover:text-emerald-700 transition-colors block truncate"
+                                  >
+                                    {student.name}
+                                  </Link>
+                                  <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                                    <span className="font-mono text-[11px] font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
+                                      {student.student_no}
+                                    </span>
+                                    <span>•</span>
+                                    <span className="font-mono">{student.mobile}</span>
+                                  </div>
+                                  {hasMultipleInstallments && (
+                                    <button
+                                      type="button"
+                                      onClick={() => toggleExpandStudent(student._id)}
+                                      className="mt-1.5 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 px-2 py-0.5 rounded-md transition-colors whitespace-nowrap"
+                                    >
+                                      {isExpanded ? (
+                                        <ChevronDown className="w-3 h-3" />
+                                      ) : (
+                                        <ChevronRight className="w-3 h-3" />
+                                      )}
+                                      <span>
+                                        {group.unpaidItems.length || group.items.length} installments breakdown
+                                      </span>
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </td>
+
+                            {/* 2. Trade & Batch Column */}
+                            <td className="px-4 py-3.5">
+                              <div
+                                className="text-xs font-semibold text-slate-800 max-w-[200px] truncate"
+                                title={student.trade_name}
+                              >
+                                {student.trade_name}
+                              </div>
+                              <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 whitespace-nowrap">
+                                {student.batch ? (
+                                  <span className="font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                                    {student.batch}
+                                  </span>
+                                ) : (
+                                  <span className="text-slate-400">No Batch</span>
+                                )}
+                                <span>•</span>
+                                <span>{student.destination_country}</span>
+                              </div>
+                            </td>
+
+                            {/* 3. Next Due Date Column */}
+                            <td className="px-4 py-3.5 whitespace-nowrap">
+                              {student.total_due > 0 && nextInst ? (
+                                <>
+                                  <div className="flex items-center gap-1.5">
+                                    <span className="font-bold text-slate-900 text-xs">
+                                      {formatDate(nextInst.due_date)}
+                                    </span>
+                                    <span className="text-[11px] font-mono text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+                                      Inst #{nextInst.installment_no}: {formatBDT(nextInst.remaining_due)}
+                                    </span>
+                                  </div>
+                                  <div className="mt-1">{getDueBadge(nextInst)}</div>
+                                </>
+                              ) : (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full">
+                                  <CheckCircle2 className="w-3 h-3" />
+                                  All Cleared
+                                </span>
+                              )}
+                            </td>
+
+                            {/* 4. Account Balance Column */}
+                            <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                              <div
+                                className={`font-extrabold text-sm font-mono ${
+                                  student.total_due > 0 ? 'text-rose-700' : 'text-emerald-600'
+                                }`}
+                              >
+                                Due: {formatBDT(student.total_due)}
+                              </div>
+                              <div className="text-[11px] text-slate-500 mt-0.5 font-mono">
+                                Paid {formatBDT(student.total_paid)} / Total {formatBDT(totalPackage)}
+                              </div>
+                              {group.filteredInstallmentDue > 0 &&
+                                group.filteredInstallmentDue !== student.total_due && (
+                                  <div className="text-[10px] text-amber-700 font-semibold mt-0.5 font-mono">
+                                    Matched filter: {formatBDT(group.filteredInstallmentDue)}
+                                  </div>
+                                )}
+                            </td>
+
+                            {/* 5. Status Column */}
+                            <td className="px-4 py-3.5 text-center whitespace-nowrap">
+                              {getStatusBadge(group.overallStatus)}
+                            </td>
+
+                            {/* 6. Action Column */}
+                            <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                              <div className="flex items-center justify-end gap-1.5">
+                                {student.total_due > 0 && nextInst ? (
+                                  <button
+                                    onClick={() => openPaymentModal(nextInst, group.items)}
+                                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors whitespace-nowrap"
+                                    title="Collect installment, early, partial, or full payment"
+                                  >
+                                    <CreditCard className="w-3.5 h-3.5" />
+                                    <span>Collect</span>
+                                  </button>
+                                ) : (
+                                  <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 py-1 px-2.5 bg-emerald-50 rounded-md">
+                                    <CheckCircle2 className="w-3.5 h-3.5" /> Paid
+                                  </span>
+                                )}
+
+                                <Link
+                                  href={`/students/${student._id}`}
+                                  className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
+                                  title="View candidate profile"
+                                >
+                                  <Eye className="w-4 h-4" />
+                                </Link>
+                              </div>
+                            </td>
+                          </tr>
+
+                          {/* Expandable Installment Schedule Breakdown */}
+                          {isExpanded &&
+                            group.items.map((sub) => (
+                              <tr key={sub._id} className="bg-slate-50/70 hover:bg-slate-100/60 text-xs">
+                                <td className="pl-14 pr-4 py-2.5 text-slate-600 font-medium whitespace-nowrap">
+                                  <span className="font-mono text-slate-400 mr-1.5">↳</span>
+                                  Installment #{sub.installment_no}
+                                </td>
+                                <td className="px-4 py-2.5 text-[11px] text-slate-400 whitespace-nowrap">
+                                  Scheduled amount: {formatBDT(sub.amount)} • Paid: {formatBDT(sub.paid_amount)}
+                                </td>
+                                <td className="px-4 py-2.5 whitespace-nowrap">
+                                  <span className="font-medium text-slate-700 mr-2">
+                                    {formatDate(sub.due_date)}
+                                  </span>
+                                  {getDueBadge(sub)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-semibold text-slate-700 whitespace-nowrap">
+                                  {sub.remaining_due > 0 ? formatBDT(sub.remaining_due) : formatBDT(sub.amount)}
+                                </td>
+                                <td className="px-4 py-2.5 text-center whitespace-nowrap">
+                                  {getStatusBadge(sub.status)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                                  {sub.remaining_due > 0 && (
+                                    <button
+                                      type="button"
+                                      onClick={() => openPaymentModal(sub, group.items)}
+                                      className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-md transition-colors"
+                                    >
+                                      Pay #{sub.installment_no}
+                                    </button>
+                                  )}
+                                </td>
+                              </tr>
+                            ))}
+                        </React.Fragment>
+                      );
+                    })}
               </tbody>
             </table>
           </div>
@@ -890,8 +1150,8 @@ function InstallmentCollectionContent() {
         {selectedItem && (
           <form onSubmit={handlePaymentSubmit} className="space-y-4">
             {/* Student & Installment Summary Banner */}
-            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200">
-              <div className="flex items-start justify-between">
+            <div className="p-3.5 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+              <div className="flex flex-wrap items-start justify-between gap-2">
                 <div>
                   <h4 className="font-bold text-slate-900 text-base">
                     {selectedItem.student.name}
@@ -904,15 +1164,45 @@ function InstallmentCollectionContent() {
                   </p>
                 </div>
                 <div className="text-right">
-                  <span className="text-xs font-semibold text-slate-500 uppercase">
-                    Inst. #{selectedItem.installment_no} Due
+                  <span className="text-[11px] font-semibold text-slate-500 uppercase">
+                    Scheduled Next Due
                   </span>
-                  <p className="text-lg font-extrabold text-rose-700">
-                    {formatBDT(selectedItem.remaining_due)}
+                  <p className="text-xs font-bold text-slate-800 mt-0.5">
+                    {formatDate(selectedItem.due_date)} (Inst #{selectedItem.installment_no})
                   </p>
-                  <p className="text-xs text-slate-500 mt-0.5">
-                    Student Total Due: {formatBDT(selectedItem.student.total_due)}
+                  <p className="text-[11px] text-emerald-700 font-medium mt-0.5">
+                    Early / partial payment accepted anytime
                   </p>
+                </div>
+              </div>
+
+              <div className="grid grid-cols-3 gap-2 pt-2.5 border-t border-slate-200/80 text-center">
+                <div className="bg-white rounded-lg p-2 border border-slate-200/70">
+                  <span className="block text-[10px] font-semibold text-slate-400 uppercase">
+                    Total Package
+                  </span>
+                  <span className="font-bold text-xs text-slate-900 font-mono">
+                    {formatBDT(
+                      selectedItem.student.total_payable ||
+                        (selectedItem.student.total_paid || 0) + (selectedItem.student.total_due || 0)
+                    )}
+                  </span>
+                </div>
+                <div className="bg-white rounded-lg p-2 border border-slate-200/70">
+                  <span className="block text-[10px] font-semibold text-emerald-600 uppercase">
+                    Paid So Far
+                  </span>
+                  <span className="font-bold text-xs text-emerald-700 font-mono">
+                    {formatBDT(selectedItem.student.total_paid || 0)}
+                  </span>
+                </div>
+                <div className="bg-rose-50/60 rounded-lg p-2 border border-rose-200/70">
+                  <span className="block text-[10px] font-semibold text-rose-600 uppercase">
+                    Remaining Due
+                  </span>
+                  <span className="font-extrabold text-xs text-rose-700 font-mono">
+                    {formatBDT(selectedItem.student.total_due)}
+                  </span>
                 </div>
               </div>
             </div>
@@ -1097,12 +1387,38 @@ function InstallmentCollectionContent() {
                 From candidate <strong className="text-slate-900">{receiptSuccess.studentName}</strong> (
                 <span className="font-mono text-slate-700">{receiptSuccess.studentNo}</span>)
               </p>
+            <div className="space-y-2">
               <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 bg-slate-100 border border-slate-200 rounded-lg">
                 <span className="text-xs text-slate-500 font-semibold">Receipt Number:</span>
                 <span className="font-mono font-bold text-slate-900 text-sm">
                   {receiptSuccess.receiptNo}
                 </span>
               </div>
+
+              {typeof receiptSuccess.remainingDue === 'number' && (
+                <div className="text-xs text-slate-600 bg-slate-50 border border-slate-200/80 rounded-lg py-2 px-3 max-w-xs mx-auto">
+                  {receiptSuccess.remainingDue > 0 ? (
+                    <>
+                      <span>
+                        Remaining Due:{' '}
+                        <strong className="text-rose-700 font-mono">
+                          {formatBDT(receiptSuccess.remainingDue)}
+                        </strong>
+                      </span>
+                      {receiptSuccess.nextDueDate && (
+                        <span className="block text-amber-800 font-semibold mt-0.5">
+                          Next Due Date: {formatDate(receiptSuccess.nextDueDate)}
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="text-emerald-700 font-semibold">
+                      Full Balance Cleared!
+                    </span>
+                  )}
+                </div>
+              )}
+            </div>
             </div>
 
             <p className="text-xs text-slate-500">

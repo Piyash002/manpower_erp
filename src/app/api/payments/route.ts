@@ -59,9 +59,9 @@ export async function POST(req: NextRequest) {
     student.total_due = Math.max(0, student.fee_snapshot.total_payable - student.total_paid);
     await student.save();
 
-    // Allocate payment across installments (prioritize targeted installment_id if provided)
+    // Allocate payment across installments in chronological due-date order (prioritize targeted installment_id if provided)
     let remainingToAllocate = paymentAmount;
-    const allInstallments = await Installment.find({ student_id }).sort({ installment_no: 1 });
+    const allInstallments = await Installment.find({ student_id }).sort({ due_date: 1, installment_no: 1 });
 
     const orderedInstallments = installment_id
       ? [
@@ -100,7 +100,7 @@ export async function POST(req: NextRequest) {
       const nextPendingInst = await Installment.findOne({
         student_id,
         status: { $in: ['Pending', 'Partial', 'Overdue'] },
-      }).sort({ installment_no: 1 });
+      }).sort({ due_date: 1, installment_no: 1 });
 
       if (nextPendingInst) {
         nextPendingInst.due_date = new Date(next_due_date);
@@ -118,6 +118,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    let scheduledNextDueDate: Date | null = null;
+    if (student.total_due > 0) {
+      const earliestRemaining = await Installment.findOne({
+        student_id,
+        status: { $in: ['Pending', 'Partial', 'Overdue'] },
+      }).sort({ due_date: 1, installment_no: 1 });
+      scheduledNextDueDate = earliestRemaining?.due_date || null;
+    }
+
     await createAuditLog({
       user: auth.user,
       action: 'PAYMENT_RECORDED',
@@ -128,7 +137,7 @@ export async function POST(req: NextRequest) {
         student_no: student.student_no,
         amount: paymentAmount,
         method,
-        next_due_date: next_due_date ? new Date(next_due_date) : null,
+        next_due_date: scheduledNextDueDate || (next_due_date ? new Date(next_due_date) : null),
       },
     });
 
@@ -137,6 +146,9 @@ export async function POST(req: NextRequest) {
       message: `Payment of ৳${paymentAmount} recorded with Receipt #${receiptNo}`,
       payment,
       receipt_no: receiptNo,
+      total_due: student.total_due,
+      total_paid: student.total_paid,
+      next_due_date: scheduledNextDueDate,
     });
   } catch (error: any) {
     return NextResponse.json(

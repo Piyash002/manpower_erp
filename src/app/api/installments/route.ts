@@ -176,6 +176,9 @@ export async function GET(req: NextRequest) {
             trade_name: inst.student_id.trade_name,
             batch: inst.student_id.batch || '',
             destination_country: inst.student_id.destination_country,
+            total_payable:
+              inst.student_id.fee_snapshot?.total_payable ||
+              (inst.student_id.total_paid || 0) + (inst.student_id.total_due || 0),
             total_paid: inst.student_id.total_paid,
             total_due: inst.student_id.total_due,
             status: inst.student_id.status,
