@@ -26,8 +26,7 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search');
 
     const now = new Date();
-    const todayEnd = new Date();
-    todayEnd.setHours(23, 59, 59, 999);
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
     const sixMonthsFromNow = new Date();
     sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
 
@@ -111,17 +110,12 @@ export async function GET(req: NextRequest) {
         installmentsByStudent[sid] = [];
       }
       installmentsByStudent[sid].push(inst);
-
-      const isOverdue =
-        new Date(inst.due_date) < todayEnd && (inst.amount - (inst.paid_amount || 0)) > 0;
-      if (isOverdue) {
-        overdueInstallmentsCount++;
-      }
     });
 
     // Build enhanced candidates list with installment summary
     const candidateDuesSummary = filteredStudents.map((st) => {
       const studentTotalFee = st.fee_snapshot?.total_payable || ((st.total_paid || 0) + (st.total_due || 0));
+      const studentHasDue = (st.total_due || 0) > 0;
       totalPayable += studentTotalFee;
       totalCollected += st.total_paid || 0;
       totalDue += st.total_due || 0;
@@ -135,13 +129,25 @@ export async function GET(req: NextRequest) {
       }
 
       const stInstallments = installmentsByStudent[st._id.toString()] || [];
-      const pendingInst = stInstallments.find(
-        (i) => (i.amount - (i.paid_amount || 0)) > 0
-      );
+      const pendingInst = studentHasDue
+        ? stInstallments.find(
+            (i) => i.status !== 'Paid' && (i.amount - (i.paid_amount || 0)) > 0
+          )
+        : null;
 
-      const hasOverdue = stInstallments.some(
-        (i) => new Date(i.due_date) < todayEnd && (i.amount - (i.paid_amount || 0)) > 0
-      );
+      let hasOverdue = false;
+      if (studentHasDue) {
+        for (const inst of stInstallments) {
+          if (
+            inst.status !== 'Paid' &&
+            new Date(inst.due_date) < startOfToday &&
+            (inst.amount - (inst.paid_amount || 0)) > 0
+          ) {
+            hasOverdue = true;
+            overdueInstallmentsCount++;
+          }
+        }
+      }
 
       return {
         _id: st._id,
@@ -165,7 +171,7 @@ export async function GET(req: NextRequest) {
               amount: pendingInst.amount,
               paid_amount: pendingInst.paid_amount,
               remaining: pendingInst.amount - (pendingInst.paid_amount || 0),
-              isOverdue: new Date(pendingInst.due_date) < todayEnd,
+              isOverdue: new Date(pendingInst.due_date) < startOfToday,
             }
           : null,
       };

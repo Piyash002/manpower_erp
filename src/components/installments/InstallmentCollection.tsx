@@ -189,7 +189,9 @@ function InstallmentCollectionContent() {
       if (selectedTrade !== 'all') params.append('trade', selectedTrade);
       if (sortBy) params.append('sort', sortBy);
 
-      const res = await fetch(`/api/installments?${params.toString()}`);
+      const res = await fetch(`/api/installments?${params.toString()}`, {
+        cache: 'no-store',
+      });
       const data = await res.json();
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'Failed to load installment data');
@@ -252,6 +254,7 @@ function InstallmentCollectionContent() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           student_id: selectedItem.student._id,
+          installment_id: selectedItem._id,
           amount: amt,
           method: paymentMethod,
           reference: paymentRef,
@@ -546,7 +549,10 @@ function InstallmentCollectionContent() {
               Unpaid Dues
             </button>
             <button
-              onClick={() => setActiveTab('due_this_month')}
+              onClick={() => {
+                setActiveTab('due_this_month');
+                setSelectedMonth('all');
+              }}
               className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md transition-all ${
                 activeTab === 'due_this_month'
                   ? 'bg-amber-600 text-white font-semibold shadow-xs'
@@ -608,7 +614,13 @@ function InstallmentCollectionContent() {
             {/* Due Month Filter */}
             <select
               value={selectedMonth}
-              onChange={(e) => setSelectedMonth(e.target.value)}
+              onChange={(e) => {
+                const val = e.target.value;
+                setSelectedMonth(val);
+                if (val !== 'all' && activeTab === 'due_this_month') {
+                  setActiveTab('unpaid');
+                }
+              }}
               className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
               title="Filter Dues by Month"
             >

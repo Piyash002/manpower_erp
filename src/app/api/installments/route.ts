@@ -23,9 +23,52 @@ export async function GET(req: NextRequest) {
     const sortBy = searchParams.get('sort')?.trim() || 'due_asc';
 
     const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
+
+    // 0. Reconcile any student who has total_due > 0 but 0 unpaid installments (legacy/orphan fix)
+    if (!search) {
+      const studentsWithDue = await Student.find({ total_due: { $gt: 0 } })
+        .select('_id total_due admission_date')
+        .lean();
+      if (studentsWithDue.length > 0) {
+        const dueStudentIds = studentsWithDue.map((s: any) => s._id);
+        const existingInsts = await Installment.find({
+          student_id: { $in: dueStudentIds },
+        })
+          .select('student_id installment_no amount paid_amount status')
+          .lean();
+
+        const instByStudent = new Map<string, any[]>();
+        for (const inst of existingInsts) {
+          const sid = inst.student_id.toString();
+          if (!instByStudent.has(sid)) instByStudent.set(sid, []);
+          instByStudent.get(sid)!.push(inst);
+        }
+
+        for (const st of studentsWithDue as any[]) {
+          const list = instByStudent.get(st._id.toString()) || [];
+          const hasUnpaid = list.some(
+            (i) => i.status !== 'Paid' && (i.amount || 0) - (i.paid_amount || 0) > 0
+          );
+          if (!hasUnpaid) {
+            const maxNo = list.reduce((m, i) => Math.max(m, i.installment_no || 0), 0);
+            const dueDt = st.admission_date ? new Date(st.admission_date) : new Date();
+            dueDt.setDate(dueDt.getDate() + 30);
+            await Installment.create({
+              student_id: st._id,
+              installment_no: maxNo + 1,
+              due_date: dueDt,
+              amount: st.total_due,
+              paid_amount: 0,
+              status: 'Pending',
+            });
+          }
+        }
+      }
+    }
 
     // 1. If search is provided, find matching student IDs first
     let studentIdFilter: any = null;
@@ -78,9 +121,11 @@ export async function GET(req: NextRequest) {
       .filter((inst: any) => inst.student_id)
       .map((inst: any) => {
         const dueDate = new Date(inst.due_date);
-        const remainingDue = Math.max(0, (inst.amount || 0) - (inst.paid_amount || 0));
-        const isPaid = inst.status === 'Paid' || remainingDue === 0;
-        const isOverdue = !isPaid && dueDate < now;
+        const studentTotalDue = Math.max(0, inst.student_id.total_due ?? 0);
+        const rawRemaining = Math.max(0, (inst.amount || 0) - (inst.paid_amount || 0));
+        const isPaid = inst.status === 'Paid' || rawRemaining === 0 || studentTotalDue <= 0;
+        const remainingDue = isPaid ? 0 : rawRemaining;
+        const isOverdue = !isPaid && dueDate < startOfToday;
         const isDueThisMonth = !isPaid && dueDate >= startOfMonth && dueDate <= endOfMonth;
 
         // Collect filter facets
@@ -164,7 +209,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    if (timeframe !== 'all') {
+    if (timeframe !== 'all' && monthFilter === 'all') {
       if (timeframe === 'overdue') {
         filteredList = filteredList.filter((item) => item.isOverdue);
       } else if (timeframe === 'due_this_month') {
@@ -200,27 +245,47 @@ export async function GET(req: NextRequest) {
       filteredList = filteredList.filter((item) => item.student.trade_name === tradeFilter);
     }
 
-    // 5. Sort filtered list
+    // 5. Sort filtered list with deterministic tie-breakers
     filteredList.sort((a, b) => {
+      const timeA = new Date(a.due_date).getTime();
+      const timeB = new Date(b.due_date).getTime();
+
       if (sortBy === 'due_desc') {
-        return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
+        return (
+          timeB - timeA ||
+          b.installment_no - a.installment_no ||
+          a.student.student_no.localeCompare(b.student.student_no)
+        );
       }
       if (sortBy === 'amount_desc') {
-        return b.remaining_due - a.remaining_due;
+        return (
+          b.remaining_due - a.remaining_due ||
+          b.amount - a.amount ||
+          timeA - timeB ||
+          a.student.student_no.localeCompare(b.student.student_no)
+        );
       }
       if (sortBy === 'total_due_desc') {
-        return b.student.total_due - a.student.total_due;
+        return (
+          b.student.total_due - a.student.total_due ||
+          b.remaining_due - a.remaining_due ||
+          timeA - timeB
+        );
       }
       if (sortBy === 'batch_asc') {
-        const cmp = (a.student.batch || '').localeCompare(b.student.batch || '');
-        return cmp !== 0 ? cmp : new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        const cmp = (a.student.batch || 'ZZZ').localeCompare(b.student.batch || 'ZZZ');
+        return cmp !== 0 ? cmp : timeA - timeB || a.installment_no - b.installment_no;
       }
       if (sortBy === 'trade_asc') {
-        const cmp = (a.student.trade_name || '').localeCompare(b.student.trade_name || '');
-        return cmp !== 0 ? cmp : new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+        const cmp = (a.student.trade_name || 'ZZZ').localeCompare(b.student.trade_name || 'ZZZ');
+        return cmp !== 0 ? cmp : timeA - timeB || a.installment_no - b.installment_no;
       }
       // Default: 'due_asc' (nearest due date first)
-      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      return (
+        timeA - timeB ||
+        a.installment_no - b.installment_no ||
+        a.student.student_no.localeCompare(b.student.student_no)
+      );
     });
 
     const filteredDueAmount = filteredList.reduce(

@@ -12,7 +12,8 @@ export async function POST(req: NextRequest) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const { student_id, amount, method, reference, payment_date, note, next_due_date } = await req.json();
+    const { student_id, amount, method, reference, payment_date, note, next_due_date, installment_id } =
+      await req.json();
 
     const paymentAmount = Math.round(Number(amount));
     if (!student_id || !paymentAmount || paymentAmount <= 0 || !method) {
@@ -58,17 +59,24 @@ export async function POST(req: NextRequest) {
     student.total_due = Math.max(0, student.fee_snapshot.total_payable - student.total_paid);
     await student.save();
 
-    // Allocate payment across installments
+    // Allocate payment across installments (prioritize targeted installment_id if provided)
     let remainingToAllocate = paymentAmount;
-    const installments = await Installment.find({ student_id }).sort({ installment_no: 1 });
+    const allInstallments = await Installment.find({ student_id }).sort({ installment_no: 1 });
 
-    for (const inst of installments) {
+    const orderedInstallments = installment_id
+      ? [
+          ...allInstallments.filter((i) => i._id.toString() === String(installment_id)),
+          ...allInstallments.filter((i) => i._id.toString() !== String(installment_id)),
+        ]
+      : allInstallments;
+
+    for (const inst of orderedInstallments) {
       if (remainingToAllocate <= 0) break;
 
-      const dueOnInst = inst.amount - inst.paid_amount;
+      const dueOnInst = (inst.amount || 0) - (inst.paid_amount || 0);
       if (dueOnInst > 0) {
         const allocate = Math.min(remainingToAllocate, dueOnInst);
-        inst.paid_amount += allocate;
+        inst.paid_amount = (inst.paid_amount || 0) + allocate;
         remainingToAllocate -= allocate;
 
         if (inst.paid_amount >= inst.amount) {
@@ -81,11 +89,17 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Schedule / update next due date if specified and student still has outstanding dues
-    if (next_due_date && student.total_due > 0) {
+    // Safety invariant: If student owes nothing (total_due <= 0), ensure all installments are Paid
+    if (student.total_due <= 0) {
+      await Installment.updateMany(
+        { student_id, status: { $ne: 'Paid' } },
+        { $set: { status: 'Paid', paid_on: new Date() } }
+      );
+    } else if (next_due_date) {
+      // Schedule / update next due date if specified and student still has outstanding dues
       const nextPendingInst = await Installment.findOne({
         student_id,
-        status: { $in: ['Pending', 'Partial'] },
+        status: { $in: ['Pending', 'Partial', 'Overdue'] },
       }).sort({ installment_no: 1 });
 
       if (nextPendingInst) {

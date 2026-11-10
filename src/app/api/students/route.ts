@@ -67,13 +67,14 @@ export async function GET(req: NextRequest) {
 
     // Check overdue installments & fetch assessments for returned students
     const studentIds = rawStudents.map((s) => s._id);
-    const today = new Date();
-    today.setHours(23, 59, 59, 999);
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
 
     const [overdueInstallments, assessments] = await Promise.all([
       Installment.find({
         student_id: { $in: studentIds },
-        due_date: { $lt: today },
+        due_date: { $lt: startOfToday },
+        status: { $ne: 'Paid' },
         $expr: { $lt: ['$paid_amount', '$amount'] },
       }).select('student_id'),
       BatchAssessment.find({
@@ -95,7 +96,7 @@ export async function GET(req: NextRequest) {
 
     const students = rawStudents.map((s: any) => ({
       ...s,
-      is_overdue: overdueStudentIdSet.has(s._id.toString()),
+      is_overdue: (s.total_due || 0) > 0 && overdueStudentIdSet.has(s._id.toString()),
       assessment: assessmentMap.get(s._id.toString()) || null,
     }));
 
@@ -363,10 +364,10 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 7. Generate Installments (if remainingDue > 0)
-    const installCount = parseInt(installment_count || '1', 10);
+    // 7. Generate Installments (always create at least 1 installment if remainingDue > 0)
+    const installCount = Math.max(1, parseInt(installment_count || '1', 10) || 1);
     let installmentRecords: any[] = [];
-    if (remainingDue > 0 && installCount > 0) {
+    if (remainingDue > 0) {
       const calculated = calculateInstallments(
         remainingDue,
         installCount,
