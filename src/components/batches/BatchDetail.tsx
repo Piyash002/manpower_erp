@@ -283,14 +283,30 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
   const getStatusBadge = (status: string) => {
     switch (status) {
       case 'In Training':
-        return <Badge variant="info">In Training</Badge>;
+        return (
+          <Badge variant="info" className="whitespace-nowrap">
+            In Training
+          </Badge>
+        );
       case 'Completed':
-        return <Badge variant="success">Completed</Badge>;
+        return (
+          <Badge variant="success" className="whitespace-nowrap">
+            Completed
+          </Badge>
+        );
       case 'Upcoming':
-        return <Badge variant="warning">Upcoming</Badge>;
+        return (
+          <Badge variant="warning" className="whitespace-nowrap">
+            Upcoming
+          </Badge>
+        );
       case 'Archived':
       default:
-        return <Badge variant="gray">Archived</Badge>;
+        return (
+          <Badge variant="gray" className="whitespace-nowrap">
+            Archived
+          </Badge>
+        );
     }
   };
 
@@ -298,24 +314,24 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
     switch (status) {
       case 'Passed':
         return (
-          <span className="inline-flex items-center gap-1 text-xs font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-300">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-emerald-800 bg-emerald-100 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
             Passed
           </span>
         );
       case 'Failed':
         return (
-          <span className="inline-flex items-center gap-1 text-xs font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded-full border border-rose-300">
-            <AlertCircle className="w-3.5 h-3.5 text-rose-600" />
+          <span className="inline-flex items-center gap-1 text-xs font-semibold text-rose-800 bg-rose-100 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+            <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
             Failed
           </span>
         );
       case 'Pending':
       default:
         return (
-          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
-            <Clock className="w-3 h-3 text-slate-400" />
-            Pending Exam
+          <span className="inline-flex items-center gap-1 text-xs font-medium text-slate-600 bg-slate-100 px-2.5 py-0.5 rounded-full whitespace-nowrap">
+            <Clock className="w-3 h-3 text-slate-400 shrink-0" />
+            Pending
           </span>
         );
     }
@@ -349,46 +365,52 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
   return (
     <div className="space-y-6">
       {/* Top Navigation & Title */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-slate-200">
-        <div className="flex items-center gap-3">
+      <div className="flex flex-col xl:flex-row xl:items-center justify-between gap-4 pb-4 border-b border-slate-200">
+        <div className="flex items-start gap-3 min-w-0">
           <Link
             href="/batches"
-            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors"
+            className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200 transition-colors shrink-0 mt-0.5"
           >
             <ArrowLeft className="w-4 h-4" />
           </Link>
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-bold text-slate-900 tracking-tight">{batch.name}</h1>
-              <span className="font-mono bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded text-xs border border-blue-200">
+          <div className="min-w-0">
+            <h1 className="text-xl sm:text-2xl font-bold text-slate-900 tracking-tight leading-snug">
+              {batch.name}
+            </h1>
+            <div className="flex flex-wrap items-center gap-2 mt-1.5 text-xs text-slate-500">
+              <span className="font-mono bg-blue-50 text-blue-700 font-bold px-2 py-0.5 rounded border border-blue-200 whitespace-nowrap">
                 {batch.batch_code}
               </span>
               {getStatusBadge(batch.status)}
+              <span className="text-slate-300 hidden sm:inline">•</span>
+              <span className="font-medium text-slate-700">{batch.trade_name}</span>
+              {batch.instructor && (
+                <>
+                  <span className="text-slate-300">•</span>
+                  <span>Trainer: {batch.instructor}</span>
+                </>
+              )}
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Curriculum: <strong className="text-slate-800">{batch.trade_name}</strong>
-              {batch.instructor && <span> • Trainer: {batch.instructor}</span>}
-            </p>
           </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <a
             href={`/api/reports/exam-results?batch_id=${batchId}&format=csv`}
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg transition-colors whitespace-nowrap"
             title="Download full batch results as CSV"
           >
-            <Download className="w-3.5 h-3.5" />
+            <Download className="w-3.5 h-3.5 shrink-0" />
             <span>Result CSV</span>
           </a>
 
           <Link
             href={`/batches/${batchId}/result`}
             target="_blank"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-xs transition-colors"
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg transition-colors whitespace-nowrap"
             title="Open printable full batch result sheet"
           >
-            <Printer className="w-3.5 h-3.5" />
+            <Printer className="w-3.5 h-3.5 shrink-0" />
             <span>Print Result</span>
           </Link>
 
@@ -396,115 +418,102 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
             <>
               <button
                 onClick={() => setIsEnrollModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-300 rounded-lg transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors whitespace-nowrap"
               >
-                <UserPlus className="w-4 h-4" />
-                Enroll Candidates
+                <UserPlus className="w-3.5 h-3.5 shrink-0" />
+                <span>Enroll</span>
               </button>
               <button
                 onClick={() => setIsEditModalOpen(true)}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs transition-colors whitespace-nowrap"
               >
-                <Edit className="w-3.5 h-3.5 text-slate-500" />
-                Edit Batch
+                <Edit className="w-3.5 h-3.5 text-slate-500 shrink-0" />
+                <span>Edit</span>
               </button>
             </>
           )}
         </div>
       </div>
 
-      {/* Batch Overview Card & KPI Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
+      {/* Balanced 4-Column Responsive KPI Cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Dates & Schedule */}
-        <div className="md:col-span-2 p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-2.5">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-400">
-            Training Schedule & Exam
+        <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs space-y-2">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+            Schedule &amp; Exam
           </span>
-          <div className="flex items-center justify-between text-xs text-slate-700 pt-1">
-            <span className="flex items-center gap-1.5 text-slate-500">
-              <Calendar className="w-3.5 h-3.5" /> Start Date:
-            </span>
-            <span className="font-semibold">{formatDate(batch.start_date)}</span>
-          </div>
           <div className="flex items-center justify-between text-xs text-slate-700">
-            <span className="flex items-center gap-1.5 text-slate-500">
-              <Calendar className="w-3.5 h-3.5" /> End Date:
+            <span className="text-slate-500">Duration:</span>
+            <span className="font-semibold whitespace-nowrap">
+              {formatDate(batch.start_date)} – {formatDate(batch.end_date)}
             </span>
-            <span className="font-semibold">{formatDate(batch.end_date)}</span>
           </div>
-          <div className="flex items-center justify-between text-xs text-slate-700 pt-1 border-t border-slate-100">
-            <span className="flex items-center gap-1.5 text-amber-700 font-semibold">
-              <Clock className="w-3.5 h-3.5 text-amber-600" /> Final Exam Date:
-            </span>
-            <span className="font-bold text-amber-800">
-              {batch.exam_date ? formatDate(batch.exam_date) : 'Pending Schedule'}
+          <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-100">
+            <span className="text-amber-700 font-semibold">Exam Date:</span>
+            <span className="font-bold text-amber-800 whitespace-nowrap">
+              {batch.exam_date ? formatDate(batch.exam_date) : 'Pending'}
             </span>
           </div>
         </div>
 
         {/* Total Trainees */}
-        <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-bold uppercase tracking-wider text-slate-500">
+        <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs flex flex-col justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
             Enrolled Trainees
           </span>
           <p className="text-2xl font-black text-slate-900 mt-1">
             {stats?.totalEnrolled || 0}
             <span className="text-xs font-normal text-slate-400 ml-1">/ {batch.capacity}</span>
           </p>
-          <p className="text-[11px] text-slate-400 mt-1">Classroom candidates</p>
         </div>
 
         {/* Passed & Failed */}
-        <div className="p-4 bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs">
-          <span className="text-xs font-bold uppercase tracking-wider text-emerald-800">
+        <div className="p-4 bg-white rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs flex flex-col justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-800">
             Exam Results
           </span>
-          <div className="flex items-baseline gap-2 mt-1">
+          <div className="flex items-baseline gap-2 mt-1 flex-wrap">
             <span className="text-2xl font-black text-emerald-700">{stats?.passed || 0}</span>
-            <span className="text-xs font-bold text-emerald-600">Passed</span>
+            <span className="text-xs font-bold text-emerald-600">Pass</span>
             {stats?.failed > 0 && (
               <>
-                <span className="text-slate-300">|</span>
+                <span className="text-slate-300">•</span>
                 <span className="text-lg font-bold text-rose-700">{stats?.failed}</span>
-                <span className="text-xs text-rose-600">Failed</span>
+                <span className="text-xs font-semibold text-rose-600">Fail</span>
               </>
             )}
+            <span className="text-xs text-slate-500 ml-auto">{stats?.pending || 0} pending</span>
           </div>
-          <p className="text-[11px] text-emerald-700 mt-1">
-            {stats?.pending || 0} pending assessment
-          </p>
         </div>
 
         {/* Certificates Issued */}
-        <div className="p-4 bg-white rounded-xl border border-blue-200 bg-blue-50/20 shadow-xs">
-          <span className="text-xs font-bold uppercase tracking-wider text-blue-800">
+        <div className="p-4 bg-white rounded-xl border border-blue-200 bg-blue-50/20 shadow-xs flex flex-col justify-between">
+          <span className="text-[11px] font-bold uppercase tracking-wider text-blue-800">
             Certificates Issued
           </span>
           <p className="text-2xl font-black text-blue-700 mt-1">
             {stats?.certificatesIssued || 0}
+            <span className="text-xs font-normal text-blue-600 ml-1.5">issued</span>
           </p>
-          <p className="text-[11px] text-blue-600 mt-1">Verified certificates uploaded</p>
         </div>
       </div>
 
       {/* Trainees & Examination Assessment Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-        <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div className="p-4 bg-slate-50/70 border-b border-slate-200 flex items-center justify-between gap-3">
           <div>
-            <h3 className="font-bold text-slate-900 text-sm">
-              Trainees Assessment & Examination Ledger
-            </h3>
+            <h3 className="font-bold text-slate-900 text-sm">Exam Results &amp; Certificates</h3>
             <p className="text-xs text-slate-500">
-              Grade theory & practical test scores, set Pass/Fail result status, and upload training certificates.
+              Grade scores, set Pass/Fail status, and upload certificates.
             </p>
           </div>
 
           <button
             onClick={loadBatchData}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs self-start sm:self-auto"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium text-slate-600 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs whitespace-nowrap shrink-0"
           >
             <RefreshCw className="w-3.5 h-3.5 text-slate-500" />
-            Refresh
+            <span>Refresh</span>
           </button>
         </div>
 
@@ -513,29 +522,29 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
             <Users className="w-10 h-10 text-slate-400 mx-auto mb-2" />
             <p className="font-bold text-slate-800">No candidates enrolled in this batch yet</p>
             <p className="text-xs text-slate-400 mt-1">
-              Click &quot;Enroll Candidates&quot; above to add registered {batch.trade_name} students into this batch.
+              Click &quot;Enroll&quot; above to add {batch.trade_name} students into this batch.
             </p>
             {canEdit && (
               <button
                 onClick={() => setIsEnrollModalOpen(true)}
                 className="inline-flex items-center gap-2 mt-4 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm"
               >
-                <UserPlus className="w-4 h-4" /> Enroll Candidates Now
+                <UserPlus className="w-4 h-4" /> Enroll Candidates
               </button>
             )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-3.5">Candidate / Student</th>
-                  <th className="px-4 py-3.5">Theory Score</th>
-                  <th className="px-4 py-3.5">Practical Score</th>
-                  <th className="px-4 py-3.5 text-center">Total Score</th>
-                  <th className="px-4 py-3.5 text-center">Result Status</th>
-                  <th className="px-4 py-3.5">Certificate</th>
-                  <th className="px-4 py-3.5 text-right">Actions</th>
+                  <th className="px-4 py-3 whitespace-nowrap">Candidate</th>
+                  <th className="px-4 py-3 whitespace-nowrap text-center">Theory</th>
+                  <th className="px-4 py-3 whitespace-nowrap text-center">Practical</th>
+                  <th className="px-4 py-3 whitespace-nowrap text-center">Total</th>
+                  <th className="px-4 py-3 whitespace-nowrap text-center">Result</th>
+                  <th className="px-4 py-3 whitespace-nowrap">Certificate</th>
+                  <th className="px-4 py-3 whitespace-nowrap text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -545,100 +554,93 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
                   return (
                     <tr key={t._id} className="hover:bg-slate-50/80 transition-colors">
                       {/* Candidate Column */}
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-700">
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center font-bold text-xs text-slate-700 shrink-0">
                             {s.name.charAt(0).toUpperCase()}
                           </div>
-                          <div>
+                          <div className="min-w-0">
                             <Link
                               href={`/students/${s._id}`}
-                              className="font-bold text-slate-900 hover:text-blue-600 transition-colors"
+                              className="font-semibold text-slate-900 hover:text-blue-600 transition-colors block truncate max-w-[200px]"
                             >
                               {s.name}
                             </Link>
-                            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                              <span className="font-mono bg-slate-100 px-1 py-0.2 rounded text-[11px] text-slate-700">
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                              <span className="font-mono bg-slate-100 px-1.5 py-0.5 rounded text-[11px] text-slate-700">
                                 {s.student_no}
                               </span>
                               <span>•</span>
-                              <span>{s.mobile}</span>
+                              <span className="font-mono">{s.mobile}</span>
                             </div>
                           </div>
                         </div>
                       </td>
 
                       {/* Theory Score */}
-                      <td className="px-4 py-3.5 text-xs font-medium text-slate-700">
+                      <td className="px-4 py-3 text-center text-xs font-medium text-slate-700 whitespace-nowrap">
                         {t.theory_score !== null && t.theory_score !== undefined ? (
-                          <span className="font-bold">{t.theory_score} / 100</span>
+                          <span className="font-mono font-bold">{t.theory_score}/100</span>
                         ) : (
-                          <span className="text-slate-400 italic">—</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
 
                       {/* Practical Score */}
-                      <td className="px-4 py-3.5 text-xs font-medium text-slate-700">
+                      <td className="px-4 py-3 text-center text-xs font-medium text-slate-700 whitespace-nowrap">
                         {t.practical_score !== null && t.practical_score !== undefined ? (
-                          <span className="font-bold">{t.practical_score} / 100</span>
+                          <span className="font-mono font-bold">{t.practical_score}/100</span>
                         ) : (
-                          <span className="text-slate-400 italic">—</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
 
                       {/* Total Score */}
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {t.total_score !== null && t.total_score !== undefined ? (
                           <span className="inline-flex px-2 py-0.5 bg-slate-100 rounded-md font-mono font-bold text-xs text-slate-900">
                             {t.total_score}%
                           </span>
                         ) : (
-                          <span className="text-slate-400 text-xs italic">—</span>
+                          <span className="text-slate-400 text-xs">—</span>
                         )}
                       </td>
 
                       {/* Result Status */}
-                      <td className="px-4 py-3.5 text-center">
+                      <td className="px-4 py-3 text-center whitespace-nowrap">
                         {getResultBadge(t.result_status)}
                       </td>
 
                       {/* Certificate */}
-                      <td className="px-4 py-3.5 text-xs">
+                      <td className="px-4 py-3 text-xs whitespace-nowrap">
                         {hasCert ? (
-                          <div className="flex flex-col gap-0.5">
-                            <a
-                              href={t.certificate_url}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="inline-flex items-center gap-1 font-semibold text-blue-600 hover:underline"
-                            >
-                              <Award className="w-3.5 h-3.5 text-amber-500" />
-                              <span>{t.certificate_no || 'View Certificate'}</span>
-                              <ExternalLink className="w-3 h-3 opacity-60" />
-                            </a>
-                            {t.certificate_issue_date && (
-                              <span className="text-[11px] text-slate-400">
-                                Issued: {formatDate(t.certificate_issue_date)}
-                              </span>
-                            )}
-                          </div>
+                          <a
+                            href={t.certificate_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 font-mono font-semibold text-blue-600 hover:underline"
+                          >
+                            <Award className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                            <span>{t.certificate_no || 'View'}</span>
+                            <ExternalLink className="w-3 h-3 opacity-60 shrink-0" />
+                          </a>
                         ) : (
-                          <span className="text-xs text-slate-400 italic">No cert uploaded</span>
+                          <span className="text-slate-400">—</span>
                         )}
                       </td>
 
                       {/* Actions */}
-                      <td className="px-4 py-3.5 text-right">
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
                         {canEdit ? (
                           <button
                             onClick={() => openGradeModal(t)}
-                            className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 active:bg-blue-800 rounded-lg shadow-xs transition-colors"
+                            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors whitespace-nowrap"
                           >
-                            <FileText className="w-3.5 h-3.5" />
-                            <span>Grade & Certificate</span>
+                            <FileText className="w-3.5 h-3.5 shrink-0" />
+                            <span>Grade</span>
                           </button>
                         ) : (
-                          <span className="text-xs text-slate-400">View Only</span>
+                          <span className="text-xs text-slate-400">View</span>
                         )}
                       </td>
                     </tr>

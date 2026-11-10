@@ -102,138 +102,135 @@ export default function BatchResultPrintPage() {
       </div>
 
       {/* Printable Tabulation Sheet */}
-      <div className="max-w-5xl mx-auto bg-white border border-slate-300 rounded-xl p-8 shadow-sm print:shadow-none print:border-none print:p-2 text-slate-900">
+      <div className="max-w-5xl mx-auto bg-white border border-slate-300 rounded-xl p-4 sm:p-8 shadow-sm print:shadow-none print:border-none print:p-2 text-slate-900">
         {/* Official Header */}
         <div className="text-center pb-4 border-b-2 border-slate-800">
-          <p className="text-[11px] font-mono uppercase tracking-widest text-slate-500">
-            Govt. Approved Technical Training Center • RL-1845
-          </p>
-          <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900 mt-1">
+          <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tight text-slate-900">
             Bangladesh Manpower Training &amp; Recruitment Agency
           </h1>
           <p className="text-xs font-bold uppercase tracking-widest text-blue-800 mt-1">
-            Batch Examination Tabulation &amp; Result Sheet
+            Batch Exam Result Sheet • {batch.batch_code}
           </p>
         </div>
 
-        {/* Batch Metadata */}
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
+        {/* Batch Metadata (Responsive) */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 my-4 p-3.5 bg-slate-50 border border-slate-200 rounded-lg text-xs">
           <div>
-            <span className="text-slate-500 block">Batch Name &amp; Code</span>
+            <span className="text-slate-500 block">Batch</span>
             <strong className="text-slate-900">{batch.name}</strong>
-            <span className="block font-mono text-blue-700 font-bold">{batch.batch_code}</span>
           </div>
           <div>
-            <span className="text-slate-500 block">Trade Curriculum</span>
+            <span className="text-slate-500 block">Trade</span>
             <strong className="text-slate-900">{batch.trade_name}</strong>
-            {batch.instructor && <span className="block text-slate-600">Trainer: {batch.instructor}</span>}
           </div>
           <div>
-            <span className="text-slate-500 block">Training Schedule</span>
+            <span className="text-slate-500 block">Exam Date</span>
             <strong className="text-slate-900">
-              {formatDate(batch.start_date)} – {formatDate(batch.end_date)}
+              {batch.exam_date ? formatDate(batch.exam_date) : 'Pending'}
             </strong>
-            <span className="block text-slate-600">
-              Exam: {batch.exam_date ? formatDate(batch.exam_date) : 'Pending'}
-            </span>
           </div>
           <div>
-            <span className="text-slate-500 block">Batch Summary</span>
+            <span className="text-slate-500 block">Summary</span>
             <strong className="text-slate-900">
-              Total: {totalEnrolled} • Pass: {passedCount} • Fail: {failedCount}
+              Total: {totalEnrolled} • Pass: {passedCount} • Fail: {failedCount} • Pending: {pendingCount}
             </strong>
-            <span className="block text-emerald-700 font-bold">
-              Pass Rate: {passRate}% ({pendingCount} pending)
-            </span>
           </div>
         </div>
 
-        {/* Tabulation Table */}
+        {/* Tabulation Table (Responsive Horizontal Scroll on small screens) */}
         <div className="border border-slate-300 rounded-lg overflow-hidden my-5">
-          <table className="w-full text-xs text-left">
-            <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold uppercase">
-              <tr>
-                <th className="px-3 py-2.5 text-center">#</th>
-                <th className="px-3 py-2.5">Roll / ID</th>
-                <th className="px-3 py-2.5">Candidate Name</th>
-                <th className="px-3 py-2.5">Passport &amp; Mobile</th>
-                <th className="px-3 py-2.5 text-center">Theory</th>
-                <th className="px-3 py-2.5 text-center">Practical</th>
-                <th className="px-3 py-2.5 text-center">Total</th>
-                <th className="px-3 py-2.5 text-center">Result</th>
-                <th className="px-3 py-2.5">Certificate No</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-200">
-              {trainees.length === 0 ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead className="bg-slate-100 border-b border-slate-300 text-slate-700 font-bold uppercase">
                 <tr>
-                  <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
-                    No trainees enrolled in this batch yet.
-                  </td>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap">#</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Roll</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Name</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Passport / Mobile</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap">Theory</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap">Practical</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap">Total</th>
+                  <th className="px-3 py-2.5 text-center whitespace-nowrap">Result</th>
+                  <th className="px-3 py-2.5 whitespace-nowrap">Cert No</th>
                 </tr>
-              ) : (
-                trainees.map((t, idx) => {
-                  const s = t.student;
-                  return (
-                    <tr key={t._id} className="hover:bg-slate-50">
-                      <td className="px-3 py-2 text-center font-mono text-slate-500">{idx + 1}</td>
-                      <td className="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">
-                        {s.student_no}
-                      </td>
-                      <td className="px-3 py-2 font-semibold text-slate-900">{s.name}</td>
-                      <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">
-                        {s.passport_no} • {s.mobile}
-                      </td>
-                      <td className="px-3 py-2 text-center font-mono">
-                        {t.theory_score !== null && t.theory_score !== undefined ? `${t.theory_score}/100` : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-center font-mono">
-                        {t.practical_score !== null && t.practical_score !== undefined
-                          ? `${t.practical_score}/100`
-                          : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-center font-mono font-bold text-slate-900">
-                        {t.total_score !== null && t.total_score !== undefined ? `${t.total_score}%` : '—'}
-                      </td>
-                      <td className="px-3 py-2 text-center whitespace-nowrap">
-                        {t.result_status === 'Passed' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
-                            <CheckCircle2 className="w-3 h-3" /> Passed
-                          </span>
-                        ) : t.result_status === 'Failed' ? (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px]">
-                            <XCircle className="w-3 h-3" /> Failed
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium text-[11px]">
-                            <Clock className="w-3 h-3" /> Pending
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">
-                        {t.certificate_no || '—'}
-                      </td>
-                    </tr>
-                  );
-                })
-              )}
-            </tbody>
-          </table>
+              </thead>
+              <tbody className="divide-y divide-slate-200">
+                {trainees.length === 0 ? (
+                  <tr>
+                    <td colSpan={9} className="px-4 py-8 text-center text-slate-500">
+                      No trainees enrolled in this batch yet.
+                    </td>
+                  </tr>
+                ) : (
+                  trainees.map((t, idx) => {
+                    const s = t.student;
+                    return (
+                      <tr key={t._id} className="hover:bg-slate-50">
+                        <td className="px-3 py-2 text-center font-mono text-slate-500 whitespace-nowrap">
+                          {idx + 1}
+                        </td>
+                        <td className="px-3 py-2 font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {s.student_no}
+                        </td>
+                        <td className="px-3 py-2 font-semibold text-slate-900 whitespace-nowrap">
+                          {s.name}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-600 whitespace-nowrap">
+                          {s.passport_no} • {s.mobile}
+                        </td>
+                        <td className="px-3 py-2 text-center font-mono whitespace-nowrap">
+                          {t.theory_score !== null && t.theory_score !== undefined
+                            ? `${t.theory_score}/100`
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center font-mono whitespace-nowrap">
+                          {t.practical_score !== null && t.practical_score !== undefined
+                            ? `${t.practical_score}/100`
+                            : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center font-mono font-bold text-slate-900 whitespace-nowrap">
+                          {t.total_score !== null && t.total_score !== undefined ? `${t.total_score}%` : '—'}
+                        </td>
+                        <td className="px-3 py-2 text-center whitespace-nowrap">
+                          {t.result_status === 'Passed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800 font-bold text-[11px]">
+                              <CheckCircle2 className="w-3 h-3" /> Passed
+                            </span>
+                          ) : t.result_status === 'Failed' ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-rose-100 text-rose-800 font-bold text-[11px]">
+                              <XCircle className="w-3 h-3" /> Failed
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-slate-100 text-slate-600 font-medium text-[11px]">
+                              <Clock className="w-3 h-3" /> Pending
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-slate-700 whitespace-nowrap">
+                          {t.certificate_no || '—'}
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
 
         {/* Footer & Official Signatures */}
-        <div className="pt-12 pb-2 grid grid-cols-3 gap-8 text-center text-xs text-slate-600">
+        <div className="pt-10 pb-2 grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 text-center text-xs text-slate-600">
           <div>
             <div className="border-t border-slate-400 pt-1.5 font-medium">
-              Trainer / Instructor ({batch.instructor || 'Technical Wing'})
+              Trainer ({batch.instructor || 'Technical'})
             </div>
           </div>
           <div>
-            <div className="border-t border-slate-400 pt-1.5 font-medium">Controller of Examinations</div>
+            <div className="border-t border-slate-400 pt-1.5 font-medium">Controller of Exams</div>
           </div>
           <div>
             <div className="border-t border-slate-400 pt-1.5 font-bold text-slate-800">
-              Principal / Authorized Signatory
+              Principal / Director
             </div>
           </div>
         </div>
@@ -241,3 +238,4 @@ export default function BatchResultPrintPage() {
     </div>
   );
 }
+
