@@ -144,6 +144,17 @@ export async function PUT(
     if (body.status) student.status = body.status;
     if (body.batch) student.batch = body.batch.trim();
     if (body.photo_url !== undefined) student.photo_url = body.photo_url;
+    if (body.education_qualifications !== undefined && Array.isArray(body.education_qualifications)) {
+      student.education_qualifications = body.education_qualifications
+        .filter((eq: any) => eq && eq.level)
+        .map((eq: any) => ({
+          level: String(eq.level).trim(),
+          board_or_university: eq.board_or_university ? String(eq.board_or_university).trim() : '',
+          passing_year: eq.passing_year ? String(eq.passing_year).trim() : '',
+          result_gpa: eq.result_gpa ? String(eq.result_gpa).trim() : '',
+          certificate_url: eq.certificate_url ? String(eq.certificate_url).trim() : '',
+        }));
+    }
     if (body.overseas_passport_url !== undefined) student.overseas_passport_url = body.overseas_passport_url;
     if (body.overseas_visa_url !== undefined) student.overseas_visa_url = body.overseas_visa_url;
 

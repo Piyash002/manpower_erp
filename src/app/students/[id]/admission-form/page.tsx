@@ -165,6 +165,24 @@ export default function StudentAdmissionPadPage() {
                 <td className="border border-slate-300 px-3 py-1.5 bg-slate-50/70 font-semibold">Marital Status</td>
                 <td className="border border-slate-300 px-3 py-1.5">{student.marital_status || 'Single'}</td>
               </tr>
+              {Array.isArray(student.education_qualifications) &&
+                student.education_qualifications.length > 0 && (
+                  <tr>
+                    <td className="border border-slate-300 px-3 py-1.5 bg-slate-50/70 font-semibold">
+                      Education
+                    </td>
+                    <td colSpan={3} className="border border-slate-300 px-3 py-1.5">
+                      {student.education_qualifications
+                        .map(
+                          (eq: any) =>
+                            `${eq.level}${eq.passing_year ? ` (${eq.passing_year})` : ''}${
+                              eq.board_or_university ? ` - ${eq.board_or_university}` : ''
+                            }${eq.result_gpa ? ` [GPA: ${eq.result_gpa}]` : ''}`
+                        )
+                        .join('  |  ')}
+                    </td>
+                  </tr>
+                )}
             </tbody>
           </table>
         </div>

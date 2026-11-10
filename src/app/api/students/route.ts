@@ -138,6 +138,7 @@ export async function POST(req: NextRequest) {
       religion,
       marital_status,
       photo_url,
+      education_qualifications,
 
       // Contact
       mobile,
@@ -278,6 +279,17 @@ export async function POST(req: NextRequest) {
       religion: religion || 'Islam',
       marital_status: marital_status || 'Single',
       photo_url: photo_url || '',
+      education_qualifications: Array.isArray(education_qualifications)
+        ? education_qualifications
+            .filter((eq: any) => eq && eq.level)
+            .map((eq: any) => ({
+              level: String(eq.level).trim(),
+              board_or_university: eq.board_or_university ? String(eq.board_or_university).trim() : '',
+              passing_year: eq.passing_year ? String(eq.passing_year).trim() : '',
+              result_gpa: eq.result_gpa ? String(eq.result_gpa).trim() : '',
+              certificate_url: eq.certificate_url ? String(eq.certificate_url).trim() : '',
+            }))
+        : [],
 
       // Contact
       mobile: mobile.trim(),
@@ -356,6 +368,22 @@ export async function POST(req: NextRequest) {
           file_url: nid_doc_url,
           notes: 'Uploaded during new admission',
         };
+      }
+      if (doc.document_type === 'Education certificate') {
+        const uploadedCerts = Array.isArray(education_qualifications)
+          ? education_qualifications.filter((eq: any) => eq && eq.certificate_url)
+          : [];
+        if (uploadedCerts.length > 0) {
+          return {
+            student_id: newStudent._id,
+            document_type: doc.document_type,
+            needs_expiry: doc.needs_expiry,
+            received: true,
+            received_on: new Date(),
+            file_url: uploadedCerts[0].certificate_url,
+            notes: `${uploadedCerts.map((c: any) => c.level).join(', ')} certificate(s) uploaded`,
+          };
+        }
       }
       return {
         student_id: newStudent._id,

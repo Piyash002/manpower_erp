@@ -11,6 +11,14 @@ export interface IFeeSnapshot {
   total_payable: number;
 }
 
+export interface IEducationQualification {
+  level: string; // 'SSC' | 'HSC' | 'Honours' | 'Masters' | 'Diploma' | 'Other'
+  board_or_university?: string;
+  passing_year?: string;
+  result_gpa?: string;
+  certificate_url?: string;
+}
+
 export interface IStudent extends Document {
   student_no: string;
 
@@ -25,6 +33,7 @@ export interface IStudent extends Document {
   religion: string;
   marital_status: string;
   photo_url?: string;
+  education_qualifications?: IEducationQualification[];
 
   // Contact
   mobile: string;
@@ -91,6 +100,18 @@ const StudentSchema = new Schema<IStudent>(
     religion: { type: String, default: 'Islam' },
     marital_status: { type: String, default: 'Single' },
     photo_url: { type: String, default: '' },
+    education_qualifications: {
+      type: [
+        {
+          level: { type: String, required: true, trim: true },
+          board_or_university: { type: String, default: '', trim: true },
+          passing_year: { type: String, default: '', trim: true },
+          result_gpa: { type: String, default: '', trim: true },
+          certificate_url: { type: String, default: '', trim: true },
+        },
+      ],
+      default: [],
+    },
 
     // Contact
     mobile: { type: String, required: true, trim: true, index: true },

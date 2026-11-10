@@ -1008,6 +1008,50 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 <p className="text-slate-800 mt-0.5">{student.permanent_address}</p>
               </div>
             </div>
+
+            {Array.isArray(student.education_qualifications) &&
+              student.education_qualifications.length > 0 && (
+                <div className="pt-4 border-t border-slate-100 space-y-2.5 text-xs">
+                  <span className="text-slate-400 font-semibold uppercase tracking-wider block">
+                    Educational Qualifications &amp; Certificates
+                  </span>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                    {student.education_qualifications.map((edu: any, idx: number) => (
+                      <div
+                        key={idx}
+                        className="p-2.5 bg-slate-50 border border-slate-200 rounded-lg flex items-center justify-between gap-2"
+                      >
+                        <div>
+                          <p className="font-bold text-slate-900">
+                            {edu.level}
+                            {edu.passing_year && (
+                              <span className="font-mono text-slate-500 font-normal ml-1.5">
+                                ({edu.passing_year})
+                              </span>
+                            )}
+                          </p>
+                          <p className="text-[11px] text-slate-600">
+                            {edu.board_or_university || '—'}
+                            {edu.result_gpa && ` • GPA: ${edu.result_gpa}`}
+                          </p>
+                        </div>
+                        {edu.certificate_url && (
+                          <a
+                            href={edu.certificate_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            download
+                            className="inline-flex items-center gap-1 px-2.5 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-semibold shrink-0"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>Cert</span>
+                          </a>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
           </div>
         </div>
 
