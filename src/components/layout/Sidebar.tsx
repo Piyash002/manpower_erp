@@ -16,8 +16,6 @@ import {
   GraduationCap,
   BookOpen,
   FileText,
-  ChevronDown,
-  ChevronRight,
   PanelLeftClose,
   Sparkles,
 } from 'lucide-react';
@@ -34,9 +32,6 @@ interface SidebarProps {
 export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
-
-  // Accordion state for collapsible menus
-  const [dashboardOpen, setDashboardOpen] = useState(true);
 
   const handleSignOut = async () => {
     try {
@@ -56,12 +51,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
     href: string;
     icon: any;
     allowed: string[];
-    isAccordion?: boolean;
-    children?: {
-      title: string;
-      href: string;
-      allowed: string[];
-    }[];
   }
 
   interface MenuGroup {
@@ -71,7 +60,7 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
   // Exact 2-Module Core ERP Architecture requested by user:
   // 1. MAIN (Dashboard Overview)
-  // 2. STUDENT ADMISSION (Everything built for candidates: New Admission, Directory, Installments, Batches & Exam, Trades & Costs)
+  // 2. STUDENT ADMISSION (New Admission, Directory, Installments, Batches & Exam, Trades & Costs)
   // 3. HRM (Staff, Roles, Audit Trail)
   const menuGroups: MenuGroup[] = [
     {
@@ -82,29 +71,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           href: '/',
           icon: LayoutDashboard,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-          isAccordion: true,
-          children: [
-            {
-              title: 'Operations Overview',
-              href: '/',
-              allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-            },
-            {
-              title: 'Admissions & Candidates',
-              href: '/students',
-              allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-            },
-            {
-              title: 'Batches & Training KPI',
-              href: '/batches',
-              allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-            },
-            {
-              title: 'Collections & Dues',
-              href: '/installments',
-              allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-            },
-          ],
         },
       ],
     },
@@ -228,84 +194,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
                 {visibleItems.map((item) => {
                   const Icon = item.icon;
-
-                  // Accordion Menu Item (e.g., Dashboard)
-                  if (item.isAccordion && item.children) {
-                    const isParentActive = pathname === '/' || pathname.startsWith('/dashboard');
-
-                    return (
-                      <div key={item.title} className="space-y-1">
-                        <button
-                          type="button"
-                          onClick={() => setDashboardOpen(!dashboardOpen)}
-                          className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-sm font-medium transition-all ${
-                            isParentActive
-                              ? 'bg-slate-900 text-white shadow-xs'
-                              : 'text-slate-700 hover:bg-slate-100'
-                          }`}
-                        >
-                          <div className="flex items-center gap-2.5">
-                            <Icon
-                              className={`w-4 h-4 shrink-0 ${
-                                isParentActive ? 'text-white' : 'text-slate-500'
-                              }`}
-                            />
-                            <span className="font-semibold text-xs tracking-tight">
-                              {item.title}
-                            </span>
-                          </div>
-                          {dashboardOpen ? (
-                            <ChevronDown
-                              className={`w-3.5 h-3.5 ${
-                                isParentActive ? 'text-slate-300' : 'text-slate-400'
-                              }`}
-                            />
-                          ) : (
-                            <ChevronRight
-                              className={`w-3.5 h-3.5 ${
-                                isParentActive ? 'text-slate-300' : 'text-slate-400'
-                              }`}
-                            />
-                          )}
-                        </button>
-
-                        {/* Collapsible Submenu Items with Bullet Points */}
-                        {dashboardOpen && (
-                          <div className="pt-1 pb-1 pl-4 space-y-0.5">
-                            {item.children
-                              .filter((sub) => sub.allowed.includes(role))
-                              .map((sub) => {
-                                const isSubActive = pathname === sub.href;
-
-                                return (
-                                  <Link
-                                    key={sub.title}
-                                    href={sub.href}
-                                    onClick={() => onClose()}
-                                    className={`flex items-center gap-2.5 py-1.5 px-3 rounded-md text-xs transition-colors ${
-                                      isSubActive
-                                        ? 'text-emerald-600 font-semibold bg-emerald-50/60'
-                                        : 'text-slate-500 hover:text-slate-900 hover:bg-slate-50'
-                                    }`}
-                                  >
-                                    <span
-                                      className={`text-base leading-none ${
-                                        isSubActive ? 'text-emerald-600' : 'text-slate-300'
-                                      }`}
-                                    >
-                                      •
-                                    </span>
-                                    <span>{sub.title}</span>
-                                  </Link>
-                                );
-                              })}
-                          </div>
-                        )}
-                      </div>
-                    );
-                  }
-
-                  // Standard Navigation Item
                   const isActive =
                     item.href === '/'
                       ? pathname === '/'
