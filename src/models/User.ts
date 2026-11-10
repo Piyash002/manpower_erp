@@ -1,10 +1,11 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
+import type { AppRole } from '@/lib/jwt';
 
 export interface IUser extends Document {
   name: string;
   username: string;
   passwordHash: string;
-  role: 'Admin' | 'Counselor' | 'Accountant' | 'Viewer';
+  role: AppRole;
   active: boolean;
   mustChangePassword: boolean;
   failedLoginAttempts: number;
@@ -21,7 +22,7 @@ const UserSchema = new Schema<IUser>(
     passwordHash: { type: String, required: true },
     role: {
       type: String,
-      enum: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      enum: ['Admin', 'HR', 'Manager', 'Employee', 'Counselor', 'Accountant', 'Viewer'],
       default: 'Viewer',
       required: true,
     },

@@ -3,11 +3,20 @@ import bcrypt from 'bcryptjs';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'manpower_erp_super_secret_jwt_key_2026_secured_production';
 
+export type AppRole =
+  | 'Admin'
+  | 'HR'
+  | 'Manager'
+  | 'Employee'
+  | 'Counselor'
+  | 'Accountant'
+  | 'Viewer';
+
 export interface TokenPayload {
   userId: string;
   username: string;
   name: string;
-  role: 'Admin' | 'Counselor' | 'Accountant' | 'Viewer';
+  role: AppRole;
   mustChangePassword?: boolean;
 }
 

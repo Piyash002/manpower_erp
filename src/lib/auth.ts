@@ -1,9 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { verifyToken, TokenPayload } from './jwt';
+import { verifyToken, TokenPayload, AppRole } from './jwt';
 import { connectDB } from './db';
 import { AuditLog } from '@/models/AuditLog';
 
-export type UserRole = 'Admin' | 'Counselor' | 'Accountant' | 'Viewer';
+export type UserRole = AppRole;
+
+export function isAdminOrHR(role?: string | null): boolean {
+  return role === 'Admin' || role === 'HR';
+}
 
 export interface AuthSession {
   user: TokenPayload;
