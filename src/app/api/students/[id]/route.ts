@@ -96,6 +96,9 @@ export async function PUT(
       passport_no: student.passport_no,
       passport_issue_date: student.passport_issue_date,
       passport_expiry_date: student.passport_expiry_date,
+      destination_country: student.destination_country,
+      fee_snapshot: student.fee_snapshot,
+      total_due: student.total_due,
       batch: student.batch,
     };
 
@@ -139,6 +142,87 @@ export async function PUT(
     if (body.status) student.status = body.status;
     if (body.batch) student.batch = body.batch.trim();
     if (body.photo_url !== undefined) student.photo_url = body.photo_url;
+    if (body.overseas_passport_url !== undefined) student.overseas_passport_url = body.overseas_passport_url;
+    if (body.overseas_visa_url !== undefined) student.overseas_visa_url = body.overseas_visa_url;
+
+    // Optional Visa / Country / Fee Package update (e.g. course-only student later includes Visa & Country)
+    const hasFeeUpdate =
+      body.admission_fee !== undefined ||
+      body.course_fee !== undefined ||
+      body.visa_cost !== undefined ||
+      body.govt_fee !== undefined ||
+      body.discount !== undefined;
+
+    if (hasFeeUpdate) {
+      const adm = Math.max(0, Math.round(Number(body.admission_fee ?? student.fee_snapshot.admission_fee)));
+      const crs = Math.max(0, Math.round(Number(body.course_fee ?? student.fee_snapshot.course_fee)));
+      const visa = Math.max(0, Math.round(Number(body.visa_cost ?? student.fee_snapshot.visa_cost)));
+      const govt = Math.max(0, Math.round(Number(body.govt_fee ?? student.fee_snapshot.govt_fee)));
+      const disc = Math.max(0, Math.round(Number(body.discount ?? student.fee_snapshot.discount)));
+      const newPayable = Math.max(0, adm + crs + visa + govt - disc);
+
+      if (newPayable < student.total_paid) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `New total payable (৳${newPayable}) cannot be less than already paid amount (৳${student.total_paid}).`,
+          },
+          { status: 400 }
+        );
+      }
+
+      const oldDue = student.total_due;
+      const newDue = newPayable - student.total_paid;
+      const deltaDue = newDue - oldDue;
+
+      student.fee_snapshot = {
+        admission_fee: adm,
+        course_fee: crs,
+        visa_cost: visa,
+        govt_fee: govt,
+        discount: disc,
+        total_payable: newPayable,
+      };
+      student.total_due = newDue;
+
+      // Keep Installments synchronized with new total_due
+      if (deltaDue > 0) {
+        const lastInst = await Installment.findOne({ student_id: id }).sort({ installment_no: -1 });
+        const dueDate = body.visa_due_date
+          ? new Date(body.visa_due_date)
+          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+        await Installment.create({
+          student_id: student._id,
+          installment_no: (lastInst?.installment_no || 0) + 1,
+          due_date: dueDate,
+          amount: deltaDue,
+          paid_amount: 0,
+          status: 'Pending',
+        });
+      } else if (deltaDue < 0) {
+        let toReduce = Math.abs(deltaDue);
+        const unpaidInsts = await Installment.find({
+          student_id: id,
+          status: { $ne: 'Paid' },
+        }).sort({ installment_no: -1 });
+
+        for (const inst of unpaidInsts) {
+          if (toReduce <= 0) break;
+          const rem = Math.max(0, inst.amount - (inst.paid_amount || 0));
+          const cut = Math.min(rem, toReduce);
+          if (cut > 0) {
+            inst.amount -= cut;
+            toReduce -= cut;
+            if (inst.amount <= (inst.paid_amount || 0)) {
+              inst.status = 'Paid';
+              inst.paid_on = inst.paid_on || new Date();
+            }
+            await inst.save();
+          }
+        }
+      }
+    }
 
     await student.save();
 
@@ -152,6 +236,9 @@ export async function PUT(
         mobile: student.mobile,
         passport_no: student.passport_no,
         passport_expiry_date: student.passport_expiry_date,
+        destination_country: student.destination_country,
+        fee_snapshot: student.fee_snapshot,
+        total_due: student.total_due,
         batch: student.batch,
       },
     });

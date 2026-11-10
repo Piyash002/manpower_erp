@@ -31,6 +31,8 @@ import {
   XCircle,
   RefreshCw,
   Sparkles,
+  Download,
+  Globe2,
 } from 'lucide-react';
 import { formatBDT, formatDate, toInputDate } from '@/lib/formatters';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
@@ -61,6 +63,16 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+  const [countryCosts, setCountryCosts] = useState<any[]>([]);
+
+  // Documents Checklist Upload / Inline Edit State
+  const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
+  const [editingDocId, setEditingDocId] = useState<string | null>(null);
+  const [docNoteInput, setDocNoteInput] = useState('');
+  const [docExpiryInput, setDocExpiryInput] = useState('');
+  const [newDocName, setNewDocName] = useState('');
+  const [newDocNeedsExpiry, setNewDocNeedsExpiry] = useState(false);
+  const [addingDoc, setAddingDoc] = useState(false);
 
   // Profile Edit Form State
   const [editFormData, setEditFormData] = useState<any>({});
@@ -105,9 +117,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
   const loadStudentData = async () => {
     try {
-      const [res, batchRes] = await Promise.all([
+      const [res, batchRes, countryRes] = await Promise.all([
         fetch(`/api/students/${studentId}`),
         fetch('/api/batches'),
+        fetch('/api/country-costs'),
       ]);
 
       const data = await res.json();
@@ -141,10 +154,16 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           passport_no: data.student.passport_no || '',
           passport_issue_date: toInputDate(data.student.passport_issue_date),
           passport_expiry_date: toInputDate(data.student.passport_expiry_date),
-          destination_country: data.student.destination_country || '',
-          destination_contract_years: data.student.destination_contract_years || 2,
+          destination_country: data.student.destination_country || 'Not decided yet',
+          destination_contract_years: data.student.destination_contract_years ?? 0,
           status: data.student.status || 'Active',
           batch: data.student.batch || '',
+          admission_fee: data.student.fee_snapshot?.admission_fee ?? 0,
+          course_fee: data.student.fee_snapshot?.course_fee ?? 0,
+          visa_cost: data.student.fee_snapshot?.visa_cost ?? 0,
+          govt_fee: data.student.fee_snapshot?.govt_fee ?? 0,
+          discount: data.student.fee_snapshot?.discount ?? 0,
+          visa_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         });
       }
 
@@ -152,6 +171,13 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
         const batchData = await batchRes.json();
         if (batchData.success && batchData.batches) {
           setAvailableBatches(batchData.batches);
+        }
+      }
+
+      if (countryRes.ok) {
+        const cData = await countryRes.json();
+        if (cData.success && cData.costs) {
+          setCountryCosts(cData.costs);
         }
       }
     } catch (err) {
@@ -232,6 +258,93 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
       }
     } catch (e) {
       console.error(e);
+    }
+  };
+
+  // Upload Document Scan/PDF directly inside Checklist & mark received
+  const handleDocumentFileUpload = async (docId: string, file: File) => {
+    if (!canEdit || !file) return;
+    setUploadingDocId(docId);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const uploadRes = await fetch('/api/upload', { method: 'POST', body: formData });
+      const uploadData = await uploadRes.json();
+      if (!uploadRes.ok || !uploadData.success || !uploadData.url) {
+        alert(uploadData.message || 'File upload failed');
+        return;
+      }
+
+      const res = await fetch(`/api/students/${studentId}/documents`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: docId,
+          file_url: uploadData.url,
+          received: true,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.document) {
+        setDocuments((prev) => prev.map((d) => (d._id === docId ? data.document : d)));
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Failed to upload document');
+    } finally {
+      setUploadingDocId(null);
+    }
+  };
+
+  // Save Document Notes & Expiry inline
+  const handleSaveDocDetails = async (docId: string) => {
+    if (!canEdit) return;
+    try {
+      const res = await fetch(`/api/students/${studentId}/documents`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: docId,
+          notes: docNoteInput,
+          expiry_date: docExpiryInput || null,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.document) {
+        setDocuments((prev) => prev.map((d) => (d._id === docId ? data.document : d)));
+        setEditingDocId(null);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  // Add Custom Document item to checklist
+  const handleAddCustomDocument = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!canEdit || !newDocName.trim()) return;
+    setAddingDoc(true);
+    try {
+      const res = await fetch(`/api/students/${studentId}/documents`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_type: newDocName.trim(),
+          needs_expiry: newDocNeedsExpiry,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.document) {
+        setDocuments((prev) => [...prev, data.document]);
+        setNewDocName('');
+        setNewDocNeedsExpiry(false);
+      } else {
+        alert(data.message || 'Could not add document');
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setAddingDoc(false);
     }
   };
 
@@ -465,8 +578,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
   return (
     <div className="space-y-6">
-      {/* Top back navigation */}
-      <div className="flex items-center justify-between">
+      {/* Top back navigation & Profile Actions */}
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <Link
           href="/students"
           className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
@@ -475,15 +588,40 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           <span>Back to Students</span>
         </Link>
 
-        {canEdit && (
-          <button
-            onClick={() => setIsEditModalOpen(true)}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs"
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/students/${studentId}/admission-form`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 border border-blue-200 rounded-lg hover:bg-blue-100 shadow-xs transition-colors"
+            title="Print or Download Full Candidate Details on Official Agency Pad"
           >
-            <Edit3 className="w-3.5 h-3.5" />
-            <span>Edit Profile</span>
-          </button>
-        )}
+            <Printer className="w-3.5 h-3.5" />
+            <span>Download / Print Form</span>
+          </Link>
+
+          {canEdit &&
+            ((student.fee_snapshot?.visa_cost || 0) === 0 ||
+              student.destination_country === 'Not decided yet') && (
+              <button
+                onClick={() => setIsEditModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 shadow-xs transition-colors"
+                title="Add Destination Country & Visa Package Fee to this candidate"
+              >
+                <Globe2 className="w-3.5 h-3.5" />
+                <span>+ Include Visa / Country</span>
+              </button>
+            )}
+
+          {canEdit && (
+            <button
+              onClick={() => setIsEditModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs"
+            >
+              <Edit3 className="w-3.5 h-3.5" />
+              <span>Edit Profile</span>
+            </button>
+          )}
+        </div>
       </div>
 
       {/* PRD Section 5.7: Passport Expiry Alert within 6 months */}
@@ -1117,75 +1255,220 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 <FileText className="w-5 h-5 text-blue-600" />
                 <h3 className="font-semibold text-slate-800 text-base">Documents Checklist</h3>
               </div>
-              <span className="text-xs text-slate-400">PRD 5.6</span>
+              <span className="text-xs text-slate-400">Upload &amp; Manage</span>
             </div>
 
-            <div className="space-y-3">
-              {documents.map((doc) => (
-                <div
-                  key={doc._id}
-                  className={`p-3 rounded-lg border transition-colors ${
-                    doc.received
-                      ? 'bg-emerald-50/40 border-emerald-200'
-                      : 'bg-slate-50 border-slate-200'
-                  }`}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="flex items-start gap-2.5">
-                      <input
-                        type="checkbox"
-                        checked={doc.received}
-                        disabled={!canEdit}
-                        onChange={() => handleDocumentToggle(doc._id, doc.received)}
-                        className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
-                      />
-                      <div>
-                        <p
-                          className={`text-xs font-semibold ${
-                            doc.received ? 'text-emerald-900' : 'text-slate-700'
-                          }`}
-                        >
-                          {doc.document_type}
-                        </p>
-                        {doc.received && doc.received_on && (
-                          <p className="text-[10px] text-emerald-600 mt-0.5">
-                            Received: {formatDate(doc.received_on)}
-                          </p>
-                        )}
-                      </div>
-                    </div>
+            <div className="space-y-2.5">
+              {documents.map((doc) => {
+                const docFileUrl =
+                  doc.file_url ||
+                  (doc.document_type === 'Photos' && student.photo_url ? student.photo_url : '');
+                const isUploadingThis = uploadingDocId === doc._id;
+                const isEditingThis = editingDocId === doc._id;
 
-                    {doc.received ? (
-                      <Badge variant="success" size="sm">
-                        Received
-                      </Badge>
-                    ) : (
-                      <Badge variant="gray" size="sm">
-                        Pending
-                      </Badge>
-                    )}
-                  </div>
-
-                  {/* Expiry Date input if required */}
-                  {doc.needs_expiry && (
-                    <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
-                      <span className="text-[11px] text-slate-500">Validity Expiry:</span>
-                      {canEdit ? (
+                return (
+                  <div
+                    key={doc._id}
+                    className={`p-3 rounded-lg border transition-colors ${
+                      doc.received
+                        ? 'bg-emerald-50/40 border-emerald-200'
+                        : 'bg-slate-50 border-slate-200'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5">
                         <input
-                          type="date"
-                          value={toInputDate(doc.expiry_date)}
-                          onChange={(e) => handleDocumentExpiryChange(doc._id, e.target.value)}
-                          className="px-2 py-0.5 border border-slate-300 rounded text-[11px] text-slate-800"
+                          type="checkbox"
+                          checked={doc.received}
+                          disabled={!canEdit}
+                          onChange={() => handleDocumentToggle(doc._id, doc.received)}
+                          className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
                         />
+                        <div>
+                          <p
+                            className={`text-xs font-semibold ${
+                              doc.received ? 'text-emerald-900' : 'text-slate-700'
+                            }`}
+                          >
+                            {doc.document_type}
+                          </p>
+                          {doc.received && doc.received_on && (
+                            <p className="text-[10px] text-emerald-600 mt-0.5">
+                              Received: {formatDate(doc.received_on)}
+                            </p>
+                          )}
+                          {doc.notes && (
+                            <p className="text-[10px] text-slate-500 mt-0.5 italic">{doc.notes}</p>
+                          )}
+                        </div>
+                      </div>
+
+                      {doc.received ? (
+                        <Badge variant="success" size="sm">
+                          Received
+                        </Badge>
                       ) : (
-                        <span className="font-semibold text-slate-700">
-                          {formatDate(doc.expiry_date)}
-                        </span>
+                        <Badge variant="gray" size="sm">
+                          Pending
+                        </Badge>
                       )}
                     </div>
-                  )}
-                </div>
-              ))}
+
+                    {/* File Upload, View/Download, and Inline Edit Controls */}
+                    <div className="mt-2 pt-2 border-t border-slate-200/60 flex flex-wrap items-center justify-between gap-2 text-[11px]">
+                      <div className="flex flex-wrap items-center gap-1.5">
+                        {docFileUrl && (
+                          <a
+                            href={docFileUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            download
+                            className="inline-flex items-center gap-1 px-2 py-1 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded font-semibold"
+                            title="View or Download Document"
+                          >
+                            <Download className="w-3 h-3" />
+                            <span>View / Download</span>
+                          </a>
+                        )}
+
+                        {canEdit && (
+                          <label className="cursor-pointer inline-flex items-center gap-1 px-2 py-1 bg-white hover:bg-slate-100 text-slate-700 border border-slate-300 rounded font-semibold">
+                            <Upload className="w-3 h-3 text-slate-500" />
+                            <span>
+                              {isUploadingThis
+                                ? 'Uploading...'
+                                : docFileUrl
+                                ? 'Replace File'
+                                : 'Upload File'}
+                            </span>
+                            <input
+                              type="file"
+                              accept="image/*,.pdf"
+                              disabled={isUploadingThis}
+                              onChange={(e) => {
+                                const f = e.target.files?.[0];
+                                if (f) handleDocumentFileUpload(doc._id, f);
+                              }}
+                              className="hidden"
+                            />
+                          </label>
+                        )}
+                      </div>
+
+                      {canEdit && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (isEditingThis) {
+                              setEditingDocId(null);
+                            } else {
+                              setEditingDocId(doc._id);
+                              setDocNoteInput(doc.notes || '');
+                              setDocExpiryInput(toInputDate(doc.expiry_date));
+                            }
+                          }}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-slate-600 hover:text-slate-900 hover:bg-slate-200/60 rounded font-medium"
+                        >
+                          <Edit3 className="w-3 h-3" />
+                          <span>{isEditingThis ? 'Close' : 'Edit'}</span>
+                        </button>
+                      )}
+                    </div>
+
+                    {/* Inline Edit Details (Expiry + Note/Ref) */}
+                    {isEditingThis && canEdit ? (
+                      <div className="mt-2 pt-2 border-t border-slate-200 space-y-2 text-[11px]">
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">
+                            Validity Expiry Date (Optional)
+                          </label>
+                          <input
+                            type="date"
+                            value={docExpiryInput}
+                            onChange={(e) => setDocExpiryInput(e.target.value)}
+                            className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800"
+                          />
+                        </div>
+                        <div>
+                          <label className="block font-semibold text-slate-600 mb-0.5">
+                            Notes / Reference #
+                          </label>
+                          <input
+                            type="text"
+                            value={docNoteInput}
+                            onChange={(e) => setDocNoteInput(e.target.value)}
+                            placeholder="e.g. Medical Fit, Police Ref #123..."
+                            className="w-full px-2 py-1 bg-white border border-slate-300 rounded text-slate-800"
+                          />
+                        </div>
+                        <div className="flex justify-end">
+                          <button
+                            type="button"
+                            onClick={() => handleSaveDocDetails(doc._id)}
+                            className="px-3 py-1 bg-slate-900 text-white rounded font-semibold hover:bg-slate-800"
+                          >
+                            Save Details
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      /* Always show Validity Expiry cleanly if present or needed */
+                      (doc.needs_expiry || doc.expiry_date) && (
+                        <div className="mt-2 pt-1.5 border-t border-slate-200/50 flex items-center justify-between text-[11px]">
+                          <span className="text-slate-500">Validity Expiry:</span>
+                          {canEdit ? (
+                            <input
+                              type="date"
+                              value={toInputDate(doc.expiry_date)}
+                              onChange={(e) => handleDocumentExpiryChange(doc._id, e.target.value)}
+                              className="px-2 py-0.5 bg-white border border-slate-300 rounded text-[11px] text-slate-800"
+                            />
+                          ) : (
+                            <span className="font-semibold text-slate-700">
+                              {doc.expiry_date ? formatDate(doc.expiry_date) : '—'}
+                            </span>
+                          )}
+                        </div>
+                      )
+                    )}
+                  </div>
+                );
+              })}
+
+              {/* Add Custom Document Input */}
+              {canEdit && (
+                <form
+                  onSubmit={handleAddCustomDocument}
+                  className="pt-2 border-t border-slate-100 space-y-2"
+                >
+                  <div className="flex gap-1.5">
+                    <input
+                      type="text"
+                      value={newDocName}
+                      onChange={(e) => setNewDocName(e.target.value)}
+                      placeholder="Add extra doc (e.g. Training Cert)"
+                      className="flex-1 px-2.5 py-1.5 border border-slate-300 rounded-lg text-xs text-slate-800"
+                    />
+                    <button
+                      type="submit"
+                      disabled={addingDoc || !newDocName.trim()}
+                      className="px-3 py-1.5 bg-slate-800 hover:bg-slate-900 disabled:opacity-50 text-white rounded-lg text-xs font-semibold inline-flex items-center gap-1"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>Add</span>
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-1.5 text-[11px] text-slate-500 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newDocNeedsExpiry}
+                      onChange={(e) => setNewDocNeedsExpiry(e.target.checked)}
+                      className="rounded border-slate-300"
+                    />
+                    <span>Requires validity expiry date</span>
+                  </label>
+                </form>
+              )}
             </div>
           </div>
         </div>
@@ -1477,14 +1760,58 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
               <div>
                 <label className="block font-bold text-slate-600 mb-1">Target Destination Country</label>
-                <input
-                  type="text"
-                  value={editFormData.destination_country || ''}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, destination_country: e.target.value })
-                  }
+                <select
+                  value={editFormData.destination_country || 'Not decided yet'}
+                  onChange={(e) => {
+                    const selectedCountry = e.target.value;
+                    if (selectedCountry === 'Not decided yet') {
+                      setEditFormData({
+                        ...editFormData,
+                        destination_country: 'Not decided yet',
+                        destination_contract_years: 0,
+                      });
+                    } else {
+                      // Match country cost for this student's trade if available, else first match
+                      const studentTradeId = student?.trade_id?._id || student?.trade_id;
+                      const match =
+                        countryCosts.find(
+                          (c: any) =>
+                            c.country === selectedCountry &&
+                            String(c.trade_id?._id || c.trade_id) === String(studentTradeId)
+                        ) || countryCosts.find((c: any) => c.country === selectedCountry);
+
+                      setEditFormData({
+                        ...editFormData,
+                        destination_country: selectedCountry,
+                        visa_cost: match ? match.visa_cost : editFormData.visa_cost,
+                        govt_fee: match ? match.govt_fee : editFormData.govt_fee,
+                        destination_contract_years: match
+                          ? match.contract_years
+                          : editFormData.destination_contract_years || 2,
+                      });
+                    }
+                  }}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-medium"
-                />
+                >
+                  <option value="Not decided yet">Course Only (Not decided yet)</option>
+                  {Array.from(
+                    new Set([
+                      ...countryCosts.map((c: any) => c.country),
+                      'Saudi Arabia',
+                      'Singapore',
+                      'UAE - Dubai',
+                      'Qatar',
+                      'Malaysia',
+                      editFormData.destination_country || '',
+                    ])
+                  )
+                    .filter((c) => c && c !== 'Not decided yet')
+                    .map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                </select>
               </div>
             </div>
           </div>
@@ -1493,7 +1820,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
             <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
               <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
-              <span>Training Batch & Overall Status</span>
+              <span>Training Batch &amp; Overall Status</span>
             </h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
@@ -1524,12 +1851,132 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold"
                 >
                   <option value="Active">Active (In Training / Processing)</option>
-                  <option value="Passed">Passed (Exam & Certification Passed)</option>
+                  <option value="Passed">Passed (Exam &amp; Certification Passed)</option>
                   <option value="Failed">Failed (Exam Failed / Retake)</option>
                   <option value="Dropped">Dropped (Left Training)</option>
                 </select>
               </div>
             </div>
+          </div>
+
+          {/* Section 5: Visa Inclusion & Package Fee Update */}
+          <div className="border border-emerald-200 rounded-xl p-4 space-y-3 bg-emerald-50/30">
+            <div className="flex items-center justify-between">
+              <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Globe2 className="w-3.5 h-3.5 text-emerald-600" />
+                <span>Include Visa / Update Package Fees (BDT)</span>
+              </h4>
+              <span className="text-[11px] text-emerald-700 font-medium">
+                Auto-updates balance &amp; installments
+              </span>
+            </div>
+
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Admission</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.admission_fee ?? 0}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, admission_fee: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Course Fee</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.course_fee ?? 0}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, course_fee: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-emerald-800 mb-1">Visa Cost</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.visa_cost ?? 0}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, visa_cost: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg font-mono font-bold text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-emerald-800 mb-1">Govt Fee</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.govt_fee ?? 0}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, govt_fee: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg font-mono font-bold text-slate-900"
+                />
+              </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Discount</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={editFormData.discount ?? 0}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, discount: Number(e.target.value) })
+                  }
+                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
+                />
+              </div>
+            </div>
+
+            {(() => {
+              const newPayable = Math.max(
+                0,
+                Number(editFormData.admission_fee || 0) +
+                  Number(editFormData.course_fee || 0) +
+                  Number(editFormData.visa_cost || 0) +
+                  Number(editFormData.govt_fee || 0) -
+                  Number(editFormData.discount || 0)
+              );
+              const newDue = Math.max(0, newPayable - (student?.total_paid || 0));
+              const oldDue = student?.total_due || 0;
+              return (
+                <div className="p-2.5 bg-white border border-emerald-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex flex-wrap gap-3 font-mono">
+                    <span>
+                      New Total: <strong>{formatBDT(newPayable)}</strong>
+                    </span>
+                    <span className="text-emerald-700">
+                      Paid: <strong>{formatBDT(student?.total_paid || 0)}</strong>
+                    </span>
+                    <span className="text-rose-700">
+                      New Due: <strong>{formatBDT(newDue)}</strong>
+                    </span>
+                  </div>
+
+                  {newDue > oldDue && (
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] font-semibold text-amber-800">
+                        New Visa Due Date:
+                      </span>
+                      <input
+                        type="date"
+                        value={editFormData.visa_due_date || ''}
+                        onChange={(e) =>
+                          setEditFormData({ ...editFormData, visa_due_date: e.target.value })
+                        }
+                        className="px-2 py-1 border border-amber-300 rounded text-[11px] font-mono text-slate-900"
+                      />
+                    </div>
+                  )}
+                </div>
+              );
+            })()}
           </div>
 
           <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
