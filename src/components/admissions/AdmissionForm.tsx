@@ -20,6 +20,11 @@ import {
 import { formatBDT, formatDate, calculateInstallments } from '@/lib/formatters';
 import { MoneyReceipt } from '@/components/receipt/MoneyReceipt';
 import { Modal } from '@/components/ui/Modal';
+import {
+  AddressSelector,
+  AddressValue,
+  composeAddressString,
+} from '@/components/admissions/AddressSelector';
 
 interface TradeItem {
   _id: string;
@@ -117,6 +122,21 @@ export function AdmissionForm() {
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const [uploadingPassport, setUploadingPassport] = useState(false);
+
+  const [presentAddrObj, setPresentAddrObj] = useState<AddressValue>({
+    district: '',
+    upazila: '',
+    details: '',
+    customDistrict: false,
+    customUpazila: false,
+  });
+  const [permanentAddrObj, setPermanentAddrObj] = useState<AddressValue>({
+    district: '',
+    upazila: '',
+    details: '',
+    customDistrict: false,
+    customUpazila: false,
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successReceipt, setSuccessReceipt] = useState<any | null>(null);
@@ -1039,43 +1059,40 @@ export function AdmissionForm() {
                 </div>
 
                 <div className="sm:col-span-2">
-                  <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                    Present Address *
-                  </label>
-                  <textarea
-                    required
-                    rows={2}
-                    value={formData.present_address}
-                    onChange={(e) => setFormData({ ...formData, present_address: e.target.value })}
-                    placeholder="House/Village, Road, Post, Thana, District"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  <AddressSelector
+                    label="Present Address *"
+                    value={presentAddrObj}
+                    onChange={(next, composed) => {
+                      setPresentAddrObj(next);
+                      setFormData((prev) => ({ ...prev, present_address: composed }));
+                    }}
                   />
                 </div>
 
                 <div className="sm:col-span-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="block text-xs font-semibold text-slate-700 uppercase">
-                      Permanent Address *
-                    </label>
-                    <button
-                      type="button"
-                      onClick={() =>
-                        setFormData({ ...formData, permanent_address: formData.present_address })
-                      }
-                      className="text-xs text-blue-600 hover:underline"
-                    >
-                      Same as present address
-                    </button>
-                  </div>
-                  <textarea
-                    required
-                    rows={2}
-                    value={formData.permanent_address}
-                    onChange={(e) =>
-                      setFormData({ ...formData, permanent_address: e.target.value })
+                  <AddressSelector
+                    label="Permanent Address *"
+                    value={permanentAddrObj}
+                    onChange={(next, composed) => {
+                      setPermanentAddrObj(next);
+                      setFormData((prev) => ({ ...prev, permanent_address: composed }));
+                    }}
+                    headerRight={
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const copied = { ...presentAddrObj };
+                          setPermanentAddrObj(copied);
+                          setFormData((prev) => ({
+                            ...prev,
+                            permanent_address: composeAddressString(copied),
+                          }));
+                        }}
+                        className="text-xs text-blue-600 hover:underline font-medium"
+                      >
+                        Same as present address
+                      </button>
                     }
-                    placeholder="Village, Post Office, Police Station, District"
-                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
                 </div>
               </div>
