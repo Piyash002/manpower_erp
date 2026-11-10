@@ -3,7 +3,7 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, FileText, UserCheck, Clock, Receipt } from 'lucide-react';
+import { ShieldCheck, FileText, UserCheck, CalendarCheck, Wallet } from 'lucide-react';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 export function HrmModuleNav() {
@@ -19,16 +19,16 @@ export function HrmModuleNav() {
       allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
     },
     {
-      label: 'Attendance & Calendar',
-      href: '/attendance',
-      icon: Clock,
+      label: 'Daily Attendance & Leaves',
+      href: '/hrm/attendance',
+      icon: CalendarCheck,
       allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
     },
     {
-      label: 'Payroll & Payslips',
-      href: '/payroll',
-      icon: Receipt,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      label: 'Payroll & Commissions',
+      href: '/hrm/payroll',
+      icon: Wallet,
+      allowed: ['Admin', 'Accountant', 'Viewer'],
     },
     {
       label: 'Users & Staff',

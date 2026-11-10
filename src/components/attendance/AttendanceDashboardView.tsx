@@ -15,6 +15,8 @@ import {
   X,
   UserCheck,
   CalendarPlus,
+  Plus,
+  CheckCheck,
 } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -121,7 +123,7 @@ export function AttendanceDashboardView() {
     reason: '',
   });
 
-  // HR Manual Edit Modal
+  // HR Manual Entry Modal
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
   const [manualForm, setManualForm] = useState({
     employee_id: '',
@@ -212,6 +214,58 @@ export function AttendanceDashboardView() {
     }
   };
 
+  const handleQuickManualMark = async (
+    employeeId: string,
+    status: 'Present' | 'Late' | 'Half-day' | 'Absent'
+  ) => {
+    setBusy(true);
+    setBanner(null);
+    try {
+      const res = await fetch('/api/attendance/punch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'hr_manual',
+          employee_id: employeeId,
+          date: rosterDate,
+          quick_status: status,
+          reason: `Quick manual mark (${status})`,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Quick mark failed');
+      setBanner({ type: 'ok', msg: json.message });
+      loadAll();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleBulkMarkUnmarkedPresent = async () => {
+    setBusy(true);
+    setBanner(null);
+    try {
+      const res = await fetch('/api/attendance/punch', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'hr_bulk_present',
+          date: rosterDate,
+        }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Bulk mark failed');
+      setBanner({ type: 'ok', msg: json.message });
+      loadAll();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleManualSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
@@ -224,10 +278,17 @@ export function AttendanceDashboardView() {
           mode: 'hr_manual',
           employee_id: manualForm.employee_id,
           date: manualForm.date,
-          check_in_time: manualForm.check_in_time || undefined,
-          check_out_time: manualForm.check_out_time || undefined,
+          check_in_time:
+            manualForm.status_override === 'Absent'
+              ? undefined
+              : manualForm.check_in_time || undefined,
+          check_out_time:
+            manualForm.status_override === 'Absent'
+              ? undefined
+              : manualForm.check_out_time || undefined,
           status_override: manualForm.status_override || '',
-          reason: manualForm.reason,
+          quick_status: manualForm.status_override === 'Absent' ? 'Absent' : undefined,
+          reason: manualForm.reason || 'Manual HR attendance entry',
         }),
       });
       const json = await res.json();
@@ -338,6 +399,20 @@ export function AttendanceDashboardView() {
     loadAll();
   };
 
+  const openNewManualModal = () => {
+    const firstEmp = (rosterData?.roster || [])[0]?.employee;
+    setManualForm({
+      employee_id: firstEmp?._id || '',
+      employee_name: firstEmp ? `${firstEmp.firstName} ${firstEmp.lastName}` : '',
+      date: rosterDate,
+      check_in_time: '09:00',
+      check_out_time: '18:00',
+      status_override: '',
+      reason: 'Manual HR attendance entry',
+    });
+    setIsManualModalOpen(true);
+  };
+
   const getStatusBadge = (status?: string) => {
     switch (status) {
       case 'Present':
@@ -381,11 +456,21 @@ export function AttendanceDashboardView() {
             Attendance &amp; Daily Summary
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Schedule-aware punches, overtime &amp; late calculation, corrections, and live roster.
+            Biometric, web check-in, and quick HR manual attendance maintained together in one roster.
           </p>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          {isAdmin && (
+            <button
+              type="button"
+              onClick={openNewManualModal}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              <span>Manual Attendance</span>
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setIsLeaveModalOpen(true)}
@@ -521,7 +606,7 @@ export function AttendanceDashboardView() {
               activeTab === 'roster' ? 'bg-white text-slate-900 shadow-xs' : 'text-slate-600'
             }`}
           >
-            Live Daily Roster
+            Live Roster &amp; Manual Entry
           </button>
         )}
         <button
@@ -564,7 +649,7 @@ export function AttendanceDashboardView() {
         </button>
       </div>
 
-      {/* TAB 1: HR / ADMIN LIVE DAILY ROSTER */}
+      {/* TAB 1: HR / ADMIN LIVE DAILY ROSTER + QUICK MANUAL ATTENDANCE */}
       {activeTab === 'roster' && isAdmin && (
         <div className="space-y-4">
           {/* Controls */}
@@ -602,15 +687,26 @@ export function AttendanceDashboardView() {
               </select>
             </div>
 
-            <button
-              type="button"
-              disabled={busy}
-              onClick={handleAutoMarkAbsent}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:opacity-50"
-            >
-              <UserCheck className="w-3.5 h-3.5" />
-              <span>Run Auto-Mark Absent / Holiday ({rosterDate})</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleBulkMarkUnmarkedPresent}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Mark Unmarked Present</span>
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={handleAutoMarkAbsent}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:opacity-50"
+              >
+                <UserCheck className="w-3.5 h-3.5" />
+                <span>Auto-Mark Absent ({rosterDate})</span>
+              </button>
+            </div>
           </div>
 
           {/* Live Summary Cards */}
@@ -637,19 +733,17 @@ export function AttendanceDashboardView() {
             </div>
           </div>
 
-          {/* Roster Table */}
+          {/* Roster Table with 1-Click Manual Mark + Custom Edit */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
                 <tr>
                   <th className="px-4 py-3">Employee</th>
                   <th className="px-4 py-3">Department</th>
-                  <th className="px-4 py-3">First In</th>
-                  <th className="px-4 py-3">Last Out</th>
+                  <th className="px-4 py-3">First In / Last Out</th>
                   <th className="px-4 py-3 text-right">Worked / OT</th>
-                  <th className="px-4 py-3 text-right">Late (min)</th>
                   <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-right">Manual Edit</th>
+                  <th className="px-4 py-3 text-right">Manual Attendance</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -672,10 +766,7 @@ export function AttendanceDashboardView() {
                         • {row.employee.designation}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-                        {fmtTime(d?.first_in)}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-                        {fmtTime(d?.last_out)}
+                        {fmtTime(d?.first_in)} → {fmtTime(d?.last_out)}
                         {d?.missing_checkout && (
                           <span className="ml-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
                             No Out
@@ -691,36 +782,53 @@ export function AttendanceDashboardView() {
                             (+{d.overtime_hours}h OT)
                           </span>
                         )}
-                      </td>
-                      <td className="px-4 py-3 text-right whitespace-nowrap font-mono text-xs">
-                        {d?.late_minutes > 0 ? (
-                          <span className="text-amber-700 font-bold">{d.late_minutes}m</span>
-                        ) : (
-                          '—'
+                        {d?.late_minutes > 0 && (
+                          <span className="ml-1.5 text-amber-700 font-semibold">
+                            ({d.late_minutes}m late)
+                          </span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         {getStatusBadge(d?.status)}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setManualForm({
-                              employee_id: row.employee._id,
-                              employee_name: `${row.employee.firstName} ${row.employee.lastName}`,
-                              date: rosterDate,
-                              check_in_time: fmtInputTime(d?.first_in) || '09:00',
-                              check_out_time: fmtInputTime(d?.last_out) || '18:00',
-                              status_override: '',
-                              reason: '',
-                            });
-                            setIsManualModalOpen(true);
-                          }}
-                          className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md"
-                        >
-                          <Edit3 className="w-3 h-3" /> Edit
-                        </button>
+                        <div className="inline-flex items-center gap-1">
+                          {(['Present', 'Late', 'Half-day', 'Absent'] as const).map((st) => (
+                            <button
+                              key={st}
+                              type="button"
+                              disabled={busy}
+                              onClick={() => handleQuickManualMark(row.employee._id, st)}
+                              title={`Mark ${st}`}
+                              className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors ${
+                                d?.status === st
+                                  ? 'bg-slate-900 text-white border-slate-900'
+                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                              }`}
+                            >
+                              {st === 'Half-day' ? 'Half' : st}
+                            </button>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setManualForm({
+                                employee_id: row.employee._id,
+                                employee_name: `${row.employee.firstName} ${row.employee.lastName}`,
+                                date: rosterDate,
+                                check_in_time: fmtInputTime(d?.first_in) || '09:00',
+                                check_out_time: fmtInputTime(d?.last_out) || '18:00',
+                                status_override: '',
+                                reason: d?.notes || 'Manual HR attendance edit',
+                              });
+                              setIsManualModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded"
+                            title="Custom Check-In/Out Times"
+                          >
+                            <Edit3 className="w-3 h-3" /> Time
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   );
@@ -1050,6 +1158,198 @@ export function AttendanceDashboardView() {
         </div>
       )}
 
+      {/* HR Manual Entry / Edit Modal (Supports any Employee & Date) */}
+      <Modal
+        isOpen={isManualModalOpen}
+        onClose={() => setIsManualModalOpen(false)}
+        title="Manual Attendance Entry / Edit"
+        description="Maintain daily attendance manually (with In/Out times or status) alongside Biometric logs."
+        maxWidth="md"
+      >
+        <form onSubmit={handleManualSubmit} className="space-y-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Employee *</label>
+              <select
+                required
+                value={manualForm.employee_id}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const found = (rosterData?.roster || []).find(
+                    (r: any) => r.employee._id === id
+                  )?.employee;
+                  setManualForm({
+                    ...manualForm,
+                    employee_id: id,
+                    employee_name: found ? `${found.firstName} ${found.lastName}` : '',
+                  });
+                }}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              >
+                <option value="">Select Employee...</option>
+                {(rosterData?.roster || []).map((r: any) => (
+                  <option key={r.employee._id} value={r.employee._id}>
+                    {r.employee.firstName} {r.employee.lastName} ({r.employee.employee_id})
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+              <input
+                type="date"
+                required
+                value={manualForm.date}
+                onChange={(e) => setManualForm({ ...manualForm, date: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Check In</label>
+              <input
+                type="time"
+                disabled={manualForm.status_override === 'Absent'}
+                value={manualForm.check_in_time}
+                onChange={(e) => setManualForm({ ...manualForm, check_in_time: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono disabled:bg-slate-100"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Check Out</label>
+              <input
+                type="time"
+                disabled={manualForm.status_override === 'Absent'}
+                value={manualForm.check_out_time}
+                onChange={(e) => setManualForm({ ...manualForm, check_out_time: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono disabled:bg-slate-100"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Status Override (Leave blank to auto-calculate from times)
+            </label>
+            <select
+              value={manualForm.status_override}
+              onChange={(e) => setManualForm({ ...manualForm, status_override: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            >
+              <option value="">Auto-calculate from Schedule &amp; Times</option>
+              <option value="Present">Present</option>
+              <option value="Late">Late</option>
+              <option value="Half-day">Half-day</option>
+              <option value="Absent">Absent</option>
+            </select>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">
+              Note / Reason (Optional)
+            </label>
+            <input
+              type="text"
+              value={manualForm.reason}
+              onChange={(e) => setManualForm({ ...manualForm, reason: e.target.value })}
+              placeholder="e.g. Manual HR entry / Field duty"
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsManualModalOpen(false)}
+              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+            >
+              {busy ? 'Saving...' : 'Save Attendance'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Employee Correction Request Modal */}
+      <Modal
+        isOpen={isCorrModalOpen}
+        onClose={() => setIsCorrModalOpen(false)}
+        title="Request Attendance Correction"
+        maxWidth="md"
+      >
+        <form onSubmit={handleSubmitCorrection} className="space-y-4">
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
+            <input
+              type="date"
+              required
+              value={corrForm.date}
+              onChange={(e) => setCorrForm({ ...corrForm, date: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Correct In Time
+              </label>
+              <input
+                type="time"
+                value={corrForm.requested_in_time}
+                onChange={(e) => setCorrForm({ ...corrForm, requested_in_time: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Correct Out Time
+              </label>
+              <input
+                type="time"
+                value={corrForm.requested_out_time}
+                onChange={(e) => setCorrForm({ ...corrForm, requested_out_time: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Reason *</label>
+            <textarea
+              rows={2}
+              required
+              value={corrForm.reason}
+              onChange={(e) => setCorrForm({ ...corrForm, reason: e.target.value })}
+              placeholder="Explain why attendance needs correction..."
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsCorrModalOpen(false)}
+              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy}
+              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+            >
+              Submit Request
+            </button>
+          </div>
+        </form>
+      </Modal>
+
       {/* Leave Request Modal */}
       <Modal
         isOpen={isLeaveModalOpen}
@@ -1144,159 +1444,6 @@ export function AttendanceDashboardView() {
           </div>
         </form>
       </Modal>
-
-      {/* HR Manual Entry Modal */}
-      <Modal
-        isOpen={isManualModalOpen}
-        onClose={() => setIsManualModalOpen(false)}
-        title={`Manual Attendance: ${manualForm.employee_name}`}
-        description={`Date: ${manualForm.date} • Every edit is logged in System Audit Logs`}
-        maxWidth="md"
-      >
-        <form onSubmit={handleManualSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Check In</label>
-              <input
-                type="time"
-                value={manualForm.check_in_time}
-                onChange={(e) => setManualForm({ ...manualForm, check_in_time: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Check Out</label>
-              <input
-                type="time"
-                value={manualForm.check_out_time}
-                onChange={(e) => setManualForm({ ...manualForm, check_out_time: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
-              />
-            </div>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Status Override (Leave blank to auto-calculate from times)
-            </label>
-            <select
-              value={manualForm.status_override}
-              onChange={(e) => setManualForm({ ...manualForm, status_override: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            >
-              <option value="">Auto-calculate from Schedule &amp; Times</option>
-              <option value="Present">Present</option>
-              <option value="Late">Late</option>
-              <option value="Half-day">Half-day</option>
-              <option value="Absent">Absent</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Reason for Manual Entry / Edit *
-            </label>
-            <input
-              type="text"
-              required
-              value={manualForm.reason}
-              onChange={(e) => setManualForm({ ...manualForm, reason: e.target.value })}
-              placeholder="e.g. Forgot biometric punch / Field visit"
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            />
-          </div>
-
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setIsManualModalOpen(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
-            >
-              {busy ? 'Saving...' : 'Save & Recalculate'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* Employee Correction Request Modal */}
-      <Modal
-        isOpen={isCorrModalOpen}
-        onClose={() => setIsCorrModalOpen(false)}
-        title="Request Attendance Correction"
-        maxWidth="md"
-      >
-        <form onSubmit={handleSubmitCorrection} className="space-y-4">
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Date *</label>
-            <input
-              type="date"
-              required
-              value={corrForm.date}
-              onChange={(e) => setCorrForm({ ...corrForm, date: e.target.value })}
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            />
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Correct In Time
-              </label>
-              <input
-                type="time"
-                value={corrForm.requested_in_time}
-                onChange={(e) => setCorrForm({ ...corrForm, requested_in_time: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Correct Out Time
-              </label>
-              <input
-                type="time"
-                value={corrForm.requested_out_time}
-                onChange={(e) => setCorrForm({ ...corrForm, requested_out_time: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
-              />
-            </div>
-          </div>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Reason *</label>
-            <textarea
-              rows={2}
-              required
-              value={corrForm.reason}
-              onChange={(e) => setCorrForm({ ...corrForm, reason: e.target.value })}
-              placeholder="Explain why attendance needs correction..."
-              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-            />
-          </div>
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setIsCorrModalOpen(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
-            >
-              Submit Request
-            </button>
-          </div>
-        </form>
-      </Modal>
     </div>
   );
 }
-

@@ -9,10 +9,14 @@ import {
   normalizeDhakaDate,
   parseDhakaTimeOnDate,
   recomputeDailyAttendance,
+  resolveEmployeeSchedule,
+  getDhakaDayOfWeek,
 } from '@/lib/attendance-engine';
+import { Holiday } from '@/models/Holiday';
+import { Leave } from '@/models/Leave';
 
 interface PunchBody {
-  mode: 'self' | 'hr_manual';
+  mode: 'self' | 'hr_manual' | 'hr_bulk_present';
   punch_type?: PunchType;
   location?: string;
   // HR manual edit fields
@@ -21,6 +25,7 @@ interface PunchBody {
   check_in_time?: string; // HH:mm
   check_out_time?: string; // HH:mm
   status_override?: DailyAttendanceStatus | '';
+  quick_status?: DailyAttendanceStatus;
   reason?: string;
 }
 
@@ -106,7 +111,85 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // 2. HR / Admin Manual Entry & Edit (with mandatory Reason & AuditLog)
+    // 2. HR / Admin Bulk Mark Unmarked Active Employees Present
+    if (body.mode === 'hr_bulk_present') {
+      if (auth.user.role !== 'Admin') {
+        return NextResponse.json(
+          { success: false, message: 'Only Admin/HR can bulk mark attendance.' },
+          { status: 403 }
+        );
+      }
+
+      const { dateObj, dateString } = normalizeDhakaDate(body.date);
+      const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
+      if (holiday) {
+        return NextResponse.json(
+          { success: false, message: `${dateString} is marked as Holiday (${holiday.title}).` },
+          { status: 400 }
+        );
+      }
+
+      const employees = await Employee.find({ status: { $in: ['Active', 'On Leave'] } }).lean();
+      let markedCount = 0;
+
+      for (const emp of employees) {
+        const existing = await DailyAttendance.findOne({ employee_id: emp._id, date: dateObj }).lean();
+        if (existing) continue;
+
+        const schedule = await resolveEmployeeSchedule(emp as any);
+        const dow = getDhakaDayOfWeek(dateString);
+        if (!(schedule.working_days || [0, 1, 2, 3, 4]).includes(dow)) continue;
+
+        const onLeave = await Leave.exists({
+          employee_id: emp._id,
+          status: 'Approved',
+          start_date: { $lte: new Date(dateObj.getTime() + 24 * 60 * 60 * 1000 - 1) },
+          end_date: { $gte: dateObj },
+        });
+        if (onLeave) continue;
+
+        await AttendanceLog.create({
+          employee_id: emp._id,
+          date: dateObj,
+          timestamp: parseDhakaTimeOnDate(dateString, schedule.start_time || '09:00'),
+          punch_type: 'IN',
+          source: 'hr',
+          ip_address: ipAddress,
+          reason: 'Bulk manual HR Present marking',
+          recorded_by: auth.user.name,
+        });
+        await AttendanceLog.create({
+          employee_id: emp._id,
+          date: dateObj,
+          timestamp: parseDhakaTimeOnDate(dateString, schedule.end_time || '18:00'),
+          punch_type: 'OUT',
+          source: 'hr',
+          ip_address: ipAddress,
+          reason: 'Bulk manual HR Present marking',
+          recorded_by: auth.user.name,
+        });
+
+        await recomputeDailyAttendance(emp._id.toString(), dateString, {
+          notes: 'Bulk manual HR attendance',
+        });
+        markedCount++;
+      }
+
+      await createAuditLog({
+        user: auth.user,
+        action: 'ATTENDANCE_BULK_MANUAL_PRESENT',
+        entity: 'DailyAttendance',
+        newValues: { date: dateString, markedCount },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `Marked ${markedCount} unmarked employee(s) Present on ${dateString}.`,
+        data: { date: dateString, markedCount },
+      });
+    }
+
+    // 3. HR / Admin Manual Entry & Edit (with Reason & AuditLog)
     if (auth.user.role !== 'Admin') {
       return NextResponse.json(
         { success: false, message: 'Only Admin/HR can manually record or edit attendance.' },
@@ -114,12 +197,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    if (!body.employee_id || !body.date || !body.reason?.trim()) {
+    if (!body.employee_id || !body.date) {
       return NextResponse.json(
-        { success: false, message: 'employee_id, date, and reason are required for HR manual entry.' },
+        { success: false, message: 'employee_id and date are required for HR manual entry.' },
         { status: 400 }
       );
     }
+
+    const reasonText = body.reason?.trim() || 'Manual HR attendance entry';
 
     const emp = await Employee.findById(body.employee_id);
     if (!emp) {
@@ -135,6 +220,75 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    // Quick status marking from roster row (Present, Late, Half-day, Absent)
+    if (body.quick_status) {
+      await AttendanceLog.deleteMany({ employee_id: emp._id, date: dateObj });
+
+      if (body.quick_status !== 'Absent') {
+        const schedule = await resolveEmployeeSchedule(emp as any);
+        let inTime = schedule.start_time || '09:00';
+        let outTime = schedule.end_time || '18:00';
+
+        if (body.quick_status === 'Late') {
+          const [hh, mm] = inTime.split(':').map(Number);
+          const totalMin = hh * 60 + mm + (schedule.grace_minutes || 10) + 15;
+          inTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+        } else if (body.quick_status === 'Half-day') {
+          const [hh, mm] = inTime.split(':').map(Number);
+          const halfMins = Math.round(((schedule.half_day_hours || 4) - 0.5) * 60);
+          const totalMin = hh * 60 + mm + Math.max(120, halfMins);
+          outTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
+        }
+
+        await AttendanceLog.create({
+          employee_id: emp._id,
+          date: dateObj,
+          timestamp: parseDhakaTimeOnDate(dateString, inTime),
+          punch_type: 'IN',
+          source: 'hr',
+          ip_address: ipAddress,
+          reason: reasonText,
+          recorded_by: auth.user.name,
+        });
+        await AttendanceLog.create({
+          employee_id: emp._id,
+          date: dateObj,
+          timestamp: parseDhakaTimeOnDate(dateString, outTime),
+          punch_type: 'OUT',
+          source: 'hr',
+          ip_address: ipAddress,
+          reason: reasonText,
+          recorded_by: auth.user.name,
+        });
+      }
+
+      const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
+        explicitStatusOverride: body.quick_status,
+        notes: reasonText,
+      });
+
+      await createAuditLog({
+        user: auth.user,
+        action: 'ATTENDANCE_HR_QUICK_MARK',
+        entity: 'DailyAttendance',
+        entityId: updatedDaily._id.toString(),
+        ipAddress,
+        oldValues: oldDaily ? { status: oldDaily.status } : undefined,
+        newValues: {
+          employee_id: emp.employee_id,
+          date: dateString,
+          status: updatedDaily.status,
+          reason: reasonText,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        message: `${emp.firstName} ${emp.lastName} marked ${updatedDaily.status} for ${dateString}.`,
+        data: updatedDaily,
+      });
+    }
+
     // Replace existing manual HR punches on this date if check_in/out times are supplied
     if (body.check_in_time || body.check_out_time) {
       await AttendanceLog.deleteMany({ employee_id: emp._id, date: dateObj });
@@ -147,7 +301,7 @@ export async function POST(req: NextRequest) {
           punch_type: 'IN',
           source: 'hr',
           ip_address: ipAddress,
-          reason: body.reason.trim(),
+          reason: reasonText,
           recorded_by: auth.user.name,
         });
       }
@@ -160,7 +314,7 @@ export async function POST(req: NextRequest) {
           punch_type: 'OUT',
           source: 'hr',
           ip_address: ipAddress,
-          reason: body.reason.trim(),
+          reason: reasonText,
           recorded_by: auth.user.name,
         });
       }
@@ -168,7 +322,7 @@ export async function POST(req: NextRequest) {
 
     const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
       explicitStatusOverride: body.status_override ? body.status_override : undefined,
-      notes: body.reason.trim(),
+      notes: reasonText,
     });
 
     await createAuditLog({
@@ -192,7 +346,7 @@ export async function POST(req: NextRequest) {
         first_in: updatedDaily.first_in,
         last_out: updatedDaily.last_out,
         worked_hours: updatedDaily.worked_hours,
-        reason: body.reason.trim(),
+        reason: reasonText,
       },
     });
 
