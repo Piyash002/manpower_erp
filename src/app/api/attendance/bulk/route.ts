@@ -3,12 +3,11 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Employee } from '@/models/Employee';
 import { DailyAttendance, DailyAttendanceStatus } from '@/models/DailyAttendance';
-import { AttendanceLog } from '@/models/AttendanceLog';
 import {
   getDhakaDateString,
   normalizeDhakaDate,
-  parseDhakaTimeOnDate,
   recomputeDailyAttendance,
+  replaceManualPunchesForDate,
   resolveEmployeeSchedule,
 } from '@/lib/attendance-engine';
 
@@ -137,40 +136,18 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      // Remove existing manual logs for that date to prevent duplicate manual punches
-      await AttendanceLog.deleteMany({
-        employee_id: item.employee_id,
-        date: dateObj,
-        source: { $in: ['Manual', 'hr'] },
-      });
-
       const needsTimes =
         item.status === 'Present' || item.status === 'Late' || item.status === 'Half-day';
 
-      if (needsTimes) {
-        if (item.check_in_time) {
-          await AttendanceLog.create({
-            employee_id: item.employee_id,
-            date: dateObj,
-            timestamp: parseDhakaTimeOnDate(dateString, item.check_in_time),
-            punch_type: 'IN',
-            source: 'Manual',
-            reason: item.remark?.trim() || reasonText,
-            recorded_by: auth.user.name,
-          });
-        }
-        if (item.check_out_time) {
-          await AttendanceLog.create({
-            employee_id: item.employee_id,
-            date: dateObj,
-            timestamp: parseDhakaTimeOnDate(dateString, item.check_out_time),
-            punch_type: 'OUT',
-            source: 'Manual',
-            reason: item.remark?.trim() || reasonText,
-            recorded_by: auth.user.name,
-          });
-        }
-      }
+      await replaceManualPunchesForDate({
+        employeeId: item.employee_id,
+        dateStr: dateString,
+        inTime: needsTimes ? item.check_in_time : undefined,
+        outTime: needsTimes ? item.check_out_time : undefined,
+        clearExistingManual: true,
+        reason: item.remark?.trim() || reasonText,
+        recordedBy: auth.user.name,
+      });
 
       await recomputeDailyAttendance(item.employee_id, dateString, {
         explicitStatusOverride: item.status,

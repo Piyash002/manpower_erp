@@ -18,7 +18,7 @@ import {
   AlertCircle,
   Link2,
 } from 'lucide-react';
-import { formatBDT, formatDate } from '@/lib/formatters';
+import { EMPLOYEE_DEPARTMENTS as DEPARTMENTS, formatBDT, formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
@@ -45,16 +45,6 @@ interface EmployeeRecord {
     role: string;
   } | null;
 }
-
-const DEPARTMENTS = [
-  'Visa',
-  'Training',
-  'Accounts',
-  'Agent',
-  'Counseling',
-  'Administration',
-  'Other',
-] as const;
 
 const STATUS_OPTIONS = ['Active', 'On Leave', 'Inactive', 'Terminated'] as const;
 

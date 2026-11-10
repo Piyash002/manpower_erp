@@ -1,7 +1,8 @@
+import mongoose from 'mongoose';
 import { Employee, IEmployee } from '@/models/Employee';
 import { WorkingSchedule, IWorkingSchedule } from '@/models/WorkingSchedule';
 import { Holiday } from '@/models/Holiday';
-import { AttendanceLog } from '@/models/AttendanceLog';
+import { AttendanceLog, PunchType } from '@/models/AttendanceLog';
 import {
   DailyAttendance,
   DailyAttendanceStatus,
@@ -26,6 +27,11 @@ export function normalizeAttendanceSource(raw?: string): AttendanceSource {
     default:
       return 'Self Check-in';
   }
+}
+
+export function normalizePunchType(raw?: string | number | null): PunchType {
+  const s = String(raw ?? '').trim().toUpperCase();
+  return s === 'OUT' || s === '1' || s === 'CHECKOUT' || s === 'CHECK-OUT' ? 'OUT' : 'IN';
 }
 
 export function getDhakaDateString(d: Date = new Date()): string {
@@ -55,6 +61,23 @@ export function parseDhakaTimeOnDate(dateString: string, hhmm: string): Date {
   const [y, m, d] = dateString.split('-').map(Number);
   const [hh, mm] = (hhmm || '09:00').split(':').map(Number);
   return new Date(Date.UTC(y, m - 1, d, (hh || 0) - 6, mm || 0, 0, 0));
+}
+
+/**
+ * Build In/Out timestamps on a Dhaka date; if check-out time is earlier than
+ * or equal to check-in time (night shift crossing midnight), shift Out by +24h.
+ */
+export function buildManualPunchPairTimestamps(
+  dateString: string,
+  inHHMM?: string,
+  outHHMM?: string
+): { inTs: Date | null; outTs: Date | null } {
+  const inTs = inHHMM ? parseDhakaTimeOnDate(dateString, inHHMM) : null;
+  let outTs = outHHMM ? parseDhakaTimeOnDate(dateString, outHHMM) : null;
+  if (inTs && outTs && outTs <= inTs) {
+    outTs = new Date(outTs.getTime() + 24 * 60 * 60 * 1000);
+  }
+  return { inTs, outTs };
 }
 
 export interface RawPunchLite {
@@ -121,7 +144,12 @@ export function extractFirstInLastOut(punches: RawPunchLite[]): {
 }
 
 export async function resolveEmployeeSchedule(
-  emp: Partial<IEmployee> & { _id?: any; department?: string; shift?: string; schedule_id?: any }
+  emp: Partial<IEmployee> & {
+    _id?: mongoose.Types.ObjectId | string;
+    department?: string;
+    shift?: string;
+    schedule_id?: mongoose.Types.ObjectId | string | null;
+  }
 ): Promise<IWorkingSchedule> {
   await ensureAttendanceSeeded();
 
@@ -139,6 +167,15 @@ export async function resolveEmployeeSchedule(
     if (shiftDeptSched) return shiftDeptSched as unknown as IWorkingSchedule;
   }
 
+  if (emp.shift && emp.shift !== 'Regular') {
+    const shiftGlobalSched = await WorkingSchedule.findOne({
+      shift: emp.shift,
+      department: { $in: ['', null] },
+      active: true,
+    }).lean();
+    if (shiftGlobalSched) return shiftGlobalSched as unknown as IWorkingSchedule;
+  }
+
   if (emp.department) {
     const deptSched = await WorkingSchedule.findOne({
       department: emp.department,
@@ -153,6 +190,159 @@ export async function resolveEmployeeSchedule(
   const anySched = await WorkingSchedule.findOne({ active: true }).lean();
   if (!anySched) throw new Error('No Working Schedule configured.');
   return anySched as unknown as IWorkingSchedule;
+}
+
+/**
+ * Shared idempotent manual punch replacer (preserves biometric & self punches).
+ */
+export async function replaceManualPunchesForDate(params: {
+  employeeId: string;
+  dateStr: string;
+  inTime?: string;
+  outTime?: string;
+  inTimestamp?: Date | null;
+  outTimestamp?: Date | null;
+  clearExistingManual?: boolean;
+  reason: string;
+  recordedBy: string;
+  ipAddress?: string;
+}) {
+  const { dateObj, dateString } = normalizeDhakaDate(params.dateStr);
+
+  if (params.clearExistingManual !== false) {
+    await AttendanceLog.deleteMany({
+      employee_id: params.employeeId,
+      date: dateObj,
+      source: { $in: ['Manual', 'hr'] },
+    });
+  }
+
+  const pair =
+    params.inTimestamp !== undefined || params.outTimestamp !== undefined
+      ? { inTs: params.inTimestamp || null, outTs: params.outTimestamp || null }
+      : buildManualPunchPairTimestamps(dateString, params.inTime, params.outTime);
+
+  if (pair.inTs) {
+    await AttendanceLog.create({
+      employee_id: params.employeeId,
+      date: dateObj,
+      timestamp: pair.inTs,
+      punch_type: 'IN',
+      source: 'Manual',
+      ip_address: params.ipAddress || '',
+      reason: params.reason,
+      recorded_by: params.recordedBy,
+    });
+  }
+
+  if (pair.outTs) {
+    await AttendanceLog.create({
+      employee_id: params.employeeId,
+      date: dateObj,
+      timestamp: pair.outTs,
+      punch_type: 'OUT',
+      source: 'Manual',
+      ip_address: params.ipAddress || '',
+      reason: params.reason,
+      recorded_by: params.recordedBy,
+    });
+  }
+}
+
+export interface RawPunchIngestItem {
+  code: string;
+  timestamp: Date;
+  punchType: PunchType;
+  source: 'Biometric' | 'Import';
+  location?: string;
+  reason?: string;
+  recordedBy: string;
+  deviceId?: mongoose.Types.ObjectId | string | null;
+  rawLine?: string;
+}
+
+/**
+ * Shared duplicate-safe raw punch ingestion used by biometric push, device pull, and CSV/.dat import.
+ */
+export async function ingestRawPunches(items: RawPunchIngestItem[]) {
+  const employees = await Employee.find({})
+    .select('_id employee_id biometric_id')
+    .lean();
+
+  const empByCode = new Map<string, mongoose.Types.ObjectId>();
+  for (const e of employees) {
+    empByCode.set(e.employee_id.toUpperCase(), e._id as mongoose.Types.ObjectId);
+    if (e.biometric_id) {
+      empByCode.set(e.biometric_id.toUpperCase(), e._id as mongoose.Types.ObjectId);
+    }
+  }
+
+  let matchedCount = 0;
+  let unmatchedCount = 0;
+  let skippedDuplicates = 0;
+  const impacted = new Set<string>();
+  const errors: string[] = [];
+
+  for (const item of items) {
+    const cleanCode = item.code.trim().toUpperCase();
+    const empObjId = empByCode.get(cleanCode) || null;
+    const dateStr = getDhakaDateString(item.timestamp);
+    const { dateObj } = normalizeDhakaDate(dateStr);
+
+    const dupExists = await AttendanceLog.exists({
+      biometric_id: cleanCode,
+      timestamp: item.timestamp,
+      punch_type: item.punchType,
+      source: item.source,
+    });
+    if (dupExists) {
+      skippedDuplicates++;
+      continue;
+    }
+
+    await AttendanceLog.create({
+      employee_id: empObjId,
+      biometric_id: cleanCode,
+      device_id: item.deviceId || null,
+      matched: Boolean(empObjId),
+      date: dateObj,
+      timestamp: item.timestamp,
+      punch_type: item.punchType,
+      source: item.source,
+      location: item.location || '',
+      reason: item.reason || `${item.source} log`,
+      recorded_by: item.recordedBy,
+      raw_line: item.rawLine || '',
+    });
+
+    if (empObjId) {
+      matchedCount++;
+      impacted.add(`${empObjId.toString()}|${dateStr}`);
+    } else {
+      unmatchedCount++;
+    }
+  }
+
+  let recomputedDays = 0;
+  for (const pair of impacted) {
+    const [empId, dateStr] = pair.split('|');
+    const sourceSample = items.find((i) => i.source === 'Import') ? 'Import' : 'Biometric';
+    try {
+      await recomputeDailyAttendance(empId, dateStr, { preferredSource: sourceSample });
+      recomputedDays++;
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      errors.push(`${dateStr}: ${msg}`);
+    }
+  }
+
+  return {
+    matchedCount,
+    unmatchedCount,
+    skippedDuplicates,
+    recomputedDays,
+    errors,
+  };
 }
 
 export async function recomputeDailyAttendance(
@@ -191,25 +381,25 @@ export async function recomputeDailyAttendance(
   }).lean();
 
   // Fetch raw logs (supporting night shift cross-midnight window if enabled)
-  let rawLogs: any[];
+  let rawLogs: RawPunchLite[];
   if (schedule.is_night_shift) {
     const shiftStartWindow = parseDhakaTimeOnDate(dateString, '12:00');
     const shiftEndWindow = new Date(shiftStartWindow.getTime() + 24 * 60 * 60 * 1000);
-    rawLogs = await AttendanceLog.find({
+    rawLogs = (await AttendanceLog.find({
       employee_id: employeeId,
       matched: true,
       timestamp: { $gte: shiftStartWindow, $lt: shiftEndWindow },
     })
       .sort({ timestamp: 1 })
-      .lean();
+      .lean()) as unknown as RawPunchLite[];
   } else {
-    rawLogs = await AttendanceLog.find({
+    rawLogs = (await AttendanceLog.find({
       employee_id: employeeId,
       matched: true,
       date: dateObj,
     })
       .sort({ timestamp: 1 })
-      .lean();
+      .lean()) as unknown as RawPunchLite[];
   }
 
   const dedupWindow = schedule.duplicate_punch_window_minutes ?? 5;
@@ -245,12 +435,21 @@ export async function recomputeDailyAttendance(
     conflictDetails = `Manual (${fmt(manualPair.firstIn)}–${fmt(manualPair.lastOut)}) vs Biometric (${fmt(bioPair.firstIn)}–${fmt(bioPair.lastOut)})`;
   }
 
+  const isForcedNonWorkingStatus =
+    options?.explicitStatusOverride === 'Absent' ||
+    options?.explicitStatusOverride === 'Leave' ||
+    options?.explicitStatusOverride === 'Holiday' ||
+    options?.explicitStatusOverride === 'Weekend';
+
   // Apply configurable priority rule (default: Manual priority over Biometric)
   const manualWins = schedule.manual_priority_over_biometric !== false;
   let activeLogs = dedupedLogs;
   let resolvedSource: AttendanceSource = options?.preferredSource || 'Manual';
 
-  if (hasManual && hasBiometric) {
+  if (isForcedNonWorkingStatus) {
+    activeLogs = [];
+    resolvedSource = options?.preferredSource || 'Manual';
+  } else if (hasManual && hasBiometric) {
     activeLogs = manualWins ? manualLogs : biometricLogs;
     resolvedSource = manualWins ? 'Manual' : 'Biometric';
   } else if (hasManual) {
@@ -288,13 +487,13 @@ export async function recomputeDailyAttendance(
     }
   }
 
-  // Overtime calculation
+  // Overtime calculation (Holiday/Weekend work earns full overtime BEFORE standard threshold check)
   let overtimeHours = 0;
   const otThreshold = schedule.overtime_after_hours || schedule.standard_hours || 8;
-  if (workedHours > otThreshold) {
-    overtimeHours = Math.round((workedHours - otThreshold) * 100) / 100;
-  } else if (firstIn && lastOut && (!isWorkingDay || Boolean(holiday))) {
+  if (firstIn && lastOut && (!isWorkingDay || Boolean(holiday))) {
     overtimeHours = workedHours;
+  } else if (workedHours > otThreshold) {
+    overtimeHours = Math.round((workedHours - otThreshold) * 100) / 100;
   }
 
   const hasPunch = activeLogs.length > 0;
@@ -321,10 +520,11 @@ export async function recomputeDailyAttendance(
     status = 'Absent';
   }
 
-  const leaveIsPaid = approvedLeave
-    ? (approvedLeave as any).is_paid !== undefined
-      ? Boolean((approvedLeave as any).is_paid)
-      : approvedLeave.leave_type !== 'Unpaid'
+  const leaveMeta = approvedLeave as unknown as { is_paid?: boolean; leave_type?: string } | null;
+  const leaveIsPaid = leaveMeta
+    ? leaveMeta.is_paid !== undefined
+      ? Boolean(leaveMeta.is_paid)
+      : leaveMeta.leave_type !== 'Unpaid'
     : null;
 
   const updatePayload = {

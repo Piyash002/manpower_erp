@@ -7,8 +7,8 @@ import { DailyAttendance, DailyAttendanceStatus } from '@/models/DailyAttendance
 import {
   getDhakaDateString,
   normalizeDhakaDate,
-  parseDhakaTimeOnDate,
   recomputeDailyAttendance,
+  replaceManualPunchesForDate,
   resolveEmployeeSchedule,
   getDhakaDayOfWeek,
 } from '@/lib/attendance-engine';
@@ -150,25 +150,15 @@ export async function POST(req: NextRequest) {
         });
         if (onLeave) continue;
 
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, schedule.start_time || '09:00'),
-          punch_type: 'IN',
-          source: 'Manual',
-          ip_address: ipAddress,
+        await replaceManualPunchesForDate({
+          employeeId: emp._id.toString(),
+          dateStr: dateString,
+          inTime: schedule.start_time || '09:00',
+          outTime: schedule.end_time || '18:00',
+          clearExistingManual: true,
           reason: 'Bulk manual HR Present marking',
-          recorded_by: auth.user.name,
-        });
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, schedule.end_time || '18:00'),
-          punch_type: 'OUT',
-          source: 'Manual',
-          ip_address: ipAddress,
-          reason: 'Bulk manual HR Present marking',
-          recorded_by: auth.user.name,
+          recordedBy: auth.user.name,
+          ipAddress,
         });
 
         await recomputeDailyAttendance(emp._id.toString(), dateString, {
@@ -224,16 +214,13 @@ export async function POST(req: NextRequest) {
 
     // Quick status marking from roster row (Present, Late, Half-day, Absent)
     if (body.quick_status) {
-      await AttendanceLog.deleteMany({
-        employee_id: emp._id,
-        date: dateObj,
-        source: { $in: ['Manual', 'hr'] },
-      });
+      let inTime: string | undefined;
+      let outTime: string | undefined;
 
       if (body.quick_status !== 'Absent') {
         const schedule = await resolveEmployeeSchedule(emp as any);
-        let inTime = schedule.start_time || '09:00';
-        let outTime = schedule.end_time || '18:00';
+        inTime = schedule.start_time || '09:00';
+        outTime = schedule.end_time || '18:00';
 
         if (body.quick_status === 'Late') {
           const [hh, mm] = inTime.split(':').map(Number);
@@ -245,28 +232,18 @@ export async function POST(req: NextRequest) {
           const totalMin = hh * 60 + mm + Math.max(120, halfMins);
           outTime = `${String(Math.floor(totalMin / 60)).padStart(2, '0')}:${String(totalMin % 60).padStart(2, '0')}`;
         }
-
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, inTime),
-          punch_type: 'IN',
-          source: 'Manual',
-          ip_address: ipAddress,
-          reason: reasonText,
-          recorded_by: auth.user.name,
-        });
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, outTime),
-          punch_type: 'OUT',
-          source: 'Manual',
-          ip_address: ipAddress,
-          reason: reasonText,
-          recorded_by: auth.user.name,
-        });
       }
+
+      await replaceManualPunchesForDate({
+        employeeId: emp._id.toString(),
+        dateStr: dateString,
+        inTime,
+        outTime,
+        clearExistingManual: true,
+        reason: reasonText,
+        recordedBy: auth.user.name,
+        ipAddress,
+      });
 
       const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
         explicitStatusOverride: body.quick_status,
@@ -298,37 +275,16 @@ export async function POST(req: NextRequest) {
 
     // Replace existing manual HR punches on this date (preserving biometric logs!) if check_in/out times are supplied
     if (body.check_in_time || body.check_out_time) {
-      await AttendanceLog.deleteMany({
-        employee_id: emp._id,
-        date: dateObj,
-        source: { $in: ['Manual', 'hr'] },
+      await replaceManualPunchesForDate({
+        employeeId: emp._id.toString(),
+        dateStr: dateString,
+        inTime: body.check_in_time,
+        outTime: body.check_out_time,
+        clearExistingManual: true,
+        reason: reasonText,
+        recordedBy: auth.user.name,
+        ipAddress,
       });
-
-      if (body.check_in_time) {
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, body.check_in_time),
-          punch_type: 'IN',
-          source: 'Manual',
-          ip_address: ipAddress,
-          reason: reasonText,
-          recorded_by: auth.user.name,
-        });
-      }
-
-      if (body.check_out_time) {
-        await AttendanceLog.create({
-          employee_id: emp._id,
-          date: dateObj,
-          timestamp: parseDhakaTimeOnDate(dateString, body.check_out_time),
-          punch_type: 'OUT',
-          source: 'Manual',
-          ip_address: ipAddress,
-          reason: reasonText,
-          recorded_by: auth.user.name,
-        });
-      }
     }
 
     const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {

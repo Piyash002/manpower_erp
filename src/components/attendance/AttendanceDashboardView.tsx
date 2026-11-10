@@ -18,7 +18,13 @@ import {
   Plus,
   CheckCheck,
 } from 'lucide-react';
-import { formatDate } from '@/lib/formatters';
+import {
+  EMPLOYEE_DEPARTMENTS,
+  formatDate,
+  formatTimeDhaka,
+  getTodayDhaka,
+  toDhakaTimeInput,
+} from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
@@ -38,46 +44,14 @@ const MONTHS = [
   'December',
 ];
 
-const DEPARTMENTS = [
-  'all',
-  'Visa',
-  'Training',
-  'Accounts',
-  'Agent',
-  'Counseling',
-  'Administration',
-  'Other',
-];
-
-function fmtTime(iso?: string | null): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('en-US', {
-    timeZone: 'Asia/Dhaka',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-function fmtInputTime(iso?: string | null): string {
-  if (!iso) return '';
-  const d = new Date(iso);
-  if (isNaN(d.getTime())) return '';
-  return new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Dhaka',
-    hour: '2-digit',
-    minute: '2-digit',
-    hour12: false,
-  }).format(d);
-}
+const DEPARTMENTS = ['all', ...EMPLOYEE_DEPARTMENTS];
 
 export function AttendanceDashboardView() {
   const { user } = useAuth();
   const isAdmin = user?.role === 'Admin';
 
   const now = new Date();
-  const todayDhaka = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Dhaka' }).format(now);
+  const todayDhaka = getTodayDhaka();
 
   const [activeTab, setActiveTab] = useState<'my' | 'roster' | 'range' | 'corrections' | 'leaves'>(
     isAdmin ? 'roster' : 'my'
@@ -186,7 +160,13 @@ export function AttendanceDashboardView() {
   };
 
   useEffect(() => {
-    loadAll();
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) loadAll();
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [myMonth, myYear, rosterDate, rosterDept, rosterStatus, rosterSource, rangeStart, rangeEnd, isAdmin]);
 
@@ -524,7 +504,7 @@ export function AttendanceDashboardView() {
                   Today ({todayDhaka}):{' '}
                   {todayRec ? (
                     <span className="font-semibold text-slate-800">
-                      First In: {fmtTime(todayRec.first_in)} • Last Out: {fmtTime(todayRec.last_out)}{' '}
+                      First In: {formatTimeDhaka(todayRec.first_in)} • Last Out: {formatTimeDhaka(todayRec.last_out)}{' '}
                       • Worked: {todayRec.worked_hours || 0}h •{' '}
                       <span className="text-emerald-700">{todayRec.status}</span>
                     </span>
@@ -779,7 +759,7 @@ export function AttendanceDashboardView() {
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
                         <div>
-                          {fmtTime(d?.first_in)} → {fmtTime(d?.last_out)}
+                          {formatTimeDhaka(d?.first_in)} → {formatTimeDhaka(d?.last_out)}
                           {d?.missing_checkout && (
                             <span className="ml-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
                               No Out
@@ -791,7 +771,7 @@ export function AttendanceDashboardView() {
                             title={d?.conflict_details || 'Manual vs Biometric time difference'}
                             className="mt-0.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1"
                           >
-                            <span>Conflict: M({fmtTime(d.manual_first_in)}) / B({fmtTime(d.biometric_first_in)})</span>
+                            <span>Conflict: M({formatTimeDhaka(d.manual_first_in)}) / B({formatTimeDhaka(d.biometric_first_in)})</span>
                           </div>
                         )}
                       </td>
@@ -845,8 +825,8 @@ export function AttendanceDashboardView() {
                                 employee_id: row.employee._id,
                                 employee_name: `${row.employee.firstName} ${row.employee.lastName}`,
                                 date: rosterDate,
-                                check_in_time: fmtInputTime(d?.first_in) || '09:00',
-                                check_out_time: fmtInputTime(d?.last_out) || '18:00',
+                                check_in_time: toDhakaTimeInput(d?.first_in) || '09:00',
+                                check_out_time: toDhakaTimeInput(d?.last_out) || '18:00',
                                 status_override: '',
                                 reason: d?.notes || 'Manual HR attendance edit',
                               });
@@ -935,8 +915,8 @@ export function AttendanceDashboardView() {
                       <td className="px-4 py-3 font-semibold text-slate-800 text-xs">
                         {formatDate(d.date)}
                       </td>
-                      <td className="px-4 py-3 font-mono text-xs">{fmtTime(d.first_in)}</td>
-                      <td className="px-4 py-3 font-mono text-xs">{fmtTime(d.last_out)}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{formatTimeDhaka(d.first_in)}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{formatTimeDhaka(d.last_out)}</td>
                       <td className="px-4 py-3 text-right font-mono text-xs font-semibold">
                         {d.worked_hours || 0}h
                       </td>
@@ -1029,7 +1009,7 @@ export function AttendanceDashboardView() {
                     </td>
                     <td className="px-4 py-3">{rec.employee_id?.department}</td>
                     <td className="px-4 py-3 font-mono">
-                      <div>{fmtTime(rec.first_in)} → {fmtTime(rec.last_out)}</div>
+                      <div>{formatTimeDhaka(rec.first_in)} → {formatTimeDhaka(rec.last_out)}</div>
                       {rec.has_manual_biometric_conflict && (
                         <div className="text-[10px] text-amber-700 font-sans">
                           {rec.conflict_details || 'Manual/Biometric conflict'}
@@ -1086,7 +1066,7 @@ export function AttendanceDashboardView() {
                     </td>
                     <td className="px-4 py-3">{formatDate(c.date)}</td>
                     <td className="px-4 py-3 font-mono">
-                      In: {fmtTime(c.requested_in)} • Out: {fmtTime(c.requested_out)}
+                      In: {formatTimeDhaka(c.requested_in)} • Out: {formatTimeDhaka(c.requested_out)}
                     </td>
                     <td className="px-4 py-3 max-w-xs truncate">{c.reason}</td>
                     <td className="px-4 py-3 text-center">

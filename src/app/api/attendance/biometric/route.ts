@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getCurrentUser, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
-import { Employee } from '@/models/Employee';
-import { BiometricDevice } from '@/models/BiometricDevice';
+import { BiometricDevice, IBiometricDevice } from '@/models/BiometricDevice';
 import { DeviceSyncLog } from '@/models/DeviceSyncLog';
-import { AttendanceLog, PunchType } from '@/models/AttendanceLog';
+import { PunchType } from '@/models/AttendanceLog';
 import {
-  getDhakaDateString,
-  normalizeDhakaDate,
-  recomputeDailyAttendance,
+  ingestRawPunches,
+  normalizePunchType,
+  RawPunchIngestItem,
 } from '@/lib/attendance-engine';
 
 interface BiometricPushBody {
@@ -17,7 +16,7 @@ interface BiometricPushBody {
     biometric_id?: string;
     employee_id?: string;
     timestamp: string;
-    punch_type: PunchType;
+    punch_type?: PunchType | string;
   }>;
 }
 
@@ -29,9 +28,12 @@ export async function POST(req: NextRequest) {
   const expectedSecret = process.env.BIOMETRIC_SECRET || 'dreams-erp-biometric-2026';
   const user = getCurrentUser(req);
 
-  let matchedDevice: any = null;
+  let matchedDevice: IBiometricDevice | null = null;
   if (deviceToken) {
-    matchedDevice = await BiometricDevice.findOne({ device_token: deviceToken, status: { $ne: 'Inactive' } });
+    matchedDevice = await BiometricDevice.findOne({
+      device_token: deviceToken,
+      status: { $ne: 'Inactive' },
+    });
   }
 
   const authorized =
@@ -41,7 +43,10 @@ export async function POST(req: NextRequest) {
 
   if (!authorized) {
     return NextResponse.json(
-      { success: false, message: 'Unauthorized biometric push. Provide valid x-device-token or x-biometric-secret.' },
+      {
+        success: false,
+        message: 'Unauthorized biometric push. Provide valid x-device-token or x-biometric-secret.',
+      },
       { status: 401 }
     );
   }
@@ -58,10 +63,11 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    let matchedCount = 0;
-    let unmatchedCount = 0;
-    const impacted = new Set<string>();
     const errors: string[] = [];
+    const validItems: RawPunchIngestItem[] = [];
+    const deviceLabel =
+      matchedDevice?.location || matchedDevice?.name || body.device_id || 'Biometric Terminal';
+    const recorder = matchedDevice?.name || user?.name || body.device_id || 'Biometric Device';
 
     for (const entry of body.logs) {
       const code = String(entry.biometric_id || entry.employee_id || '')
@@ -78,41 +84,20 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const emp = await Employee.findOne({
-        $or: [{ biometric_id: code }, { employee_id: code }],
-      }).lean();
-
-      const dateStr = getDhakaDateString(ts);
-      const { dateObj } = normalizeDhakaDate(dateStr);
-
-      await AttendanceLog.create({
-        employee_id: emp ? emp._id : null,
-        biometric_id: code,
-        device_id: matchedDevice ? matchedDevice._id : null,
-        matched: Boolean(emp),
-        date: dateObj,
+      validItems.push({
+        code,
         timestamp: ts,
-        punch_type: entry.punch_type === 'OUT' ? 'OUT' : 'IN',
+        punchType: normalizePunchType(entry.punch_type),
         source: 'Biometric',
-        location: matchedDevice?.location || matchedDevice?.name || body.device_id || 'Biometric Terminal',
+        location: deviceLabel,
         reason: 'Biometric device push',
-        recorded_by: matchedDevice?.name || user?.name || body.device_id || 'Biometric Device',
+        recordedBy: recorder,
+        deviceId: matchedDevice ? matchedDevice._id : null,
       });
-
-      if (emp) {
-        matchedCount++;
-        impacted.add(`${emp._id.toString()}|${dateStr}`);
-      } else {
-        unmatchedCount++;
-      }
     }
 
-    for (const pair of impacted) {
-      const [empId, dateStr] = pair.split('|');
-      await recomputeDailyAttendance(empId, dateStr, { preferredSource: 'Biometric' }).catch((e) =>
-        errors.push(e.message)
-      );
-    }
+    const ingestResult = await ingestRawPunches(validItems);
+    const allErrors = [...errors, ...ingestResult.errors];
 
     if (matchedDevice) {
       matchedDevice.last_sync_at = new Date();
@@ -125,10 +110,15 @@ export async function POST(req: NextRequest) {
       device_name: matchedDevice?.name || body.device_id || 'Biometric Push',
       sync_type: 'push',
       records_fetched: body.logs.length,
-      records_matched: matchedCount,
-      unmatched_count: unmatchedCount,
-      errors,
-      status: errors.length > 0 && matchedCount === 0 ? 'Failed' : errors.length > 0 ? 'Partial' : 'Success',
+      records_matched: ingestResult.matchedCount,
+      unmatched_count: ingestResult.unmatchedCount,
+      errors: allErrors,
+      status:
+        allErrors.length > 0 && ingestResult.matchedCount === 0
+          ? 'Failed'
+          : allErrors.length > 0
+          ? 'Partial'
+          : 'Success',
       triggered_by: user?.name || matchedDevice?.name || 'Device Push',
     });
 
@@ -138,21 +128,28 @@ export async function POST(req: NextRequest) {
       entity: 'AttendanceLog',
       newValues: {
         device: matchedDevice?.name || body.device_id || 'Biometric Push',
-        matchedCount,
-        unmatchedCount,
-        errors: errors.length,
+        matchedCount: ingestResult.matchedCount,
+        unmatchedCount: ingestResult.unmatchedCount,
+        skippedDuplicates: ingestResult.skippedDuplicates,
+        errors: allErrors.length,
       },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Processed ${matchedCount} matched and ${unmatchedCount} unmatched biometric punch(es).`,
-      data: { matchedCount, unmatchedCount, recomputedDays: impacted.size, errors },
+      message: `Processed ${ingestResult.matchedCount} matched, ${ingestResult.unmatchedCount} unmatched biometric punch(es)${
+        ingestResult.skippedDuplicates ? `, skipped ${ingestResult.skippedDuplicates} duplicate(s)` : ''
+      }.`,
+      data: {
+        matchedCount: ingestResult.matchedCount,
+        unmatchedCount: ingestResult.unmatchedCount,
+        skippedDuplicates: ingestResult.skippedDuplicates,
+        recomputedDays: ingestResult.recomputedDays,
+        errors: allErrors,
+      },
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Biometric push failed' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Biometric push failed';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }

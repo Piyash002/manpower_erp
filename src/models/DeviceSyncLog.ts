@@ -39,7 +39,7 @@ const DeviceSyncLogSchema = new Schema<IDeviceSyncLog>(
     },
     triggered_by: { type: String, default: 'System' },
   },
-  { timestamps: true }
+  { timestamps: true, suppressReservedKeysWarning: true }
 );
 
 export const DeviceSyncLog: Model<IDeviceSyncLog> =

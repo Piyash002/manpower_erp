@@ -29,6 +29,14 @@ export async function GET(req: NextRequest) {
     const filter: Record<string, any> = {};
     if (status && status !== 'all') filter.status = status;
 
+    if (auth.user.role !== 'Admin') {
+      const myEmp = await Employee.findOne({ userId: auth.user.userId }).select('_id').lean();
+      if (!myEmp) {
+        return NextResponse.json({ success: true, data: [] });
+      }
+      filter.employee_id = myEmp._id;
+    }
+
     const leaves = await Leave.find(filter)
       .populate('employee_id', 'employee_id firstName lastName department designation')
       .sort({ createdAt: -1 })

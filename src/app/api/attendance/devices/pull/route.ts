@@ -4,12 +4,10 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { BiometricDevice } from '@/models/BiometricDevice';
 import { DeviceSyncLog } from '@/models/DeviceSyncLog';
-import { Employee } from '@/models/Employee';
-import { AttendanceLog } from '@/models/AttendanceLog';
 import {
-  getDhakaDateString,
-  normalizeDhakaDate,
-  recomputeDailyAttendance,
+  ingestRawPunches,
+  normalizePunchType,
+  RawPunchIngestItem,
 } from '@/lib/attendance-engine';
 
 function checkTcpReachable(host: string, port: number, timeoutMs = 2500): Promise<boolean> {
@@ -57,12 +55,8 @@ export async function POST(req: NextRequest) {
     }
 
     const errors: string[] = [];
-    let fetched = 0;
-    let matched = 0;
-    let unmatched = 0;
-
-    // 1. If device has an HTTP pull_url configured, attempt live HTTP JSON pull
     let pulledLogs: Array<{ biometric_id: string; timestamp: string; punch_type?: string }> = [];
+
     if (device.pull_url) {
       try {
         const resp = await fetch(device.pull_url, {
@@ -73,16 +67,13 @@ export async function POST(req: NextRequest) {
           throw new Error(`HTTP ${resp.status} from device pull endpoint`);
         }
         const json = await resp.json();
-        if (Array.isArray(json.logs)) {
-          pulledLogs = json.logs;
-        } else if (Array.isArray(json)) {
-          pulledLogs = json;
-        }
-      } catch (e: any) {
-        errors.push(`Pull URL unreachable: ${e.message}`);
+        if (Array.isArray(json.logs)) pulledLogs = json.logs;
+        else if (Array.isArray(json)) pulledLogs = json;
+      } catch (e: unknown) {
+        const msg = e instanceof Error ? e.message : String(e);
+        errors.push(`Pull URL unreachable: ${msg}`);
       }
     } else {
-      // Otherwise probe raw TCP socket on ZKTeco/Hikvision IP:Port
       const reachable = await checkTcpReachable(device.ip_address, device.port || 4370);
       if (!reachable) {
         device.status = 'Offline';
@@ -93,65 +84,47 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    const impacted = new Set<string>();
+    const validItems: RawPunchIngestItem[] = [];
     for (const item of pulledLogs) {
-      fetched++;
       const bioCode = String(item.biometric_id || '').trim().toUpperCase();
       const ts = new Date(item.timestamp);
       if (!bioCode || isNaN(ts.getTime())) {
         errors.push(`Invalid log entry: ${JSON.stringify(item)}`);
         continue;
       }
-
-      const emp = await Employee.findOne({
-        $or: [{ biometric_id: bioCode }, { employee_id: bioCode }],
-      }).lean();
-
-      const dateStr = getDhakaDateString(ts);
-      const { dateObj } = normalizeDhakaDate(dateStr);
-
-      await AttendanceLog.create({
-        employee_id: emp ? emp._id : null,
-        biometric_id: bioCode,
-        device_id: device._id,
-        matched: Boolean(emp),
-        date: dateObj,
+      validItems.push({
+        code: bioCode,
         timestamp: ts,
-        punch_type: item.punch_type?.toUpperCase() === 'OUT' ? 'OUT' : 'IN',
+        punchType: normalizePunchType(item.punch_type),
         source: 'Biometric',
         location: device.location || device.name,
         reason: `Pulled from ${device.name}`,
-        recorded_by: auth.user.name,
+        recordedBy: auth.user.name,
+        deviceId: device._id,
       });
-
-      if (emp) {
-        matched++;
-        impacted.add(`${emp._id.toString()}|${dateStr}`);
-      } else {
-        unmatched++;
-      }
     }
 
-    for (const pair of impacted) {
-      const [empId, dateStr] = pair.split('|');
-      await recomputeDailyAttendance(empId, dateStr, { preferredSource: 'Biometric' }).catch((e) =>
-        errors.push(e.message)
-      );
-    }
+    const ingestResult = await ingestRawPunches(validItems);
+    const allErrors = [...errors, ...ingestResult.errors];
 
     device.last_sync_at = new Date();
-    if (errors.length === 0) device.status = 'Active';
+    if (allErrors.length === 0) device.status = 'Active';
     await device.save();
 
     const syncLog = await DeviceSyncLog.create({
       device_id: device._id,
       device_name: device.name,
       sync_type: 'pull',
-      records_fetched: fetched,
-      records_matched: matched,
-      unmatched_count: unmatched,
-      errors,
-      status: errors.length > 0 && fetched === 0 ? 'Failed' : errors.length > 0 ? 'Partial' : 'Success',
+      records_fetched: pulledLogs.length,
+      records_matched: ingestResult.matchedCount,
+      unmatched_count: ingestResult.unmatchedCount,
+      errors: allErrors,
+      status:
+        allErrors.length > 0 && pulledLogs.length === 0
+          ? 'Failed'
+          : allErrors.length > 0
+          ? 'Partial'
+          : 'Success',
       triggered_by: auth.user.name,
     });
 
@@ -160,22 +133,30 @@ export async function POST(req: NextRequest) {
       action: 'BIOMETRIC_DEVICE_PULL',
       entity: 'DeviceSyncLog',
       entityId: syncLog._id.toString(),
-      newValues: { device: device.name, fetched, matched, unmatched, errorsCount: errors.length },
+      newValues: {
+        device: device.name,
+        fetched: pulledLogs.length,
+        matched: ingestResult.matchedCount,
+        unmatched: ingestResult.unmatchedCount,
+        skippedDuplicates: ingestResult.skippedDuplicates,
+        errorsCount: allErrors.length,
+      },
     });
 
     return NextResponse.json({
-      success: errors.length === 0 || fetched > 0,
+      success: allErrors.length === 0 || pulledLogs.length > 0,
       message:
-        errors.length > 0 && fetched === 0
-          ? errors[0]
-          : `Sync completed: ${fetched} fetched, ${matched} matched, ${unmatched} unmatched.`,
+        allErrors.length > 0 && pulledLogs.length === 0
+          ? allErrors[0]
+          : `Sync completed: ${pulledLogs.length} fetched, ${ingestResult.matchedCount} matched, ${ingestResult.unmatchedCount} unmatched${
+              ingestResult.skippedDuplicates
+                ? `, ${ingestResult.skippedDuplicates} duplicate(s) skipped`
+                : ''
+            }.`,
       data: syncLog,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Device pull failed' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Device pull failed';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }
-

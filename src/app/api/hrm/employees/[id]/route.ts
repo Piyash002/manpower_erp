@@ -4,6 +4,8 @@ import { connectDB } from '@/lib/db';
 import { Employee, EmployeeDepartment, EmployeeStatus } from '@/models/Employee';
 import { Batch } from '@/models/Batch';
 import { Payroll } from '@/models/Payroll';
+import { Payslip } from '@/models/Payslip';
+import { EmployeeContract } from '@/models/EmployeeContract';
 import { Student } from '@/models/Student';
 
 interface UpdateEmployeeBody {
@@ -100,7 +102,7 @@ export async function PUT(
     }
 
     if (body.biometric_id !== undefined) {
-      const cleanBio = body.biometric_id?.trim() ? body.biometric_id.trim().toUpperCase() : null;
+      const cleanBio = body.biometric_id?.trim() ? body.biometric_id.trim().toUpperCase() : undefined;
       if (cleanBio) {
         const bioDup = await Employee.findOne({ biometric_id: cleanBio, _id: { $ne: id } });
         if (bioDup) {
@@ -192,16 +194,18 @@ export async function DELETE(
       return NextResponse.json({ success: false, message: 'Employee not found' }, { status: 404 });
     }
 
-    const [payrollCount, referralCount] = await Promise.all([
+    const [payrollCount, payslipCount, contractCount, referralCount] = await Promise.all([
       Payroll.countDocuments({ employee_id: id }),
+      Payslip.countDocuments({ employee_id: id }),
+      EmployeeContract.countDocuments({ employee_id: id }),
       Student.countDocuments({ referred_by_agent: id }),
     ]);
 
-    if (payrollCount > 0 || referralCount > 0) {
+    if (payrollCount > 0 || payslipCount > 0 || contractCount > 0 || referralCount > 0) {
       return NextResponse.json(
         {
           success: false,
-          message: `Cannot delete ${employee.employee_id} because they have ${payrollCount} payroll record(s) and ${referralCount} student referral(s). Mark status as Inactive instead.`,
+          message: `Cannot delete ${employee.employee_id} because they have ${payslipCount + payrollCount} payroll/payslip record(s), ${contractCount} contract(s), and ${referralCount} student referral(s). Mark status as Inactive instead.`,
         },
         { status: 400 }
       );

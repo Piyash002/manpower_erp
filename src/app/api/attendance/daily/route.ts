@@ -270,7 +270,7 @@ export async function POST(req: NextRequest) {
       const daily = await DailyAttendance.findByIdAndUpdate(
         body.daily_id,
         { $set: { overtime_approved: Boolean(body.approved) } },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!daily) {
         return NextResponse.json({ success: false, message: 'Daily record not found' }, { status: 404 });

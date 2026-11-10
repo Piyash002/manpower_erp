@@ -11,20 +11,15 @@ import {
   Lock,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import {
+  EMPLOYEE_DEPARTMENTS,
+  formatTimeDhaka,
+  getTodayDhaka,
+  toDhakaTimeInput,
+} from '@/lib/formatters';
 import type { DailyAttendanceStatus } from '@/models/DailyAttendance';
 
-function formatTime(val?: string | Date | null): string {
-  if (!val) return '—';
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('en-US', {
-    timeZone: 'Asia/Dhaka',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
-
-const DEPARTMENTS = ['all', 'Visa', 'Training', 'Accounts', 'Agent', 'HR', 'Admin', 'IT'];
+const DEPARTMENTS = ['all', ...EMPLOYEE_DEPARTMENTS];
 const SHIFTS = ['all', 'Regular', 'Morning', 'Evening', 'Night'];
 const BULK_STATUSES: DailyAttendanceStatus[] = [
   'Present',
@@ -67,34 +62,8 @@ interface BulkRowState {
   remark: string;
 }
 
-function getDhakaHHMM(isoStr?: string): string {
-  if (!isoStr) return '';
-  try {
-    const parts = new Intl.DateTimeFormat('en-GB', {
-      timeZone: 'Asia/Dhaka',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).formatToParts(new Date(isoStr));
-    const hh = parts.find((p) => p.type === 'hour')?.value || '09';
-    const mm = parts.find((p) => p.type === 'minute')?.value || '00';
-    return `${hh === '24' ? '00' : hh}:${mm}`;
-  } catch {
-    return '';
-  }
-}
-
-function getTodayDhaka(): string {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'Asia/Dhaka',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(new Date());
-}
-
 export function BulkManualAttendanceView() {
-  const [date, setDate] = useState(getTodayDhaka());
+  const [date, setDate] = useState(() => getTodayDhaka());
   const [department, setDepartment] = useState('all');
   const [shift, setShift] = useState('all');
   const [rows, setRows] = useState<BulkRowState[]>([]);
@@ -124,8 +93,12 @@ export function BulkManualAttendanceView() {
       const mapped: BulkRowState[] = (json.data?.rows || []).map((r: any) => {
         const defaultIn = r.schedule?.start_time || '09:00';
         const defaultOut = r.schedule?.end_time || '18:00';
-        const existingIn = r.existing?.first_in ? getDhakaHHMM(r.existing.first_in) : defaultIn;
-        const existingOut = r.existing?.last_out ? getDhakaHHMM(r.existing.last_out) : defaultOut;
+        const existingIn = r.existing?.first_in
+          ? toDhakaTimeInput(r.existing.first_in, defaultIn)
+          : defaultIn;
+        const existingOut = r.existing?.last_out
+          ? toDhakaTimeInput(r.existing.last_out, defaultOut)
+          : defaultOut;
 
         return {
           ...r,
@@ -145,7 +118,13 @@ export function BulkManualAttendanceView() {
   };
 
   useEffect(() => {
-    loadRoster();
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) loadRoster();
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [date, department, shift]);
 
@@ -505,8 +484,8 @@ export function BulkManualAttendanceView() {
                             </div>
                             {row.existing.first_in && (
                               <div className="text-[10px] font-mono text-slate-400">
-                                {formatTime(row.existing.first_in)} →{' '}
-                                {row.existing.last_out ? formatTime(row.existing.last_out) : '—'}
+                                {formatTimeDhaka(row.existing.first_in)} →{' '}
+                                {row.existing.last_out ? formatTimeDhaka(row.existing.last_out) : '—'}
                               </div>
                             )}
                           </div>

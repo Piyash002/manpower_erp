@@ -188,3 +188,48 @@ export function amountInWords(num: number): string {
   return `${words.trim()} Taka Only`;
 }
 
+export const EMPLOYEE_DEPARTMENTS = [
+  'Visa',
+  'Training',
+  'Accounts',
+  'Agent',
+  'Counseling',
+  'Administration',
+  'Other',
+] as const;
+
+export function getTodayDhaka(): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Dhaka',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(new Date());
+}
+
+export function formatTimeDhaka(val?: string | Date | null): string {
+  if (!val) return '—';
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return '—';
+  return d.toLocaleTimeString('en-US', {
+    timeZone: 'Asia/Dhaka',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
+export function toDhakaTimeInput(val?: string | Date | null, fallback = ''): string {
+  if (!val) return fallback;
+  const d = new Date(val);
+  if (isNaN(d.getTime())) return fallback;
+  const parts = new Intl.DateTimeFormat('en-GB', {
+    timeZone: 'Asia/Dhaka',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  }).formatToParts(d);
+  const hh = parts.find((p) => p.type === 'hour')?.value || '09';
+  const mm = parts.find((p) => p.type === 'minute')?.value || '00';
+  return `${hh === '24' ? '00' : hh}:${mm}`;
+}
+

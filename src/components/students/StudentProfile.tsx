@@ -97,13 +97,18 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
   const [assessmentError, setAssessmentError] = useState('');
 
-  const [paymentFormData, setPaymentFormData] = useState({
-    amount: '',
-    method: 'Cash',
-    reference: '',
-    payment_date: new Date().toISOString().split('T')[0],
-    note: '',
-    next_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
+  const [paymentFormData, setPaymentFormData] = useState(() => {
+    const today = new Date();
+    const next = new Date();
+    next.setDate(next.getDate() + 30);
+    return {
+      amount: '',
+      method: 'Cash',
+      reference: '',
+      payment_date: today.toISOString().split('T')[0],
+      note: '',
+      next_due_date: next.toISOString().split('T')[0],
+    };
   });
 
   const [updatingStatus, setUpdatingStatus] = useState(false);

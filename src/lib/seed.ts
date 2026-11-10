@@ -24,7 +24,7 @@ export async function seedDatabase() {
   const adminPassHash = await hashPassword(envAdminPassword);
 
   // 1. Seed or Update Admin Account for envAdminId
-  let adminUser = await User.findOne({ username: envAdminId });
+  const adminUser = await User.findOne({ username: envAdminId });
   if (!adminUser) {
     await User.create({
       name: 'System Administrator',
@@ -44,7 +44,7 @@ export async function seedDatabase() {
 
   // 2. Also ensure 'admin' exists if envAdminId !== 'admin'
   if (envAdminId !== 'admin') {
-    let alias = await User.findOne({ username: 'admin' });
+    const alias = await User.findOne({ username: 'admin' });
     if (!alias) {
       await User.create({
         name: 'System Administrator',

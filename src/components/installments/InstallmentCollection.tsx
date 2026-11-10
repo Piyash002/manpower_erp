@@ -112,12 +112,14 @@ function InstallmentCollectionContent() {
   const [isPayModalOpen, setIsPayModalOpen] = useState(false);
   const [paymentAmount, setPaymentAmount] = useState<string>('');
   const [paymentMethod, setPaymentMethod] = useState<'Cash' | 'bKash' | 'Nagad' | 'Bank Transfer' | 'Cheque'>('Cash');
-  const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [paymentDate, setPaymentDate] = useState<string>(() => new Date().toISOString().split('T')[0]);
   const [paymentRef, setPaymentRef] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
-  const [nextDueDate, setNextDueDate] = useState<string>(
-    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
-  );
+  const [nextDueDate, setNextDueDate] = useState<string>(() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 30);
+    return d.toISOString().split('T')[0];
+  });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [payError, setPayError] = useState('');
 
@@ -299,11 +301,13 @@ function InstallmentCollectionContent() {
     const unpaidAfter = (candidateItems || [])
       .filter((i) => i._id !== item._id && i.remaining_due > 0)
       .sort((a, b) => new Date(a.due_date).getTime() - new Date(b.due_date).getTime());
-    const fallbackNextDate = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const fallbackNextDate = new Date();
+    fallbackNextDate.setDate(fallbackNextDate.getDate() + 30);
+    const nowTime = new Date().getTime();
     const preferredDateObj =
-      unpaidAfter[0] && new Date(unpaidAfter[0].due_date).getTime() > Date.now()
+      unpaidAfter[0] && new Date(unpaidAfter[0].due_date).getTime() > nowTime
         ? new Date(unpaidAfter[0].due_date)
-        : new Date(item.due_date).getTime() > Date.now()
+        : new Date(item.due_date).getTime() > nowTime
           ? new Date(item.due_date)
           : fallbackNextDate;
     setNextDueDate(preferredDateObj.toISOString().split('T')[0]);

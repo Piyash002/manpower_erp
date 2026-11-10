@@ -1,15 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server';
+import mongoose from 'mongoose';
 import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Employee } from '@/models/Employee';
-import { AttendanceLog, PunchType } from '@/models/AttendanceLog';
+import { PunchType } from '@/models/AttendanceLog';
 import { DailyAttendance } from '@/models/DailyAttendance';
 import { DeviceSyncLog } from '@/models/DeviceSyncLog';
 import {
+  buildManualPunchPairTimestamps,
   getDhakaDateString,
+  ingestRawPunches,
   normalizeDhakaDate,
-  parseDhakaTimeOnDate,
-  recomputeDailyAttendance,
+  normalizePunchType,
+  RawPunchIngestItem,
 } from '@/lib/attendance-engine';
 
 interface ImportBody {
@@ -28,7 +31,6 @@ interface ParsedRowPreview {
   punches: Array<{ timestamp: Date; punchType: PunchType }>;
   existingStatus: string | null;
   matched: boolean;
-  error?: string;
 }
 
 export async function POST(req: NextRequest) {
@@ -58,7 +60,10 @@ export async function POST(req: NextRequest) {
     const employees = await Employee.find({})
       .select('_id employee_id biometric_id firstName lastName')
       .lean();
-    const empById = new Map<string, any>();
+    const empById = new Map<
+      string,
+      { _id: mongoose.Types.ObjectId; firstName: string; lastName: string }
+    >();
     for (const e of employees) {
       empById.set(e.employee_id.toUpperCase(), e);
       if (e.biometric_id) empById.set(e.biometric_id.toUpperCase(), e);
@@ -70,11 +75,9 @@ export async function POST(req: NextRequest) {
     const firstCols = lines[0]
       .split(isDat ? '\t' : ',')
       .map((c) => c.trim().toLowerCase().replace(/["']/g, ''));
-    const hasHeader =
-      firstCols.includes('employee_id') ||
-      firstCols.includes('biometric_id') ||
-      firstCols.includes('timestamp') ||
-      firstCols.includes('date');
+    const hasHeader = firstCols.some((c) =>
+      ['employee_id', 'biometric_id', 'pin', 'timestamp', 'datetime', 'date', 'punch_type'].includes(c)
+    );
     const dataLines = hasHeader ? lines.slice(1) : lines;
 
     const parsedRows: ParsedRowPreview[] = [];
@@ -107,9 +110,7 @@ export async function POST(req: NextRequest) {
           errors.push({ row: rowNum, raw: rawLine, message: `Invalid timestamp "${rawTs}"` });
           continue;
         }
-        const inOutFlag = cols[3] ?? cols[2] ?? '0';
-        const punchType: PunchType =
-          String(inOutFlag) === '1' || String(inOutFlag).toUpperCase() === 'OUT' ? 'OUT' : 'IN';
+        const punchType = normalizePunchType(cols[3] ?? cols[2] ?? '0');
         const dateStr = getDhakaDateString(tsDate);
 
         parsedRows.push({
@@ -142,7 +143,6 @@ export async function POST(req: NextRequest) {
         const dateStr = cols[1];
         const inTime = cols[2];
         const outTime = cols[3];
-        const punches: Array<{ timestamp: Date; punchType: PunchType }> = [];
 
         if (inTime && !/^\d{1,2}:\d{2}$/.test(inTime)) {
           errors.push({
@@ -161,8 +161,10 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        if (inTime) punches.push({ timestamp: parseDhakaTimeOnDate(dateStr, inTime), punchType: 'IN' });
-        if (outTime) punches.push({ timestamp: parseDhakaTimeOnDate(dateStr, outTime), punchType: 'OUT' });
+        const { inTs, outTs } = buildManualPunchPairTimestamps(dateStr, inTime, outTime);
+        const punches: Array<{ timestamp: Date; punchType: PunchType }> = [];
+        if (inTs) punches.push({ timestamp: inTs, punchType: 'IN' });
+        if (outTs) punches.push({ timestamp: outTs, punchType: 'OUT' });
 
         if (punches.length === 0) {
           errors.push({
@@ -205,8 +207,7 @@ export async function POST(req: NextRequest) {
         continue;
       }
 
-      const rawType = (cols[2] || 'IN').toUpperCase();
-      const punchType: PunchType = rawType === 'OUT' ? 'OUT' : 'IN';
+      const punchType = normalizePunchType(cols[2] ?? 'IN');
       const dateStr = getDhakaDateString(tsDate);
 
       parsedRows.push({
@@ -238,56 +239,42 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Confirm & Persist
-    let importedLogs = 0;
-    let unmatchedLogs = 0;
-    const impactedPairs = new Set<string>();
-    const errorMsgs = errors.map((e) => `Row ${e.row}: ${e.message}`);
-
+    // Confirm & Persist via shared duplicate-safe ingestRawPunches helper
+    const ingestItems: RawPunchIngestItem[] = [];
     for (const r of parsedRows) {
-      const { dateObj } = normalizeDhakaDate(r.dateStr);
       for (const p of r.punches) {
-        await AttendanceLog.create({
-          employee_id: r.empObjectId,
-          biometric_id: r.code,
-          matched: r.matched,
-          date: dateObj,
+        ingestItems.push({
+          code: r.code,
           timestamp: p.timestamp,
-          punch_type: p.punchType,
+          punchType: p.punchType,
           source: isDat ? 'Biometric' : 'Import',
           reason: isDat ? 'ZKTeco .dat import' : 'Bulk CSV import',
-          recorded_by: auth.user.name,
-          raw_line: r.raw,
+          recordedBy: auth.user.name,
+          rawLine: r.raw,
         });
-        importedLogs++;
-        if (!r.matched) unmatchedLogs++;
-      }
-      if (r.matched && r.empObjectId) {
-        impactedPairs.add(`${r.empObjectId}|${r.dateStr}`);
       }
     }
 
-    let recomputedDays = 0;
-    for (const pair of impactedPairs) {
-      const [empObjId, dateStr] = pair.split('|');
-      try {
-        await recomputeDailyAttendance(empObjId, dateStr, {
-          preferredSource: isDat ? 'Biometric' : 'Import',
-        });
-        recomputedDays++;
-      } catch (e: any) {
-        errorMsgs.push(`${dateStr}: ${e.message}`);
-      }
-    }
+    const ingestResult = await ingestRawPunches(ingestItems);
+    const errorMsgs = [
+      ...errors.map((e) => `Row ${e.row}: ${e.message}`),
+      ...ingestResult.errors,
+    ];
+    const totalSaved = ingestResult.matchedCount + ingestResult.unmatchedCount;
 
     await DeviceSyncLog.create({
       device_name: isDat ? 'ZKTeco .dat Upload' : 'CSV Bulk Upload',
       sync_type: isDat ? 'dat' : 'csv',
       records_fetched: dataLines.length,
-      records_matched: importedLogs - unmatchedLogs,
-      unmatched_count: unmatchedLogs,
+      records_matched: ingestResult.matchedCount,
+      unmatched_count: ingestResult.unmatchedCount,
       errors: errorMsgs.slice(0, 50),
-      status: errorMsgs.length > 0 && importedLogs === 0 ? 'Failed' : errorMsgs.length > 0 ? 'Partial' : 'Success',
+      status:
+        errorMsgs.length > 0 && totalSaved === 0
+          ? 'Failed'
+          : errorMsgs.length > 0
+          ? 'Partial'
+          : 'Success',
       triggered_by: auth.user.name,
     });
 
@@ -295,18 +282,30 @@ export async function POST(req: NextRequest) {
       user: auth.user,
       action: 'ATTENDANCE_BULK_IMPORT',
       entity: 'AttendanceLog',
-      newValues: { importedLogs, unmatchedLogs, recomputedDays, errorCount: errorMsgs.length },
+      newValues: {
+        importedLogs: totalSaved,
+        unmatchedLogs: ingestResult.unmatchedCount,
+        skippedDuplicates: ingestResult.skippedDuplicates,
+        recomputedDays: ingestResult.recomputedDays,
+        errorCount: errorMsgs.length,
+      },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Imported ${importedLogs} punch log(s) (${unmatchedLogs} unmatched), updated ${recomputedDays} daily summary record(s).`,
-      data: { importedLogs, unmatchedLogs, recomputedDays, errors: errorMsgs },
+      message: `Imported ${totalSaved} punch log(s) (${ingestResult.unmatchedCount} unmatched${
+        ingestResult.skippedDuplicates ? `, skipped ${ingestResult.skippedDuplicates} duplicate(s)` : ''
+      }), updated ${ingestResult.recomputedDays} daily summary record(s).`,
+      data: {
+        importedLogs: totalSaved,
+        unmatchedLogs: ingestResult.unmatchedCount,
+        skippedDuplicates: ingestResult.skippedDuplicates,
+        recomputedDays: ingestResult.recomputedDays,
+        errors: errorMsgs,
+      },
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Import failed' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Import failed';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }

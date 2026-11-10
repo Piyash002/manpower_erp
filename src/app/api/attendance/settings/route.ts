@@ -85,7 +85,7 @@ export async function POST(req: NextRequest) {
       const emp = await Employee.findByIdAndUpdate(
         employee_id,
         { $set: { schedule_id: schedule_id || null } },
-        { new: true }
+        { returnDocument: 'after' }
       );
       if (!emp) {
         return NextResponse.json({ success: false, message: 'Employee not found.' }, { status: 404 });
@@ -224,7 +224,7 @@ export async function PUT(req: NextRequest) {
           ...(body.active !== undefined ? { active: Boolean(body.active) } : {}),
         },
       },
-      { new: true }
+      { returnDocument: 'after' }
     );
 
     if (!sched) {

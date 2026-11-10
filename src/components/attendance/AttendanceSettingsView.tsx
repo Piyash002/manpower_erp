@@ -73,7 +73,13 @@ export function AttendanceSettingsView() {
   };
 
   useEffect(() => {
-    loadSettings();
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) loadSettings();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const toggleDay = (d: number) => {

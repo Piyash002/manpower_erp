@@ -16,18 +16,7 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
-import { formatDate } from '@/lib/formatters';
-
-function formatTime(val?: string | Date | null): string {
-  if (!val) return '—';
-  const d = new Date(val);
-  if (isNaN(d.getTime())) return '—';
-  return d.toLocaleTimeString('en-US', {
-    timeZone: 'Asia/Dhaka',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
-}
+import { formatDate, formatTimeDhaka } from '@/lib/formatters';
 
 type SubTab = 'devices' | 'raw' | 'unmatched' | 'sync';
 
@@ -103,7 +92,13 @@ export function BiometricDevicesView() {
   };
 
   useEffect(() => {
-    loadAll();
+    let cancelled = false;
+    Promise.resolve().then(() => {
+      if (!cancelled) loadAll();
+    });
+    return () => {
+      cancelled = true;
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [rawDate, rawSource, rawMatched]);
 
@@ -385,7 +380,7 @@ export function BiometricDevicesView() {
                         <span>
                           Last Sync:{' '}
                           {dev.last_sync_at
-                            ? `${formatDate(dev.last_sync_at)} ${formatTime(dev.last_sync_at)}`
+                            ? `${formatDate(dev.last_sync_at)} ${formatTimeDhaka(dev.last_sync_at)}`
                             : 'Never'}
                         </span>
                         <button
@@ -469,7 +464,7 @@ export function BiometricDevicesView() {
                       rawLogs.map((log) => (
                         <tr key={log._id} className="hover:bg-slate-50/60">
                           <td className="px-4 py-2.5 whitespace-nowrap font-mono">
-                            {formatDate(log.timestamp)} {formatTime(log.timestamp)}
+                            {formatDate(log.timestamp)} {formatTimeDhaka(log.timestamp)}
                           </td>
                           <td className="px-4 py-2.5 whitespace-nowrap">
                             {log.employee_id ? (
@@ -545,7 +540,7 @@ export function BiometricDevicesView() {
                           <Badge variant="warning">{grp.count} punch(es)</Badge>
                         </td>
                         <td className="px-4 py-3 font-mono text-slate-600">
-                          {formatDate(grp.latestTimestamp)} {formatTime(grp.latestTimestamp)}
+                          {formatDate(grp.latestTimestamp)} {formatTimeDhaka(grp.latestTimestamp)}
                         </td>
                         <td className="px-4 py-3 text-slate-600">{grp.deviceName}</td>
                         <td className="px-4 py-3">
@@ -610,7 +605,7 @@ export function BiometricDevicesView() {
                     syncLogs.map((s) => (
                       <tr key={s._id} className="hover:bg-slate-50/60">
                         <td className="px-4 py-3 whitespace-nowrap font-mono">
-                          {formatDate(s.synced_at)} {formatTime(s.synced_at)}
+                          {formatDate(s.synced_at)} {formatTimeDhaka(s.synced_at)}
                         </td>
                         <td className="px-4 py-3 font-semibold text-slate-900">
                           {s.device_name || 'Unknown'}

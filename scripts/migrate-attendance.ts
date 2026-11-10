@@ -4,6 +4,10 @@ import { connectDB } from '../src/lib/db';
 import { Attendance } from '../src/models/Attendance';
 import { AttendanceLog } from '../src/models/AttendanceLog';
 import { DailyAttendance, DailyAttendanceStatus } from '../src/models/DailyAttendance';
+import { Employee } from '../src/models/Employee';
+import { WorkingSchedule } from '../src/models/WorkingSchedule';
+import { BiometricDevice } from '../src/models/BiometricDevice';
+import { DeviceSyncLog } from '../src/models/DeviceSyncLog';
 import { ensureAttendanceSeeded } from '../src/lib/attendance-seed';
 import { getDhakaDateString, recomputeDailyAttendance } from '../src/lib/attendance-engine';
 
@@ -99,6 +103,15 @@ async function migrate() {
     migratedCount++;
   }
 
+  await Promise.all([
+    Employee.syncIndexes(),
+    WorkingSchedule.syncIndexes(),
+    BiometricDevice.syncIndexes(),
+    DeviceSyncLog.syncIndexes(),
+    AttendanceLog.syncIndexes(),
+    DailyAttendance.syncIndexes(),
+  ]);
+
   const totalDailyCount = await DailyAttendance.countDocuments();
   console.log('Migration Summary:');
   console.log(`- Legacy Records Scanned: ${legacyRows.length}`);
@@ -106,6 +119,7 @@ async function migrate() {
   console.log(`- Already Migrated:       ${skippedCount}`);
   console.log(`- AttendanceLogs Created: ${createdLogs}`);
   console.log(`- Total DailyAttendance:  ${totalDailyCount}`);
+  console.log('Synced indexes across Employee, WorkingSchedule, BiometricDevice, DeviceSyncLog, AttendanceLog, and DailyAttendance.');
   console.log('Legacy records remain safely intact until Phase 6 cutover.');
   process.exit(0);
 }

@@ -131,7 +131,7 @@ export async function POST(req: NextRequest) {
           ? 5
           : 0;
 
-    const cleanBioId = biometric_id?.trim() ? biometric_id.trim().toUpperCase() : null;
+    const cleanBioId = biometric_id?.trim() ? biometric_id.trim().toUpperCase() : undefined;
     if (cleanBioId) {
       const bioDup = await Employee.findOne({ biometric_id: cleanBioId });
       if (bioDup) {

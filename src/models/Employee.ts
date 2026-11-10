@@ -45,10 +45,8 @@ const EmployeeSchema = new Schema<IEmployee>(
     },
     biometric_id: {
       type: String,
-      default: null,
       trim: true,
       uppercase: true,
-      index: { unique: true, sparse: true },
     },
     shift: { type: String, default: 'Regular', trim: true },
     firstName: { type: String, required: true, trim: true },
@@ -76,6 +74,14 @@ const EmployeeSchema = new Schema<IEmployee>(
     manager_id: { type: Schema.Types.ObjectId, ref: 'Employee', default: null },
   },
   { timestamps: true }
+);
+
+EmployeeSchema.index(
+  { biometric_id: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { biometric_id: { $type: 'string' } },
+  }
 );
 
 export const Employee: Model<IEmployee> =

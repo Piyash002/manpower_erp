@@ -3,12 +3,13 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Employee } from '@/models/Employee';
 import { AttendanceCorrection } from '@/models/AttendanceCorrection';
-import { AttendanceLog } from '@/models/AttendanceLog';
+import { DailyAttendance } from '@/models/DailyAttendance';
 import {
   getDhakaDateString,
   normalizeDhakaDate,
   parseDhakaTimeOnDate,
   recomputeDailyAttendance,
+  replaceManualPunchesForDate,
 } from '@/lib/attendance-engine';
 
 export async function GET(req: NextRequest) {
@@ -170,41 +171,41 @@ export async function PUT(req: NextRequest) {
       );
     }
 
+    if (body.status === 'Approved') {
+      const dateStr = getDhakaDateString(new Date(correction.date));
+      const { dateObj } = normalizeDhakaDate(dateStr);
+
+      const existingDaily = await DailyAttendance.findOne({
+        employee_id: correction.employee_id,
+        date: dateObj,
+      }).lean();
+      if (existingDaily?.locked) {
+        return NextResponse.json(
+          { success: false, message: `Attendance for ${dateStr} is locked by confirmed payroll.` },
+          { status: 400 }
+        );
+      }
+
+      await replaceManualPunchesForDate({
+        employeeId: correction.employee_id.toString(),
+        dateStr,
+        inTimestamp: correction.requested_in || null,
+        outTimestamp: correction.requested_out || null,
+        clearExistingManual: true,
+        reason: `Correction approved: ${correction.reason}`,
+        recordedBy: auth.user.name,
+      });
+
+      await recomputeDailyAttendance(correction.employee_id.toString(), dateStr, {
+        preferredSource: 'Manual',
+      });
+    }
+
     correction.status = body.status;
     correction.reviewed_by = auth.user.name;
     correction.reviewed_at = new Date();
     correction.review_note = body.review_note?.trim() || '';
     await correction.save();
-
-    if (body.status === 'Approved') {
-      const dateStr = getDhakaDateString(new Date(correction.date));
-      const { dateObj } = normalizeDhakaDate(dateStr);
-
-      if (correction.requested_in) {
-        await AttendanceLog.create({
-          employee_id: correction.employee_id,
-          date: dateObj,
-          timestamp: correction.requested_in,
-          punch_type: 'IN',
-          source: 'hr',
-          reason: `Correction approved: ${correction.reason}`,
-          recorded_by: auth.user.name,
-        });
-      }
-      if (correction.requested_out) {
-        await AttendanceLog.create({
-          employee_id: correction.employee_id,
-          date: dateObj,
-          timestamp: correction.requested_out,
-          punch_type: 'OUT',
-          source: 'hr',
-          reason: `Correction approved: ${correction.reason}`,
-          recorded_by: auth.user.name,
-        });
-      }
-
-      await recomputeDailyAttendance(correction.employee_id.toString(), dateStr);
-    }
 
     await createAuditLog({
       user: auth.user,
