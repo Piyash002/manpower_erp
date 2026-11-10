@@ -1,0 +1,1259 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
+import { useRouter } from 'next/navigation';
+import {
+  ArrowLeft,
+  AlertTriangle,
+  Calendar,
+  CheckCircle2,
+  Clock,
+  DollarSign,
+  Edit3,
+  FileCheck2,
+  FileText,
+  Mail,
+  MapPin,
+  Phone,
+  Plane,
+  Printer,
+  ShieldAlert,
+  User,
+  CreditCard,
+  Plus,
+  GraduationCap,
+  Award,
+  ExternalLink,
+} from 'lucide-react';
+import { formatBDT, formatDate, toInputDate } from '@/lib/formatters';
+import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
+import { MoneyReceipt } from '@/components/receipt/MoneyReceipt';
+import { useAuth } from '@/components/layout/DashboardLayout';
+
+interface StudentProfileProps {
+  studentId: string;
+}
+
+export function StudentProfile({ studentId }: StudentProfileProps) {
+  const router = useRouter();
+  const { user } = useAuth();
+
+  const [student, setStudent] = useState<any | null>(null);
+  const [installments, setInstallments] = useState<any[]>([]);
+  const [payments, setPayments] = useState<any[]>([]);
+  const [documents, setDocuments] = useState<any[]>([]);
+  const [assessment, setAssessment] = useState<any | null>(null);
+  const [batch, setBatch] = useState<any | null>(null);
+  const [passportExpiringSoon, setPassportExpiringSoon] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  // Modals state
+  const [activeReceipt, setActiveReceipt] = useState<any | null>(null);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [editFormData, setEditFormData] = useState<any>({});
+  const [paymentFormData, setPaymentFormData] = useState({
+    amount: '',
+    method: 'Cash',
+    reference: '',
+    payment_date: new Date().toISOString().split('T')[0],
+    note: '',
+  });
+
+  const [updatingStatus, setUpdatingStatus] = useState(false);
+  const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
+  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [paymentError, setPaymentError] = useState('');
+
+  const canEdit = user?.role === 'Admin' || user?.role === 'Counselor';
+  const canCollectPayment =
+    user?.role === 'Admin' || user?.role === 'Counselor' || user?.role === 'Accountant';
+
+  const loadStudentData = async () => {
+    try {
+      const res = await fetch(`/api/students/${studentId}`);
+      const data = await res.json();
+      if (data.success) {
+        setStudent(data.student);
+        setInstallments(data.installments || []);
+        setPayments(data.payments || []);
+        setDocuments(data.documents || []);
+        setAssessment(data.assessment || null);
+        setBatch(data.batch || null);
+        setPassportExpiringSoon(data.passportExpiringSoon);
+
+        setEditFormData({
+          mobile: data.student.mobile || '',
+          email: data.student.email || '',
+          emergency_contact_name: data.student.emergency_contact_name || '',
+          emergency_contact_relation: data.student.emergency_contact_relation || '',
+          emergency_contact_phone: data.student.emergency_contact_phone || '',
+          present_address: data.student.present_address || '',
+          permanent_address: data.student.permanent_address || '',
+          passport_no: data.student.passport_no || '',
+          passport_issue_date: toInputDate(data.student.passport_issue_date),
+          passport_expiry_date: toInputDate(data.student.passport_expiry_date),
+          batch: data.student.batch || '',
+        });
+      }
+    } catch (err) {
+      console.error('Error fetching student profile:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadStudentData();
+  }, [studentId]);
+
+  // Handle Status Change (PRD Section 5.5)
+  const handleStatusChange = async (newStatus: string) => {
+    if (!canEdit) return;
+    setUpdatingStatus(true);
+    try {
+      const res = await fetch(`/api/students/${studentId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: newStatus }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        setStudent((prev: any) => ({ ...prev, status: newStatus }));
+      } else {
+        alert(data.message || 'Failed to update status');
+      }
+    } catch (e) {
+      console.error(e);
+      alert('Error updating status');
+    } finally {
+      setUpdatingStatus(false);
+    }
+  };
+
+  // Handle Document Checklist Toggle (PRD Section 5.6)
+  const handleDocumentToggle = async (docId: string, currentReceived: boolean) => {
+    if (!canEdit) return;
+    try {
+      const res = await fetch(`/api/students/${studentId}/documents`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: docId,
+          received: !currentReceived,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.document) {
+        setDocuments((prev) =>
+          prev.map((d) => (d._id === docId ? data.document : d))
+        );
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Handle Document Expiry update
+  const handleDocumentExpiryChange = async (docId: string, expiryDate: string) => {
+    if (!canEdit) return;
+    try {
+      const res = await fetch(`/api/students/${studentId}/documents`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          document_id: docId,
+          expiry_date: expiryDate,
+        }),
+      });
+      const data = await res.json();
+      if (data.success && data.document) {
+        setDocuments((prev) =>
+          prev.map((d) => (d._id === docId ? data.document : d))
+        );
+      }
+    } catch (e) {
+      console.error(e);
+    }
+  };
+
+  // Handle Profile Update Submission (PRD Section 5.7)
+  const handleEditSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditError('');
+    setIsSubmittingEdit(true);
+
+    try {
+      const res = await fetch(`/api/students/${studentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editFormData),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Update failed');
+      }
+
+      setIsEditModalOpen(false);
+      loadStudentData();
+    } catch (err: any) {
+      setEditError(err.message);
+    } finally {
+      setIsSubmittingEdit(false);
+    }
+  };
+
+  // Handle Record Payment
+  const handlePaymentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPaymentError('');
+    setIsSubmittingPayment(true);
+
+    try {
+      const res = await fetch('/api/payments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          student_id: studentId,
+          amount: paymentFormData.amount,
+          method: paymentFormData.method,
+          reference: paymentFormData.reference,
+          payment_date: paymentFormData.payment_date,
+          note: paymentFormData.note,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Payment recording failed');
+      }
+
+      setIsPaymentModalOpen(false);
+      setPaymentFormData({
+        amount: '',
+        method: 'Cash',
+        reference: '',
+        payment_date: new Date().toISOString().split('T')[0],
+        note: '',
+      });
+
+      // View Receipt
+      const receiptRes = await fetch(`/api/payments/${data.receipt_no}`);
+      const receiptData = await receiptRes.json();
+      if (receiptData.success) {
+        setActiveReceipt(receiptData.receipt);
+      }
+
+      loadStudentData();
+    } catch (err: any) {
+      setPaymentError(err.message);
+    } finally {
+      setIsSubmittingPayment(false);
+    }
+  };
+
+  // Open Receipt
+  const handleOpenReceipt = async (receiptNo: string) => {
+    try {
+      const res = await fetch(`/api/payments/${receiptNo}`);
+      const data = await res.json();
+      if (data.success) {
+        setActiveReceipt(data.receipt);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center p-16 text-slate-500">
+        Loading candidate profile...
+      </div>
+    );
+  }
+
+  if (!student) {
+    return (
+      <div className="p-8 text-center text-slate-600">
+        <p>Candidate not found.</p>
+        <Link href="/students" className="text-blue-600 hover:underline mt-2 inline-block">
+          Return to Student Directory
+        </Link>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {/* Top back navigation */}
+      <div className="flex items-center justify-between">
+        <Link
+          href="/students"
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+        >
+          <ArrowLeft className="w-4 h-4" />
+          <span>Back to Students</span>
+        </Link>
+
+        {canEdit && (
+          <button
+            onClick={() => setIsEditModalOpen(true)}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs"
+          >
+            <Edit3 className="w-3.5 h-3.5" />
+            <span>Edit Profile</span>
+          </button>
+        )}
+      </div>
+
+      {/* PRD Section 5.7: Passport Expiry Alert within 6 months */}
+      {passportExpiringSoon && (
+        <div className="p-4 bg-rose-50 border-l-4 border-rose-500 rounded-r-xl flex items-start gap-3 shadow-xs">
+          <ShieldAlert className="w-6 h-6 text-rose-600 shrink-0 mt-0.5" />
+          <div>
+            <h4 className="text-sm font-bold text-rose-900">
+              URGENT ALERT: Passport Expiring Within 6 Months!
+            </h4>
+            <p className="text-xs text-rose-700 mt-0.5">
+              Passport #{student.passport_no} is scheduled to expire on{' '}
+              <span className="font-bold underline">
+                {formatDate(student.passport_expiry_date)}
+              </span>
+              . Work permit and visa submission requires at least 6 months validity. Urgent renewal
+              is required before Embassy stamping.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* HEADER PROFILE BANNER */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          {/* Candidate Info */}
+          <div className="flex items-center gap-4">
+            {student.photo_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={student.photo_url}
+                alt=""
+                className="w-20 h-20 rounded-xl object-cover border-2 border-blue-500 shadow-md shrink-0"
+              />
+            ) : (
+              <div className="w-20 h-20 rounded-xl bg-blue-600 text-white flex items-center justify-center font-bold text-2xl uppercase shadow-md shrink-0">
+                {student.name.charAt(0)}
+              </div>
+            )}
+
+            <div>
+              <div className="flex items-center gap-2.5 flex-wrap">
+                <h1 className="text-2xl font-black text-slate-900 uppercase tracking-tight">
+                  {student.name}
+                </h1>
+                <span className="px-2.5 py-0.5 font-mono font-bold text-xs bg-blue-50 text-blue-700 border border-blue-200 rounded-md">
+                  {student.student_no}
+                </span>
+              </div>
+
+              <p className="text-sm text-slate-500 mt-1">
+                {student.trade_name} &bull; Batch: <span className="font-semibold">{student.batch}</span> ({student.session})
+              </p>
+
+              <div className="flex items-center gap-4 mt-2 text-xs text-slate-600">
+                <span className="flex items-center gap-1 font-mono">
+                  <Phone className="w-3.5 h-3.5 text-slate-400" />
+                  {student.mobile}
+                </span>
+                <span className="flex items-center gap-1 font-mono">
+                  <FileText className="w-3.5 h-3.5 text-slate-400" />
+                  Passport: {student.passport_no}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {/* Status Selector & Actions */}
+          <div className="flex flex-col sm:flex-row md:flex-col items-start md:items-end gap-3 border-t md:border-t-0 pt-4 md:pt-0">
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-slate-500 font-medium">Candidate Status:</span>
+              {canEdit ? (
+                <select
+                  value={student.status}
+                  disabled={updatingStatus}
+                  onChange={(e) => handleStatusChange(e.target.value)}
+                  className="px-2.5 py-1 text-xs font-semibold rounded-md border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="Active">Active</option>
+                  <option value="Passed">Passed</option>
+                  <option value="Failed">Failed</option>
+                  <option value="Dropped">Dropped</option>
+                </select>
+              ) : (
+                <StatusBadge status={student.status} />
+              )}
+            </div>
+
+            {canCollectPayment && student.total_due > 0 && (
+              <button
+                onClick={() => setIsPaymentModalOpen(true)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors"
+              >
+                <DollarSign className="w-4 h-4" />
+                <span>Collect Installment / Payment</span>
+              </button>
+            )}
+          </div>
+        </div>
+
+        {/* FINANCIAL TOTALS BAR (PRD Section 5.5) */}
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-100">
+          <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
+            <p className="text-xs text-slate-500 font-semibold uppercase">Total Package Payable</p>
+            <p className="text-xl font-black font-mono text-slate-900 mt-1">
+              {formatBDT(student.fee_snapshot?.total_payable)}
+            </p>
+          </div>
+
+          <div className="p-3 bg-emerald-50/60 rounded-lg border border-emerald-200">
+            <p className="text-xs text-emerald-700 font-semibold uppercase">Total Paid To Date</p>
+            <p className="text-xl font-black font-mono text-emerald-700 mt-1">
+              {formatBDT(student.total_paid)}
+            </p>
+          </div>
+
+          <div className="p-3 bg-rose-50/60 rounded-lg border border-rose-200">
+            <p className="text-xs text-rose-700 font-semibold uppercase">Outstanding Due Balance</p>
+            <p className="text-xl font-black font-mono text-rose-700 mt-1">
+              {formatBDT(student.total_due)}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      {/* MAIN CARDS GRID */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Left 2 Columns */}
+        <div className="lg:col-span-2 space-y-6">
+          {/* CARD: FEE SNAPSHOT & INSTALLMENT SCHEDULE */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <CreditCard className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-slate-800 text-base">
+                  Fee Snapshot & Installment Schedule
+                </h3>
+              </div>
+              <span className="text-xs text-slate-400 italic">Snapshot locked at admission</span>
+            </div>
+
+            {/* Fee Snapshot summary */}
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-slate-50 rounded-lg text-xs">
+              <div>
+                <p className="text-slate-500">Admission Fee</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {formatBDT(student.fee_snapshot?.admission_fee)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Course Fee</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {formatBDT(student.fee_snapshot?.course_fee)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Visa Processing</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {formatBDT(student.fee_snapshot?.visa_cost)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Govt Fee</p>
+                <p className="font-bold text-slate-800 mt-0.5">
+                  {formatBDT(student.fee_snapshot?.govt_fee)}
+                </p>
+              </div>
+              <div>
+                <p className="text-slate-500">Discount</p>
+                <p className="font-bold text-emerald-600 mt-0.5">
+                  -{formatBDT(student.fee_snapshot?.discount)}
+                </p>
+              </div>
+            </div>
+
+            {/* Installments Table */}
+            <div>
+              <h4 className="text-xs font-bold uppercase text-slate-600 tracking-wider mb-2">
+                Monthly Installments List
+              </h4>
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <table className="w-full text-xs text-left">
+                  <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
+                    <tr>
+                      <th className="px-3 py-2">#</th>
+                      <th className="px-3 py-2">Due Date</th>
+                      <th className="px-3 py-2 text-right">Amount</th>
+                      <th className="px-3 py-2 text-right">Paid</th>
+                      <th className="px-3 py-2 text-center">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {installments.length === 0 ? (
+                      <tr>
+                        <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
+                          No installments scheduled (Package paid in full at admission)
+                        </td>
+                      </tr>
+                    ) : (
+                      installments.map((inst) => {
+                        const isLate =
+                          inst.status !== 'Paid' &&
+                          new Date(inst.due_date) < new Date(new Date().setHours(0, 0, 0, 0));
+
+                        return (
+                          <tr key={inst._id} className="hover:bg-slate-50 font-mono">
+                            <td className="px-3 py-2.5 font-bold text-slate-700">
+                              Inst #{inst.installment_no}
+                            </td>
+                            <td className="px-3 py-2.5 font-sans">{formatDate(inst.due_date)}</td>
+                            <td className="px-3 py-2.5 text-right font-bold text-slate-800">
+                              {formatBDT(inst.amount)}
+                            </td>
+                            <td className="px-3 py-2.5 text-right text-emerald-700 font-semibold">
+                              {formatBDT(inst.paid_amount)}
+                            </td>
+                            <td className="px-3 py-2.5 text-center font-sans">
+                              {isLate ? (
+                                <Badge variant="danger" size="sm">
+                                  Overdue
+                                </Badge>
+                              ) : (
+                                <StatusBadge status={inst.status} />
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          {/* CARD: PAYMENTS HISTORY */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <FileCheck2 className="w-5 h-5 text-emerald-600" />
+                <h3 className="font-semibold text-slate-800 text-base">Recorded Money Receipts</h3>
+              </div>
+              <span className="text-xs text-slate-400">Payments are immutable</span>
+            </div>
+
+            <div className="border border-slate-200 rounded-lg overflow-hidden">
+              <table className="w-full text-xs text-left">
+                <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
+                  <tr>
+                    <th className="px-3 py-2">Receipt No</th>
+                    <th className="px-3 py-2">Payment Date</th>
+                    <th className="px-3 py-2">Method & Ref</th>
+                    <th className="px-3 py-2 text-right">Amount</th>
+                    <th className="px-3 py-2 text-right">Action</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {payments.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} className="px-3 py-4 text-center text-slate-400 font-sans">
+                        No payments recorded yet
+                      </td>
+                    </tr>
+                  ) : (
+                    payments.map((pmt) => (
+                      <tr key={pmt._id} className="hover:bg-slate-50 font-mono">
+                        <td className="px-3 py-2.5 font-bold text-blue-700">{pmt.receipt_no}</td>
+                        <td className="px-3 py-2.5 font-sans">{formatDate(pmt.payment_date)}</td>
+                        <td className="px-3 py-2.5 font-sans">
+                          <span className="font-medium text-slate-800">{pmt.method}</span>
+                          {pmt.reference && (
+                            <span className="block text-[11px] font-mono text-slate-400">
+                              Ref: {pmt.reference}
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-black text-emerald-700 text-sm">
+                          {formatBDT(pmt.amount)}
+                        </td>
+                        <td className="px-3 py-2.5 text-right font-sans">
+                          <button
+                            onClick={() => handleOpenReceipt(pmt.receipt_no)}
+                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded transition-colors"
+                          >
+                            <Printer className="w-3 h-3" />
+                            <span>Print Voucher</span>
+                          </button>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
+          {/* CARD: PERSONAL & CONTACT INFO */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+              <User className="w-5 h-5 text-blue-600" />
+              <h3 className="font-semibold text-slate-800 text-base">Personal & Contact Record</h3>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+              <div>
+                <span className="text-slate-400 font-medium">Father&apos;s Name:</span>
+                <p className="font-semibold text-slate-800 text-sm mt-0.5">{student.father_name}</p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Mother&apos;s Name:</span>
+                <p className="font-semibold text-slate-800 text-sm mt-0.5">{student.mother_name}</p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Date of Birth:</span>
+                <p className="font-semibold text-slate-800 mt-0.5">
+                  {formatDate(student.date_of_birth)}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Gender & Blood Group:</span>
+                <p className="font-semibold text-slate-800 mt-0.5">
+                  {student.gender} ({student.blood_group})
+                </p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">NID / Birth Certificate:</span>
+                <p className="font-mono font-bold text-slate-800 mt-0.5">
+                  {student.nid_or_birth_cert}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Religion & Marital Status:</span>
+                <p className="font-semibold text-slate-800 mt-0.5">
+                  {student.religion} &bull; {student.marital_status}
+                </p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Emergency Contact:</span>
+                <p className="font-semibold text-slate-800 mt-0.5">
+                  {student.emergency_contact_name} ({student.emergency_contact_relation}) -{' '}
+                  <span className="font-mono">{student.emergency_contact_phone}</span>
+                </p>
+              </div>
+
+              <div>
+                <span className="text-slate-400 font-medium">Email:</span>
+                <p className="font-semibold text-slate-800 mt-0.5">{student.email || 'None'}</p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <span className="text-slate-400 font-medium">Present Address:</span>
+                <p className="text-slate-800 mt-0.5">{student.present_address}</p>
+              </div>
+
+              <div className="sm:col-span-2">
+                <span className="text-slate-400 font-medium">Permanent Address:</span>
+                <p className="text-slate-800 mt-0.5">{student.permanent_address}</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Right 1 Column */}
+        <div className="space-y-6">
+          {/* CARD: PASSPORT & DESTINATION */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
+              <Plane className="w-5 h-5 text-blue-600" />
+              <h3 className="font-semibold text-slate-800 text-base">Passport & Destination</h3>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div>
+                <span className="text-slate-400 font-medium">Passport Number:</span>
+                <p className="font-mono font-bold text-base text-slate-900 mt-0.5 uppercase">
+                  {student.passport_no}
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <span className="text-slate-400 font-medium">Issue Date:</span>
+                  <p className="font-medium text-slate-800 mt-0.5">
+                    {formatDate(student.passport_issue_date)}
+                  </p>
+                </div>
+                <div>
+                  <span className="text-slate-400 font-medium">Expiry Date:</span>
+                  <p
+                    className={`font-bold mt-0.5 ${
+                      passportExpiringSoon ? 'text-rose-600 underline' : 'text-slate-800'
+                    }`}
+                  >
+                    {formatDate(student.passport_expiry_date)}
+                  </p>
+                </div>
+              </div>
+
+              <div className="pt-2 border-t border-slate-100">
+                <span className="text-slate-400 font-medium">Target Destination:</span>
+                <p className="font-bold text-slate-900 text-sm mt-0.5">
+                  {student.destination_country}
+                </p>
+                {student.destination_contract_years > 0 && (
+                  <p className="text-slate-500 text-[11px]">
+                    Contract: {student.destination_contract_years} Years
+                  </p>
+                )}
+              </div>
+
+              {/* Previous Overseas History */}
+              <div className="pt-2 border-t border-slate-100">
+                <span className="text-slate-400 font-medium">Prior Overseas Work:</span>
+                {student.has_previous_overseas_work ? (
+                  <div className="p-2.5 bg-blue-50/60 rounded-lg text-slate-800 space-y-1 mt-1 text-[11px]">
+                    <p>
+                      <strong>Country:</strong> {student.overseas_country} (
+                      {student.overseas_from_year} - {student.overseas_to_year})
+                    </p>
+                    <p>
+                      <strong>Trade:</strong> {student.overseas_trade}
+                    </p>
+                    {student.overseas_passport_no && (
+                      <p className="font-mono">
+                        <strong>Old Passport:</strong> {student.overseas_passport_no}
+                      </p>
+                    )}
+                    {student.overseas_reason_for_return && (
+                      <p>
+                        <strong>Return Reason:</strong> {student.overseas_reason_for_return}
+                      </p>
+                    )}
+                  </div>
+                ) : (
+                  <p className="text-slate-500 italic mt-0.5">None (First time overseas candidate)</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* CARD: TRAINING BATCH & EXAMINATION */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <GraduationCap className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-slate-800 text-base">Trade, Batch & Exam Result</h3>
+              </div>
+              <StatusBadge status={student.status} />
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-medium">Trade Curriculum:</span>
+                <span className="font-bold text-slate-900">{student.trade_name}</span>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 font-medium">Assigned Batch:</span>
+                {batch ? (
+                  <Link
+                    href={`/batches/${batch._id}`}
+                    className="font-mono font-bold text-blue-600 hover:underline flex items-center gap-1"
+                  >
+                    <span>{batch.name}</span>
+                    <span className="bg-blue-50 text-blue-700 px-1.5 py-0.2 rounded text-[11px] border border-blue-200">
+                      {batch.batch_code}
+                    </span>
+                  </Link>
+                ) : (
+                  <span className="font-mono font-semibold text-slate-700">
+                    {student.batch || 'Not assigned'}
+                  </span>
+                )}
+              </div>
+
+              {batch && (
+                <div className="p-2.5 bg-slate-50 rounded-lg space-y-1 text-[11px] text-slate-600">
+                  <p>
+                    <strong>Schedule:</strong> {formatDate(batch.start_date)} → {formatDate(batch.end_date)}
+                  </p>
+                  {batch.exam_date && (
+                    <p>
+                      <strong>Exam Date:</strong> {formatDate(batch.exam_date)}
+                    </p>
+                  )}
+                  {batch.instructor && (
+                    <p>
+                      <strong>Trainer:</strong> {batch.instructor}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Assessment Scores */}
+              {assessment && (
+                <div className="pt-2 border-t border-slate-100 space-y-2">
+                  <span className="text-slate-500 font-semibold uppercase text-[11px] block">
+                    Examination Evaluation
+                  </span>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="p-2 bg-slate-50 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block uppercase">Theory</span>
+                      <span className="font-bold text-slate-800">
+                        {assessment.theory_score !== null && assessment.theory_score !== undefined
+                          ? `${assessment.theory_score}/100`
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block uppercase">Practical</span>
+                      <span className="font-bold text-slate-800">
+                        {assessment.practical_score !== null && assessment.practical_score !== undefined
+                          ? `${assessment.practical_score}/100`
+                          : '—'}
+                      </span>
+                    </div>
+                    <div className="p-2 bg-slate-50 rounded-lg">
+                      <span className="text-[10px] text-slate-400 block uppercase">Total</span>
+                      <span className="font-bold text-blue-700">
+                        {assessment.total_score !== null && assessment.total_score !== undefined
+                          ? `${assessment.total_score}%`
+                          : '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {assessment.remarks && (
+                    <p className="text-[11px] text-slate-500 italic mt-1">
+                      &quot;{assessment.remarks}&quot;
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* Certificate Download */}
+              <div className="pt-2 border-t border-slate-100">
+                {assessment?.certificate_url ? (
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl space-y-2">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-1.5 text-emerald-800 font-bold text-xs">
+                        <Award className="w-4 h-4 text-emerald-600" />
+                        <span>Training Certificate Verified</span>
+                      </div>
+                      <span className="text-[11px] font-mono text-emerald-700">
+                        {assessment.certificate_no}
+                      </span>
+                    </div>
+                    <a
+                      href={assessment.certificate_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-full inline-flex items-center justify-center gap-1.5 py-1.5 px-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                    >
+                      <Award className="w-3.5 h-3.5" />
+                      View / Download Certificate
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                  </div>
+                ) : batch ? (
+                  <div className="flex items-center justify-between text-[11px] text-slate-500">
+                    <span>Certificate pending exam evaluation</span>
+                    <Link
+                      href={`/batches/${batch._id}`}
+                      className="text-blue-600 font-semibold hover:underline"
+                    >
+                      Go to Batch Exam
+                    </Link>
+                  </div>
+                ) : (
+                  <p className="text-slate-400 italic text-[11px]">No batch assessment records yet</p>
+                )}
+              </div>
+            </div>
+          </div>
+
+          {/* CARD: DOCUMENTS CHECKLIST (PRD Section 5.6) */}
+          <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+              <div className="flex items-center gap-2">
+                <FileText className="w-5 h-5 text-blue-600" />
+                <h3 className="font-semibold text-slate-800 text-base">Documents Checklist</h3>
+              </div>
+              <span className="text-xs text-slate-400">PRD 5.6</span>
+            </div>
+
+            <div className="space-y-3">
+              {documents.map((doc) => (
+                <div
+                  key={doc._id}
+                  className={`p-3 rounded-lg border transition-colors ${
+                    doc.received
+                      ? 'bg-emerald-50/40 border-emerald-200'
+                      : 'bg-slate-50 border-slate-200'
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-2">
+                    <div className="flex items-start gap-2.5">
+                      <input
+                        type="checkbox"
+                        checked={doc.received}
+                        disabled={!canEdit}
+                        onChange={() => handleDocumentToggle(doc._id, doc.received)}
+                        className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500 mt-0.5 cursor-pointer"
+                      />
+                      <div>
+                        <p
+                          className={`text-xs font-semibold ${
+                            doc.received ? 'text-emerald-900' : 'text-slate-700'
+                          }`}
+                        >
+                          {doc.document_type}
+                        </p>
+                        {doc.received && doc.received_on && (
+                          <p className="text-[10px] text-emerald-600 mt-0.5">
+                            Received: {formatDate(doc.received_on)}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    {doc.received ? (
+                      <Badge variant="success" size="sm">
+                        Received
+                      </Badge>
+                    ) : (
+                      <Badge variant="gray" size="sm">
+                        Pending
+                      </Badge>
+                    )}
+                  </div>
+
+                  {/* Expiry Date input if required */}
+                  {doc.needs_expiry && (
+                    <div className="mt-2.5 pt-2 border-t border-slate-200/60 flex items-center justify-between text-xs">
+                      <span className="text-[11px] text-slate-500">Validity Expiry:</span>
+                      {canEdit ? (
+                        <input
+                          type="date"
+                          value={toInputDate(doc.expiry_date)}
+                          onChange={(e) => handleDocumentExpiryChange(doc._id, e.target.value)}
+                          className="px-2 py-0.5 border border-slate-300 rounded text-[11px] text-slate-800"
+                        />
+                      ) : (
+                        <span className="font-semibold text-slate-700">
+                          {formatDate(doc.expiry_date)}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* EDIT PROFILE MODAL */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        title="Update Candidate Record"
+        description="Authorized counselors & admins can update contact, passport & batch details. Audited."
+        maxWidth="2xl"
+      >
+        <form onSubmit={handleEditSubmit} className="space-y-4">
+          {editError && (
+            <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
+              {editError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">Mobile *</label>
+              <input
+                type="text"
+                required
+                value={editFormData.mobile}
+                onChange={(e) => setEditFormData({ ...editFormData, mobile: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">Email</label>
+              <input
+                type="email"
+                value={editFormData.email}
+                onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Emergency Contact Name
+              </label>
+              <input
+                type="text"
+                value={editFormData.emergency_contact_name}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, emergency_contact_name: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Emergency Phone
+              </label>
+              <input
+                type="text"
+                value={editFormData.emergency_contact_phone}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, emergency_contact_phone: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Present Address
+              </label>
+              <textarea
+                rows={2}
+                value={editFormData.present_address}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, present_address: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+              />
+            </div>
+
+            <div className="sm:col-span-2">
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Permanent Address
+              </label>
+              <textarea
+                rows={2}
+                value={editFormData.permanent_address}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, permanent_address: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Passport Number
+              </label>
+              <input
+                type="text"
+                value={editFormData.passport_no}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, passport_no: e.target.value.toUpperCase() })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono font-bold uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Passport Expiry Date
+              </label>
+              <input
+                type="date"
+                value={editFormData.passport_expiry_date}
+                onChange={(e) =>
+                  setEditFormData({ ...editFormData, passport_expiry_date: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+              />
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">Batch</label>
+              <input
+                type="text"
+                value={editFormData.batch}
+                onChange={(e) => setEditFormData({ ...editFormData, batch: e.target.value })}
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
+              />
+            </div>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmittingEdit}
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+            >
+              {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* RECORD PAYMENT MODAL */}
+      <Modal
+        isOpen={isPaymentModalOpen}
+        onClose={() => setIsPaymentModalOpen(false)}
+        title="Record Payment / Installment"
+        description={`Record incoming installment for ${student.name} (${student.student_no})`}
+        maxWidth="md"
+      >
+        <form onSubmit={handlePaymentSubmit} className="space-y-4">
+          {paymentError && (
+            <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
+              {paymentError}
+            </div>
+          )}
+
+          <div>
+            <div className="flex justify-between items-center mb-1 text-xs">
+              <span className="font-semibold text-slate-700 uppercase">Payment Amount (BDT) *</span>
+              <span className="text-slate-500">
+                Max Due: <strong className="text-rose-600">{formatBDT(student.total_due)}</strong>
+              </span>
+            </div>
+            <input
+              type="number"
+              required
+              min={1}
+              max={student.total_due}
+              value={paymentFormData.amount}
+              onChange={(e) =>
+                setPaymentFormData({ ...paymentFormData, amount: e.target.value })
+              }
+              placeholder="e.g. 25000"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-base font-bold text-slate-900 font-mono"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Payment Method *
+              </label>
+              <select
+                value={paymentFormData.method}
+                onChange={(e) =>
+                  setPaymentFormData({ ...paymentFormData, method: e.target.value })
+                }
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+              >
+                <option value="Cash">Cash</option>
+                <option value="bKash">bKash</option>
+                <option value="Nagad">Nagad</option>
+                <option value="Rocket">Rocket</option>
+                <option value="Bank transfer">Bank transfer</option>
+                <option value="Cheque">Cheque</option>
+                <option value="Card">Card</option>
+              </select>
+            </div>
+
+            <div>
+              <label className="block font-semibold text-slate-700 uppercase mb-1">
+                Reference / Trx No
+              </label>
+              <input
+                type="text"
+                value={paymentFormData.reference}
+                onChange={(e) =>
+                  setPaymentFormData({ ...paymentFormData, reference: e.target.value })
+                }
+                placeholder="Trx or Cheque #"
+                className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-800"
+              />
+            </div>
+          </div>
+
+          <div className="text-xs">
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Payment Date *
+            </label>
+            <input
+              type="date"
+              required
+              value={paymentFormData.payment_date}
+              onChange={(e) =>
+                setPaymentFormData({ ...paymentFormData, payment_date: e.target.value })
+              }
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+            />
+          </div>
+
+          <div className="text-xs">
+            <label className="block font-semibold text-slate-700 uppercase mb-1">Note</label>
+            <input
+              type="text"
+              value={paymentFormData.note}
+              onChange={(e) => setPaymentFormData({ ...paymentFormData, note: e.target.value })}
+              placeholder="e.g. 2nd Installment payment"
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
+            />
+          </div>
+
+          <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsPaymentModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmittingPayment}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
+            >
+              {isSubmittingPayment ? 'Recording...' : 'Confirm & Generate Receipt'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* MONEY RECEIPT VOUCHER MODAL */}
+      {activeReceipt && (
+        <Modal
+          isOpen={true}
+          onClose={() => setActiveReceipt(null)}
+          title="Printable Money Receipt"
+          description={`Receipt #${activeReceipt.receipt_no} - ${activeReceipt.student?.name}`}
+          maxWidth="4xl"
+        >
+          <MoneyReceipt receipt={activeReceipt} onClose={() => setActiveReceipt(null)} />
+        </Modal>
+      )}
+    </div>
+  );
+}
+
