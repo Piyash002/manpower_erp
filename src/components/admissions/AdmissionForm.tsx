@@ -77,6 +77,7 @@ export function AdmissionForm() {
     passport_no: '',
     passport_issue_date: '',
     passport_expiry_date: '',
+    passport_doc_url: '',
 
     // 4. Previous Overseas Work
     has_previous_overseas_work: false,
@@ -115,6 +116,7 @@ export function AdmissionForm() {
   });
 
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [uploadingPassport, setUploadingPassport] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [successReceipt, setSuccessReceipt] = useState<any | null>(null);
@@ -355,6 +357,35 @@ export function AdmissionForm() {
       alert('Error uploading file');
     } finally {
       setUploadingPhoto(false);
+    }
+  };
+
+  // Handle Optional Passport Copy Upload
+  const handlePassportUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setUploadingPassport(true);
+    try {
+      const uploadForm = new FormData();
+      uploadForm.append('file', file);
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: uploadForm,
+      });
+
+      const data = await res.json();
+      if (data.success && data.url) {
+        setFormData((prev) => ({ ...prev, passport_doc_url: data.url }));
+      } else {
+        alert(data.message || 'Failed to upload passport copy');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error uploading passport file');
+    } finally {
+      setUploadingPassport(false);
     }
   };
 
@@ -646,6 +677,56 @@ export function AdmissionForm() {
                     }
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+              </div>
+
+              {/* Optional Passport Copy Upload */}
+              <div className="p-3.5 bg-slate-50/80 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase">
+                    Passport Copy / Scan Upload (Optional)
+                  </label>
+                  <p className="text-[11px] text-slate-500 mt-0.5">
+                    Image or PDF — automatically marks Passport Copy as received in candidate checklist.
+                  </p>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2 shrink-0">
+                  {formData.passport_doc_url ? (
+                    <>
+                      <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-700 border border-emerald-200 rounded-md text-xs font-semibold">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
+                        Uploaded
+                      </span>
+                      <a
+                        href={formData.passport_doc_url}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="px-2.5 py-1 text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 rounded-md"
+                      >
+                        View
+                      </a>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, passport_doc_url: '' })}
+                        className="px-2 py-1 text-xs font-medium text-rose-600 hover:underline"
+                      >
+                        Remove
+                      </button>
+                    </>
+                  ) : (
+                    <label className="cursor-pointer inline-flex items-center gap-1.5 px-3.5 py-2 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 shadow-xs transition-colors">
+                      <Upload className="w-3.5 h-3.5 text-slate-500" />
+                      <span>{uploadingPassport ? 'Uploading...' : 'Upload Passport Copy'}</span>
+                      <input
+                        type="file"
+                        accept="image/*,.pdf"
+                        onChange={handlePassportUpload}
+                        disabled={uploadingPassport}
+                        className="hidden"
+                      />
+                    </label>
+                  )}
                 </div>
               </div>
 

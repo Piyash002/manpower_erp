@@ -151,6 +151,7 @@ export async function POST(req: NextRequest) {
       passport_no,
       passport_issue_date,
       passport_expiry_date,
+      passport_doc_url,
 
       // Previous Overseas Work
       has_previous_overseas_work,
@@ -326,13 +327,27 @@ export async function POST(req: NextRequest) {
       created_by: auth.user.name,
     });
 
-    // 5. Default Documents Checklist Creation
-    const documentRecords = DEFAULT_DOCUMENT_CHECKLIST.map((doc) => ({
-      student_id: newStudent._id,
-      document_type: doc.document_type,
-      needs_expiry: doc.needs_expiry,
-      received: false,
-    }));
+    // 5. Default Documents Checklist Creation (attach Passport copy if uploaded at admission)
+    const documentRecords = DEFAULT_DOCUMENT_CHECKLIST.map((doc) => {
+      if (doc.document_type === 'Passport copy' && passport_doc_url) {
+        return {
+          student_id: newStudent._id,
+          document_type: doc.document_type,
+          needs_expiry: doc.needs_expiry,
+          received: true,
+          received_on: new Date(),
+          expiry_date: passport_expiry_date ? new Date(passport_expiry_date) : null,
+          file_url: passport_doc_url,
+          notes: 'Uploaded during new admission',
+        };
+      }
+      return {
+        student_id: newStudent._id,
+        document_type: doc.document_type,
+        needs_expiry: doc.needs_expiry,
+        received: false,
+      };
+    });
     await StudentDocument.insertMany(documentRecords);
 
     // 6. Record First Payment & Receipt (if paid_now > 0)
