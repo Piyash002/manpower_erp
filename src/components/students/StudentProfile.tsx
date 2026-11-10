@@ -25,6 +25,12 @@ import {
   GraduationCap,
   Award,
   ExternalLink,
+  Upload,
+  Paperclip,
+  Check,
+  XCircle,
+  RefreshCw,
+  Sparkles,
 } from 'lucide-react';
 import { formatBDT, formatDate, toInputDate } from '@/lib/formatters';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
@@ -53,7 +59,31 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [activeReceipt, setActiveReceipt] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
+  const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
+  const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+
+  // Profile Edit Form State
   const [editFormData, setEditFormData] = useState<any>({});
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+
+  // Assessment & Certificate Form State
+  const [assessmentFormData, setAssessmentFormData] = useState({
+    theory_score: '',
+    practical_score: '',
+    total_score: '',
+    result_status: 'Passed' as 'Pending' | 'Passed' | 'Failed',
+    exam_date: new Date().toISOString().split('T')[0],
+    certificate_no: '',
+    certificate_url: '',
+    certificate_issue_date: new Date().toISOString().split('T')[0],
+    remarks: '',
+    evaluated_by: '',
+    sync_student_status: true,
+  });
+  const [uploadingCert, setUploadingCert] = useState(false);
+  const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
+  const [assessmentError, setAssessmentError] = useState('');
+
   const [paymentFormData, setPaymentFormData] = useState({
     amount: '',
     method: 'Cash',
@@ -74,7 +104,11 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
   const loadStudentData = async () => {
     try {
-      const res = await fetch(`/api/students/${studentId}`);
+      const [res, batchRes] = await Promise.all([
+        fetch(`/api/students/${studentId}`),
+        fetch('/api/batches'),
+      ]);
+
       const data = await res.json();
       if (data.success) {
         setStudent(data.student);
@@ -86,6 +120,16 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
         setPassportExpiringSoon(data.passportExpiringSoon);
 
         setEditFormData({
+          name: data.student.name || '',
+          father_name: data.student.father_name || '',
+          mother_name: data.student.mother_name || '',
+          date_of_birth: toInputDate(data.student.date_of_birth),
+          gender: data.student.gender || 'Male',
+          blood_group: data.student.blood_group || '',
+          nid_or_birth_cert: data.student.nid_or_birth_cert || '',
+          religion: data.student.religion || 'Islam',
+          marital_status: data.student.marital_status || 'Single',
+          photo_url: data.student.photo_url || '',
           mobile: data.student.mobile || '',
           email: data.student.email || '',
           emergency_contact_name: data.student.emergency_contact_name || '',
@@ -96,8 +140,18 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           passport_no: data.student.passport_no || '',
           passport_issue_date: toInputDate(data.student.passport_issue_date),
           passport_expiry_date: toInputDate(data.student.passport_expiry_date),
+          destination_country: data.student.destination_country || '',
+          destination_contract_years: data.student.destination_contract_years || 2,
+          status: data.student.status || 'Active',
           batch: data.student.batch || '',
         });
+      }
+
+      if (batchRes.ok) {
+        const batchData = await batchRes.json();
+        if (batchData.success && batchData.batches) {
+          setAvailableBatches(batchData.batches);
+        }
       }
     } catch (err) {
       console.error('Error fetching student profile:', err);
@@ -204,6 +258,124 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
       setEditError(err.message);
     } finally {
       setIsSubmittingEdit(false);
+    }
+  };
+
+  // Handle Photo Upload for Student Profile
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setEditFormData((prev: any) => ({ ...prev, photo_url: data.url }));
+      } else {
+        alert(data.message || 'Photo upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Photo upload failed');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  // Handle Certificate File Upload
+  const handleCertificateUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingCert(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setAssessmentFormData((prev: any) => ({ ...prev, certificate_url: data.url }));
+      } else {
+        alert(data.message || 'Certificate upload failed');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Certificate upload failed');
+    } finally {
+      setUploadingCert(false);
+    }
+  };
+
+  // Open Exam & Certificate Evaluation Modal
+  const openAssessmentModal = () => {
+    setAssessmentError('');
+    setAssessmentFormData({
+      theory_score:
+        assessment?.theory_score !== null && assessment?.theory_score !== undefined
+          ? String(assessment.theory_score)
+          : '',
+      practical_score:
+        assessment?.practical_score !== null && assessment?.practical_score !== undefined
+          ? String(assessment.practical_score)
+          : '',
+      total_score:
+        assessment?.total_score !== null && assessment?.total_score !== undefined
+          ? String(assessment.total_score)
+          : '',
+      result_status:
+        assessment?.result_status ||
+        (student?.status === 'Passed' ? 'Passed' : student?.status === 'Failed' ? 'Failed' : 'Passed'),
+      exam_date: assessment?.exam_date
+        ? toInputDate(assessment.exam_date)
+        : batch?.exam_date
+        ? toInputDate(batch.exam_date)
+        : new Date().toISOString().split('T')[0],
+      certificate_no:
+        assessment?.certificate_no ||
+        `CERT-${new Date().getFullYear()}-${student?.student_no?.replace(/[^0-9]/g, '')?.slice(-4) || '0001'}`,
+      certificate_url: assessment?.certificate_url || '',
+      certificate_issue_date: assessment?.certificate_issue_date
+        ? toInputDate(assessment.certificate_issue_date)
+        : new Date().toISOString().split('T')[0],
+      remarks: assessment?.remarks || '',
+      evaluated_by: assessment?.evaluated_by || user?.name || '',
+      sync_student_status: true,
+    });
+    setIsAssessmentModalOpen(true);
+  };
+
+  // Submit Exam & Certificate Evaluation
+  const handleAssessmentSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAssessmentError('');
+    setIsSubmittingAssessment(true);
+    try {
+      const res = await fetch(`/api/students/${studentId}/assessment`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(assessmentFormData),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to save assessment');
+      }
+      setAssessment(data.assessment);
+      if (data.studentStatus) {
+        setStudent((prev: any) => ({ ...prev, status: data.studentStatus }));
+      }
+      setIsAssessmentModalOpen(false);
+      loadStudentData();
+    } catch (err: any) {
+      setAssessmentError(err.message || 'Failed to save assessment');
+    } finally {
+      setIsSubmittingAssessment(false);
     }
   };
 
@@ -887,6 +1059,22 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                   <p className="text-slate-400 italic text-[11px]">No batch assessment records yet</p>
                 )}
               </div>
+
+              {/* Action Button: Evaluate / Edit Exam Result & Certificate */}
+              {canEdit && (
+                <div className="pt-3 border-t border-slate-100">
+                  <button
+                    type="button"
+                    onClick={openAssessmentModal}
+                    className="w-full inline-flex items-center justify-center gap-2 py-2 px-3 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs transition-colors"
+                  >
+                    <Award className="w-4 h-4 text-emerald-400" />
+                    <span>
+                      {assessment ? 'Update Exam Result & Certificate' : 'Add Exam Result & Certificate'}
+                    </span>
+                  </button>
+                </div>
+              )}
             </div>
           </div>
 
@@ -971,135 +1159,344 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
         </div>
       </div>
 
-      {/* EDIT PROFILE MODAL */}
+      {/* EDIT PROFILE MODAL - FULL CANDIDATE PROFILE MANAGEMENT */}
       <Modal
         isOpen={isEditModalOpen}
         onClose={() => setIsEditModalOpen(false)}
-        title="Update Candidate Record"
-        description="Authorized counselors & admins can update contact, passport & batch details. Audited."
+        title="Edit Candidate Profile"
+        description="Update personal identity, contact details, passport particulars, and training batch."
         maxWidth="2xl"
       >
-        <form onSubmit={handleEditSubmit} className="space-y-4">
+        <form onSubmit={handleEditSubmit} className="space-y-4 max-h-[75vh] overflow-y-auto px-1">
           {editError && (
             <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
               {editError}
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">Mobile *</label>
-              <input
-                type="text"
-                required
-                value={editFormData.mobile}
-                onChange={(e) => setEditFormData({ ...editFormData, mobile: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
-              />
+          {/* Section 1: Candidate Photo & Identity */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <User className="w-3.5 h-3.5 text-blue-600" />
+              <span>Identity & Personal Details</span>
+            </h4>
+
+            {/* Photo Upload & Preview */}
+            <div className="flex items-center gap-4 pb-2 border-b border-slate-200/80">
+              {editFormData.photo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={editFormData.photo_url}
+                  alt="Candidate Photo"
+                  className="w-14 h-14 rounded-xl object-cover border-2 border-blue-500 shadow-xs shrink-0"
+                />
+              ) : (
+                <div className="w-14 h-14 rounded-xl bg-slate-200 border border-slate-300 flex items-center justify-center text-slate-500 text-xs font-bold shrink-0">
+                  Photo
+                </div>
+              )}
+
+              <div className="flex-1">
+                <label className="block text-[11px] font-bold text-slate-600 mb-1">
+                  Candidate Photo
+                </label>
+                <div className="flex items-center gap-2">
+                  <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-1.5 bg-white border border-slate-200 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-700 shadow-xs transition-colors">
+                    <Upload className="w-3.5 h-3.5 text-blue-600" />
+                    <span>{uploadingPhoto ? 'Uploading...' : 'Upload New Photo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      disabled={uploadingPhoto}
+                      className="hidden"
+                    />
+                  </label>
+                  {editFormData.photo_url && (
+                    <button
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, photo_url: '' })}
+                      className="text-[11px] text-rose-600 hover:underline font-semibold"
+                    >
+                      Remove
+                    </button>
+                  )}
+                </div>
+              </div>
             </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">Email</label>
-              <input
-                type="email"
-                value={editFormData.email}
-                onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
-              />
-            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Candidate Full Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.name || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold"
+                />
+              </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Emergency Contact Name
-              </label>
-              <input
-                type="text"
-                value={editFormData.emergency_contact_name}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, emergency_contact_name: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Father&apos;s Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.father_name || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, father_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Emergency Phone
-              </label>
-              <input
-                type="text"
-                value={editFormData.emergency_contact_phone}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, emergency_contact_phone: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Mother&apos;s Name *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.mother_name || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, mother_name: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
 
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Present Address
-              </label>
-              <textarea
-                rows={2}
-                value={editFormData.present_address}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, present_address: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Date of Birth *</label>
+                <input
+                  type="date"
+                  required
+                  value={editFormData.date_of_birth || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, date_of_birth: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
 
-            <div className="sm:col-span-2">
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Permanent Address
-              </label>
-              <textarea
-                rows={2}
-                value={editFormData.permanent_address}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, permanent_address: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Gender *</label>
+                <select
+                  value={editFormData.gender || 'Male'}
+                  onChange={(e) => setEditFormData({ ...editFormData, gender: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                >
+                  <option value="Male">Male</option>
+                  <option value="Female">Female</option>
+                  <option value="Other">Other</option>
+                </select>
+              </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Passport Number
-              </label>
-              <input
-                type="text"
-                value={editFormData.passport_no}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, passport_no: e.target.value.toUpperCase() })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono font-bold uppercase"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Blood Group</label>
+                <input
+                  type="text"
+                  placeholder="e.g. B+, O+, A+"
+                  value={editFormData.blood_group || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, blood_group: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                />
+              </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Passport Expiry Date
-              </label>
-              <input
-                type="date"
-                value={editFormData.passport_expiry_date}
-                onChange={(e) =>
-                  setEditFormData({ ...editFormData, passport_expiry_date: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
-              />
-            </div>
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">NID / Birth Certificate *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.nid_or_birth_cert || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, nid_or_birth_cert: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                />
+              </div>
 
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">Batch</label>
-              <input
-                type="text"
-                value={editFormData.batch}
-                onChange={(e) => setEditFormData({ ...editFormData, batch: e.target.value })}
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-mono"
-              />
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Marital Status</label>
+                <select
+                  value={editFormData.marital_status || 'Single'}
+                  onChange={(e) => setEditFormData({ ...editFormData, marital_status: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                >
+                  <option value="Single">Single</option>
+                  <option value="Married">Married</option>
+                  <option value="Divorced">Divorced</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          {/* Section 2: Contact & Addresses */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Phone className="w-3.5 h-3.5 text-blue-600" />
+              <span>Contact Particulars & Addresses</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Mobile Number *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.mobile || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, mobile: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Email Address</label>
+                <input
+                  type="email"
+                  value={editFormData.email || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Emergency Contact Name</label>
+                <input
+                  type="text"
+                  value={editFormData.emergency_contact_name || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, emergency_contact_name: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Emergency Contact Phone</label>
+                <input
+                  type="text"
+                  value={editFormData.emergency_contact_phone || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, emergency_contact_phone: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block font-bold text-slate-600 mb-1">Present Address</label>
+                <textarea
+                  rows={2}
+                  value={editFormData.present_address || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, present_address: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block font-bold text-slate-600 mb-1">Permanent Address</label>
+                <textarea
+                  rows={2}
+                  value={editFormData.permanent_address || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, permanent_address: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 3: Passport & Overseas Target */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <Plane className="w-3.5 h-3.5 text-blue-600" />
+              <span>Passport & Target Overseas Destination</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Passport Number *</label>
+                <input
+                  type="text"
+                  required
+                  value={editFormData.passport_no || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, passport_no: e.target.value.toUpperCase() })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono font-bold uppercase"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Passport Issue Date</label>
+                <input
+                  type="date"
+                  value={editFormData.passport_issue_date || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, passport_issue_date: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Passport Expiry Date *</label>
+                <input
+                  type="date"
+                  required
+                  value={editFormData.passport_expiry_date || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, passport_expiry_date: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Target Destination Country</label>
+                <input
+                  type="text"
+                  value={editFormData.destination_country || ''}
+                  onChange={(e) =>
+                    setEditFormData({ ...editFormData, destination_country: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-medium"
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Section 4: Training Batch & Candidate Status */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+            <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+              <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+              <span>Training Batch & Overall Status</span>
+            </h4>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Assigned Training Batch</label>
+                <select
+                  value={editFormData.batch || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, batch: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                >
+                  <option value="">No Batch Assigned</option>
+                  {availableBatches.map((b) => (
+                    <option key={b._id} value={b.batch_code}>
+                      {b.batch_code} ({b.name})
+                    </option>
+                  ))}
+                  {editFormData.batch && !availableBatches.some((b) => b.batch_code === editFormData.batch) && (
+                    <option value={editFormData.batch}>{editFormData.batch}</option>
+                  )}
+                </select>
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-600 mb-1">Candidate Status</label>
+                <select
+                  value={editFormData.status || 'Active'}
+                  onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold"
+                >
+                  <option value="Active">Active (In Training / Processing)</option>
+                  <option value="Passed">Passed (Exam & Certification Passed)</option>
+                  <option value="Failed">Failed (Exam Failed / Retake)</option>
+                  <option value="Dropped">Dropped (Left Training)</option>
+                </select>
+              </div>
             </div>
           </div>
 
@@ -1114,9 +1511,372 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
             <button
               type="submit"
               disabled={isSubmittingEdit}
-              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+              className="px-5 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-xs font-semibold shadow-xs"
             >
-              {isSubmittingEdit ? 'Saving...' : 'Save Changes'}
+              {isSubmittingEdit ? 'Saving Profile...' : 'Save Profile Changes'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* EVALUATE & EDIT EXAM RESULT & CERTIFICATE MODAL */}
+      <Modal
+        isOpen={isAssessmentModalOpen}
+        onClose={() => setIsAssessmentModalOpen(false)}
+        title="Candidate Exam Result & Certificate"
+        description={`Record theory/practical evaluation and upload certified diploma for ${student?.name} (${student?.student_no})`}
+        maxWidth="xl"
+      >
+        <form onSubmit={handleAssessmentSubmit} className="space-y-4 text-xs">
+          {assessmentError && (
+            <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
+              {assessmentError}
+            </div>
+          )}
+
+          {/* Exam Marks Evaluation */}
+          <div className="p-4 bg-slate-50 rounded-xl border border-slate-200 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-200">
+              <span className="font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <GraduationCap className="w-4 h-4 text-emerald-600" />
+                <span>Examination Evaluation</span>
+              </span>
+              <span className="text-[11px] font-mono text-slate-500">
+                Batch: {student?.batch || 'General'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Theory Score (/100)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="0 - 100"
+                  value={assessmentFormData.theory_score}
+                  onChange={(e) => {
+                    const th = e.target.value;
+                    const pr = assessmentFormData.practical_score;
+                    let tot = '';
+                    if (th !== '' && pr !== '') {
+                      tot = String(Math.round((Number(th) + Number(pr)) / 2));
+                    }
+                    const resStat =
+                      th !== '' && pr !== ''
+                        ? Number(th) >= 40 && Number(pr) >= 40
+                          ? 'Passed'
+                          : 'Failed'
+                        : assessmentFormData.result_status;
+
+                    setAssessmentFormData({
+                      ...assessmentFormData,
+                      theory_score: th,
+                      total_score: tot,
+                      result_status: resStat as any,
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Practical Score (/100)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="0 - 100"
+                  value={assessmentFormData.practical_score}
+                  onChange={(e) => {
+                    const pr = e.target.value;
+                    const th = assessmentFormData.theory_score;
+                    let tot = '';
+                    if (th !== '' && pr !== '') {
+                      tot = String(Math.round((Number(th) + Number(pr)) / 2));
+                    }
+                    const resStat =
+                      th !== '' && pr !== ''
+                        ? Number(th) >= 40 && Number(pr) >= 40
+                          ? 'Passed'
+                          : 'Failed'
+                        : assessmentFormData.result_status;
+
+                    setAssessmentFormData({
+                      ...assessmentFormData,
+                      practical_score: pr,
+                      total_score: tot,
+                      result_status: resStat as any,
+                    });
+                  }}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Total Score (%)</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={100}
+                  placeholder="Average"
+                  value={assessmentFormData.total_score}
+                  onChange={(e) =>
+                    setAssessmentFormData({ ...assessmentFormData, total_score: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 bg-white rounded-lg text-xs text-blue-700 font-mono font-bold"
+                />
+              </div>
+            </div>
+
+            {/* Exam Date & Status */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Exam Conducted Date</label>
+                <input
+                  type="date"
+                  value={assessmentFormData.exam_date}
+                  onChange={(e) =>
+                    setAssessmentFormData({ ...assessmentFormData, exam_date: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-medium"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Result Status (ফলাফল) *</label>
+                <div className="grid grid-cols-3 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAssessmentFormData({ ...assessmentFormData, result_status: 'Passed' })
+                    }
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
+                      assessmentFormData.result_status === 'Passed'
+                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Passed (পাস)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAssessmentFormData({ ...assessmentFormData, result_status: 'Failed' })
+                    }
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
+                      assessmentFormData.result_status === 'Failed'
+                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Failed (ফেল)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAssessmentFormData({ ...assessmentFormData, result_status: 'Pending' })
+                    }
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
+                      assessmentFormData.result_status === 'Pending'
+                        ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                    }`}
+                  >
+                    Pending
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Certificate Particulars & Upload */}
+          <div className="p-4 bg-emerald-50/50 rounded-xl border border-emerald-200/80 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-emerald-200/60">
+              <span className="font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
+                <Award className="w-4 h-4 text-emerald-600" />
+                <span>Certificate & Diploma Attachment</span>
+              </span>
+              <span className="text-[10px] text-emerald-700 font-semibold bg-emerald-100/60 px-2 py-0.5 rounded">
+                Verified Credential
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="font-bold text-slate-700">Certificate Number</label>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const yr = new Date().getFullYear();
+                      const num = student?.student_no?.replace(/[^0-9]/g, '')?.slice(-4) || '0001';
+                      setAssessmentFormData({
+                        ...assessmentFormData,
+                        certificate_no: `CERT-${yr}-${num}`,
+                      });
+                    }}
+                    className="text-[10px] font-bold text-emerald-700 hover:underline flex items-center gap-0.5"
+                  >
+                    <Sparkles className="w-2.5 h-2.5" />
+                    <span>Auto-Gen</span>
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  placeholder="e.g. CERT-2026-0012"
+                  value={assessmentFormData.certificate_no}
+                  onChange={(e) =>
+                    setAssessmentFormData({ ...assessmentFormData, certificate_no: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono font-bold"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Certificate Issue Date</label>
+                <input
+                  type="date"
+                  value={assessmentFormData.certificate_issue_date}
+                  onChange={(e) =>
+                    setAssessmentFormData({
+                      ...assessmentFormData,
+                      certificate_issue_date: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Certificate File Upload & Preview */}
+            <div>
+              <label className="block font-bold text-slate-700 mb-1">
+                Certificate Document (PDF or Scanned Copy)
+              </label>
+
+              <div className="flex items-center gap-2">
+                <label className="cursor-pointer inline-flex items-center gap-1.5 px-3 py-2 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg text-xs font-semibold text-slate-800 shadow-xs transition-colors">
+                  <Upload className="w-3.5 h-3.5 text-emerald-600" />
+                  <span>{uploadingCert ? 'Uploading File...' : 'Upload File (PDF/Image)'}</span>
+                  <input
+                    type="file"
+                    accept=".pdf,image/*"
+                    onChange={handleCertificateUpload}
+                    disabled={uploadingCert}
+                    className="hidden"
+                  />
+                </label>
+
+                <input
+                  type="text"
+                  placeholder="Or paste direct certificate URL..."
+                  value={assessmentFormData.certificate_url}
+                  onChange={(e) =>
+                    setAssessmentFormData({
+                      ...assessmentFormData,
+                      certificate_url: e.target.value,
+                    })
+                  }
+                  className="flex-1 px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-800 font-mono"
+                />
+              </div>
+
+              {assessmentFormData.certificate_url && (
+                <div className="mt-2 flex items-center justify-between p-2 bg-white rounded-lg border border-emerald-200 text-xs">
+                  <div className="flex items-center gap-2 truncate text-emerald-800 font-medium">
+                    <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
+                    <span className="truncate">{assessmentFormData.certificate_url}</span>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <a
+                      href={assessmentFormData.certificate_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-xs text-emerald-700 font-bold hover:underline inline-flex items-center gap-0.5"
+                    >
+                      <span>Preview</span>
+                      <ExternalLink className="w-3 h-3" />
+                    </a>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setAssessmentFormData({ ...assessmentFormData, certificate_url: '' })
+                      }
+                      className="text-[11px] text-rose-600 hover:underline font-semibold"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Remarks & Evaluator */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Evaluator / Examiner Name</label>
+                <input
+                  type="text"
+                  value={assessmentFormData.evaluated_by}
+                  onChange={(e) =>
+                    setAssessmentFormData({
+                      ...assessmentFormData,
+                      evaluated_by: e.target.value,
+                    })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Remarks / Note</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Excellent practical welding score"
+                  value={assessmentFormData.remarks}
+                  onChange={(e) =>
+                    setAssessmentFormData({ ...assessmentFormData, remarks: e.target.value })
+                  }
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                />
+              </div>
+            </div>
+
+            {/* Sync Candidate Status Checkbox */}
+            <div className="pt-2 border-t border-emerald-200/60 flex items-center gap-2">
+              <input
+                type="checkbox"
+                id="sync_student_status"
+                checked={assessmentFormData.sync_student_status}
+                onChange={(e) =>
+                  setAssessmentFormData({
+                    ...assessmentFormData,
+                    sync_student_status: e.target.checked,
+                  })
+                }
+                className="w-4 h-4 text-emerald-600 rounded border-slate-300 focus:ring-emerald-500"
+              />
+              <label htmlFor="sync_student_status" className="text-xs font-semibold text-slate-700 cursor-pointer">
+                Synchronize candidate overall profile status to &quot;{assessmentFormData.result_status}&quot;
+              </label>
+            </div>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsAssessmentModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={isSubmittingAssessment}
+              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs"
+            >
+              {isSubmittingAssessment ? 'Saving Evaluation...' : 'Save Exam Result & Certificate'}
             </button>
           </div>
         </form>

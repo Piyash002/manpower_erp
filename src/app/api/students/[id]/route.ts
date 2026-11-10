@@ -115,7 +115,16 @@ export async function PUT(
       student.passport_no = cleanPassport;
     }
 
-    // Editable fields per PRD Section 5.7
+    // Editable fields - Full student profile update
+    if (body.name) student.name = body.name.trim();
+    if (body.father_name) student.father_name = body.father_name.trim();
+    if (body.mother_name) student.mother_name = body.mother_name.trim();
+    if (body.date_of_birth) student.date_of_birth = new Date(body.date_of_birth);
+    if (body.gender) student.gender = body.gender;
+    if (body.blood_group) student.blood_group = body.blood_group.trim();
+    if (body.nid_or_birth_cert) student.nid_or_birth_cert = body.nid_or_birth_cert.trim();
+    if (body.religion) student.religion = body.religion.trim();
+    if (body.marital_status) student.marital_status = body.marital_status.trim();
     if (body.mobile) student.mobile = body.mobile.trim();
     if (body.email !== undefined) student.email = body.email ? body.email.trim() : '';
     if (body.emergency_contact_name) student.emergency_contact_name = body.emergency_contact_name.trim();
@@ -125,6 +134,9 @@ export async function PUT(
     if (body.permanent_address) student.permanent_address = body.permanent_address.trim();
     if (body.passport_issue_date) student.passport_issue_date = new Date(body.passport_issue_date);
     if (body.passport_expiry_date) student.passport_expiry_date = new Date(body.passport_expiry_date);
+    if (body.destination_country) student.destination_country = body.destination_country.trim();
+    if (body.destination_contract_years !== undefined) student.destination_contract_years = Number(body.destination_contract_years);
+    if (body.status) student.status = body.status;
     if (body.batch) student.batch = body.batch.trim();
     if (body.photo_url !== undefined) student.photo_url = body.photo_url;
 
