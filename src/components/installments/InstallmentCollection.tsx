@@ -20,6 +20,9 @@ import {
   Check,
   Printer,
   Sparkles,
+  Download,
+  FileSpreadsheet,
+  ChevronDown,
 } from 'lucide-react';
 import { formatBDT, formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -94,6 +97,54 @@ function InstallmentCollectionContent() {
     studentName: string;
     studentNo: string;
   } | null>(null);
+
+  const [showExportMenu, setShowExportMenu] = useState(false);
+
+  const handleExportInstallmentsCSV = () => {
+    if (installments.length === 0) return;
+    const headers = [
+      'Installment No',
+      'Student Roll',
+      'Candidate Name',
+      'Mobile',
+      'Passport No',
+      'Trade',
+      'Destination Country',
+      'Due Date',
+      'Installment Amount (BDT)',
+      'Paid Amount (BDT)',
+      'Remaining Due (BDT)',
+      'Status',
+    ];
+
+    const rows = installments.map((item) => [
+      `"Inst #${item.installment_no}"`,
+      `"${item.student?.student_no || ''}"`,
+      `"${item.student?.name || ''}"`,
+      `"${item.student?.mobile || ''}"`,
+      `"${item.student?.passport_no || ''}"`,
+      `"${item.student?.trade_name || ''}"`,
+      `"${item.student?.destination_country || ''}"`,
+      `"${formatDate(item.due_date)}"`,
+      item.amount || 0,
+      item.paid_amount || 0,
+      item.remaining_due || 0,
+      `"${item.isOverdue ? 'OVERDUE' : item.status.toUpperCase()}"`,
+    ]);
+
+    const csvContent =
+      'data:text/csv;charset=utf-8,' +
+      [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+
+    const encodedUri = encodeURI(csvContent);
+    const link = document.createElement('a');
+    link.setAttribute('href', encodedUri);
+    link.setAttribute('download', `Installments_Report_${activeTab}_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    setShowExportMenu(false);
+  };
 
   const fetchInstallments = async () => {
     setLoading(true);
@@ -280,14 +331,71 @@ function InstallmentCollectionContent() {
           </p>
         </div>
 
-        <button
-          onClick={fetchInstallments}
-          disabled={loading}
-          className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs transition-colors self-start sm:self-auto"
-        >
-          <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
-          Refresh
-        </button>
+        <div className="flex items-center gap-2 self-start sm:self-auto">
+          {/* Export CSV Dropdown */}
+          <div className="relative">
+            <button
+              onClick={() => setShowExportMenu(!showExportMenu)}
+              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-sm font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs transition-colors"
+            >
+              <Download className="w-4 h-4 text-emerald-600" />
+              <span>Export CSV</span>
+              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+            </button>
+
+            {showExportMenu && (
+              <div className="absolute right-0 mt-1 w-60 bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 z-40 text-xs animate-in fade-in zoom-in-95 space-y-1">
+                <button
+                  onClick={handleExportInstallmentsCSV}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">Installments Schedule CSV</span>
+                    <span className="block text-[10px] text-slate-400">Current tab filter export</span>
+                  </div>
+                </button>
+
+                <a
+                  href="/api/reports/payments?reportType=transactions&format=csv"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">All Payments & Receipts CSV</span>
+                    <span className="block text-[10px] text-slate-400">Complete transaction history</span>
+                  </div>
+                </a>
+
+                <a
+                  href="/api/reports/payments?reportType=trade_batch_summary&format=csv"
+                  target="_blank"
+                  rel="noreferrer"
+                  onClick={() => setShowExportMenu(false)}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">Trade & Batch Summary CSV</span>
+                    <span className="block text-[10px] text-slate-400">Collections per trade/batch</span>
+                  </div>
+                </a>
+              </div>
+            )}
+          </div>
+
+          <button
+            onClick={fetchInstallments}
+            disabled={loading}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-sm font-medium text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs transition-colors"
+          >
+            <RefreshCw className={`w-4 h-4 text-slate-500 ${loading ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
       </div>
 
       {/* KPI Stats Cards */}

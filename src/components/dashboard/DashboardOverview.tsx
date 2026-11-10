@@ -159,6 +159,37 @@ export function DashboardOverview() {
     setShowExportMenu(false);
   };
 
+  // Download Monthly Payment Transactions Report (CSV) via API
+  const handleDownloadMonthlyPaymentsCSV = () => {
+    const params = new URLSearchParams({
+      reportType: 'transactions',
+      format: 'csv',
+    });
+    if (selectedTrade !== 'all') params.append('trade', selectedTrade);
+    if (selectedBatch !== 'all') params.append('batch', selectedBatch);
+    if (timeframe === 'this_month') {
+      const now = new Date();
+      params.append('month', String(now.getMonth() + 1));
+      params.append('year', String(now.getFullYear()));
+    } else if (timeframe === 'this_year') {
+      params.append('year', '2026');
+    }
+    window.open(`/api/reports/payments?${params.toString()}`, '_blank');
+    setShowExportMenu(false);
+  };
+
+  // Download Trade & Batch-wise Financial Collection Summary (CSV) via API
+  const handleDownloadTradeBatchSummaryCSV = () => {
+    const params = new URLSearchParams({
+      reportType: 'trade_batch_summary',
+      format: 'csv',
+    });
+    if (selectedTrade !== 'all') params.append('trade', selectedTrade);
+    if (selectedBatch !== 'all') params.append('batch', selectedBatch);
+    window.open(`/api/reports/payments?${params.toString()}`, '_blank');
+    setShowExportMenu(false);
+  };
+
   const resetFilters = () => {
     setSelectedTrade('all');
     setSelectedBatch('all');
@@ -216,24 +247,56 @@ export function DashboardOverview() {
             </button>
 
             {showExportMenu && (
-              <div className="absolute right-0 mt-1 w-48 bg-white border border-slate-200 rounded-xl shadow-lg p-1.5 z-40 text-xs animate-in fade-in zoom-in-95">
+              <div className="absolute right-0 mt-1 w-64 bg-white border border-slate-200 rounded-xl shadow-xl p-1.5 z-40 text-xs animate-in fade-in zoom-in-95 space-y-1">
+                <div className="px-3 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider border-b border-slate-100">
+                  Export CSV & Print Reports
+                </div>
+
                 <button
-                  onClick={() => {
-                    window.print();
-                    setShowExportMenu(false);
-                  }}
-                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700"
+                  onClick={handleDownloadMonthlyPaymentsCSV}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                 >
-                  <Printer className="w-3.5 h-3.5 text-slate-400" />
-                  <span>Print Summary Sheet</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">Monthly Payments CSV</span>
+                    <span className="block text-[10px] text-slate-400">By trade, batch & month</span>
+                  </div>
                 </button>
+
+                <button
+                  onClick={handleDownloadTradeBatchSummaryCSV}
+                  className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
+                >
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-blue-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">Trade & Batch Summary CSV</span>
+                    <span className="block text-[10px] text-slate-400">Collections & collection rate</span>
+                  </div>
+                </button>
+
                 <button
                   onClick={handleExportCSV}
                   className="w-full text-left px-3 py-2 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-700 font-medium"
                 >
-                  <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                  <span>Export Dues to CSV</span>
+                  <FileSpreadsheet className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                  <div>
+                    <span className="block font-semibold">Candidate Dues Report CSV</span>
+                    <span className="block text-[10px] text-slate-400">Filtered candidates & dues</span>
+                  </div>
                 </button>
+
+                <div className="border-t border-slate-100 pt-1">
+                  <button
+                    onClick={() => {
+                      window.print();
+                      setShowExportMenu(false);
+                    }}
+                    className="w-full text-left px-3 py-1.5 rounded-lg hover:bg-slate-50 flex items-center gap-2 text-slate-600"
+                  >
+                    <Printer className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                    <span>Print Summary Sheet</span>
+                  </button>
+                </div>
               </div>
             )}
           </div>
