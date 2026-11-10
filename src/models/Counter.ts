@@ -45,3 +45,13 @@ export async function generateReceiptNo(): Promise<string> {
   const padded = String(seq).padStart(5, '0');
   return `MR-${padded}`;
 }
+
+/**
+ * Generate Employee ID format EMP-0001
+ */
+export async function generateEmployeeId(): Promise<string> {
+  const key = 'employee_id_seq';
+  const seq = await getNextSequence(key);
+  const padded = String(seq).padStart(4, '0');
+  return `EMP-${padded}`;
+}

@@ -116,6 +116,7 @@ export function AdmissionForm() {
     admission_date: new Date().toISOString().split('T')[0],
     destination_country: 'Not decided yet',
     destination_contract_years: 0,
+    referred_by_agent: '',
 
     // 6. Fees
     admission_fee: 0,
@@ -153,20 +154,27 @@ export function AdmissionForm() {
   const [successReceipt, setSuccessReceipt] = useState<any | null>(null);
   const [createdStudent, setCreatedStudent] = useState<any | null>(null);
   const [existingBatches, setExistingBatches] = useState<any[]>([]);
+  const [agentsList, setAgentsList] = useState<any[]>([]);
 
-  // Fetch initial Trades, Country Costs, and Batches
+  // Fetch initial Trades, Country Costs, Batches, and HRM Agents
   useEffect(() => {
     async function loadData() {
       try {
-        const [tradesRes, costsRes, batchesRes] = await Promise.all([
+        const [tradesRes, costsRes, batchesRes, empRes] = await Promise.all([
           fetch('/api/trades?active=true'),
           fetch('/api/country-costs'),
           fetch('/api/batches'),
+          fetch('/api/hrm/employees?status=Active'),
         ]);
 
         const tradesData = await tradesRes.json();
         const costsData = await costsRes.json();
         const batchesData = await batchesRes.json();
+        const empData = await empRes.json();
+
+        if (empData.success && Array.isArray(empData.data)) {
+          setAgentsList(empData.data);
+        }
 
         if (batchesData.success) {
           setExistingBatches(batchesData.batches || []);
@@ -710,7 +718,7 @@ export function AdmissionForm() {
                   </select>
                 </div>
 
-                <div className="sm:col-span-2">
+                <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
                     Admission Date *
                   </label>
@@ -721,6 +729,24 @@ export function AdmissionForm() {
                     onChange={(e) => setFormData({ ...formData, admission_date: e.target.value })}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                   />
+                </div>
+
+                <div>
+                  <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
+                    Referred By Agent (Optional)
+                  </label>
+                  <select
+                    value={formData.referred_by_agent}
+                    onChange={(e) => setFormData({ ...formData, referred_by_agent: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Direct / Walk-in (No Agent)</option>
+                    {agentsList.map((emp: any) => (
+                      <option key={emp._id} value={emp._id}>
+                        {emp.firstName} {emp.lastName} ({emp.employee_id} • {emp.department})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
             </div>

@@ -7,6 +7,7 @@ import { Payment } from '@/models/Payment';
 import { StudentDocument } from '@/models/StudentDocument';
 import { Batch } from '@/models/Batch';
 import { BatchAssessment } from '@/models/BatchAssessment';
+import { Employee } from '@/models/Employee';
 import { generateStudentId, generateReceiptNo } from '@/models/Counter';
 import { calculateInstallments } from '@/lib/formatters';
 import { DEFAULT_DOCUMENT_CHECKLIST } from '@/lib/seed';
@@ -193,6 +194,9 @@ export async function POST(req: NextRequest) {
 
       // Installments
       installment_count,
+
+      // HRM Agent Referral
+      referred_by_agent,
     } = body;
 
     // Validate Required Fields
@@ -341,6 +345,7 @@ export async function POST(req: NextRequest) {
 
       total_paid: paidNowAmount,
       total_due: remainingDue,
+      referred_by_agent: referred_by_agent && referred_by_agent !== '' ? referred_by_agent : null,
       created_by: auth.user.name,
     });
 

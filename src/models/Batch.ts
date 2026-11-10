@@ -10,6 +10,7 @@ export interface IBatch extends Document {
   start_date: Date;
   end_date: Date;
   exam_date?: Date | null;
+  instructor_id?: mongoose.Types.ObjectId | null;
   instructor?: string;
   capacity: number;
   status: BatchStatus;
@@ -28,6 +29,7 @@ const BatchSchema = new Schema<IBatch>(
     start_date: { type: Date, required: true },
     end_date: { type: Date, required: true },
     exam_date: { type: Date, default: null },
+    instructor_id: { type: Schema.Types.ObjectId, ref: 'Employee', default: null, index: true },
     instructor: { type: String, default: '', trim: true },
     capacity: { type: Number, default: 30, min: 1 },
     status: {

@@ -5,6 +5,7 @@ import { Batch } from '@/models/Batch';
 import { Trade } from '@/models/Trade';
 import { Student } from '@/models/Student';
 import { BatchAssessment } from '@/models/BatchAssessment';
+import { Employee } from '@/models/Employee';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,7 +20,9 @@ export async function GET(
 
   try {
     await connectDB();
-    const batch = await Batch.findById(id).lean();
+    const batch = await Batch.findById(id)
+      .populate('instructor_id', 'employee_id firstName lastName designation department')
+      .lean();
     if (!batch) {
       return NextResponse.json({ success: false, message: 'Batch not found' }, { status: 404 });
     }
@@ -152,7 +155,7 @@ export async function PUT(
 
   try {
     const body = await req.json();
-    const { name, start_date, end_date, exam_date, instructor, capacity, status, notes } = body;
+    const { name, start_date, end_date, exam_date, instructor_id, instructor, capacity, status, notes } = body;
 
     await connectDB();
     const batch = await Batch.findById(id);
@@ -164,7 +167,20 @@ export async function PUT(
     if (start_date) batch.start_date = new Date(start_date);
     if (end_date) batch.end_date = new Date(end_date);
     if (exam_date !== undefined) batch.exam_date = exam_date ? new Date(exam_date) : null;
-    if (instructor !== undefined) batch.instructor = instructor.trim();
+    if (instructor_id !== undefined) {
+      if (instructor_id && instructor_id !== '') {
+        const emp = await Employee.findById(instructor_id).select('firstName lastName');
+        if (emp) {
+          batch.instructor_id = emp._id as any;
+          batch.instructor = `${emp.firstName} ${emp.lastName}`;
+        }
+      } else {
+        batch.instructor_id = null;
+        if (instructor !== undefined) batch.instructor = instructor.trim();
+      }
+    } else if (instructor !== undefined) {
+      batch.instructor = instructor.trim();
+    }
     if (capacity !== undefined) batch.capacity = Number(capacity);
     if (status) batch.status = status;
     if (notes !== undefined) batch.notes = notes.trim();

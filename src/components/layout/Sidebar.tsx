@@ -18,6 +18,9 @@ import {
   FileText,
   PanelLeftClose,
   Sparkles,
+  UserCheck,
+  CalendarCheck,
+  Wallet,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -112,6 +115,24 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
     {
       heading: 'HRM',
       items: [
+        {
+          title: 'Employees & Agents',
+          href: '/hrm/employees',
+          icon: UserCheck,
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Daily Attendance',
+          href: '/hrm/attendance',
+          icon: CalendarCheck,
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Payroll & Commissions',
+          href: '/hrm/payroll',
+          icon: Wallet,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
         {
           title: 'Users & Staff',
           href: '/users',

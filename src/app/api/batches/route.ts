@@ -5,6 +5,7 @@ import { Batch } from '@/models/Batch';
 import { Trade } from '@/models/Trade';
 import { Student } from '@/models/Student';
 import { BatchAssessment } from '@/models/BatchAssessment';
+import { Employee } from '@/models/Employee';
 
 export const dynamic = 'force-dynamic';
 
@@ -32,7 +33,10 @@ export async function GET(req: NextRequest) {
       query.$or = [{ name: searchRegex }, { batch_code: searchRegex }, { instructor: searchRegex }];
     }
 
-    const batches = await Batch.find(query).sort({ start_date: -1 }).lean();
+    const batches = await Batch.find(query)
+      .populate('instructor_id', 'employee_id firstName lastName designation department')
+      .sort({ start_date: -1 })
+      .lean();
 
     // Enrich each batch with trainee statistics
     const enrichedBatches = await Promise.all(
@@ -90,6 +94,7 @@ export async function POST(req: NextRequest) {
       start_date,
       end_date,
       exam_date,
+      instructor_id,
       instructor,
       capacity,
       status,
@@ -124,6 +129,16 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'Selected trade was not found.' }, { status: 404 });
     }
 
+    let resolvedInstructorId: any = null;
+    let resolvedInstructorName = instructor ? instructor.trim() : '';
+    if (instructor_id && instructor_id !== '') {
+      const emp = await Employee.findById(instructor_id).select('firstName lastName');
+      if (emp) {
+        resolvedInstructorId = emp._id;
+        resolvedInstructorName = `${emp.firstName} ${emp.lastName}`;
+      }
+    }
+
     const newBatch = await Batch.create({
       name: name.trim(),
       batch_code: cleanCode,
@@ -132,7 +147,8 @@ export async function POST(req: NextRequest) {
       start_date: new Date(start_date),
       end_date: new Date(end_date),
       exam_date: exam_date ? new Date(exam_date) : null,
-      instructor: instructor ? instructor.trim() : '',
+      instructor_id: resolvedInstructorId,
+      instructor: resolvedInstructorName,
       capacity: capacity ? Number(capacity) : 30,
       status: status || 'Upcoming',
       notes: notes ? notes.trim() : '',

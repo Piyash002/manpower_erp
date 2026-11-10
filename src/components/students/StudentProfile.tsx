@@ -64,6 +64,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
   const [countryCosts, setCountryCosts] = useState<any[]>([]);
+  const [availableAgents, setAvailableAgents] = useState<any[]>([]);
 
   // Documents Checklist Upload / Inline Edit State
   const [uploadingDocId, setUploadingDocId] = useState<string | null>(null);
@@ -117,11 +118,19 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
   const loadStudentData = async () => {
     try {
-      const [res, batchRes, countryRes] = await Promise.all([
+      const [res, batchRes, countryRes, empRes] = await Promise.all([
         fetch(`/api/students/${studentId}`),
         fetch('/api/batches'),
         fetch('/api/country-costs'),
+        fetch('/api/hrm/employees?status=Active'),
       ]);
+
+      if (empRes.ok) {
+        const empData = await empRes.json();
+        if (empData.success && Array.isArray(empData.data)) {
+          setAvailableAgents(empData.data);
+        }
+      }
 
       const data = await res.json();
       if (data.success) {
@@ -158,6 +167,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           destination_contract_years: data.student.destination_contract_years ?? 0,
           status: data.student.status || 'Active',
           batch: data.student.batch || '',
+          referred_by_agent:
+            typeof data.student.referred_by_agent === 'object' && data.student.referred_by_agent
+              ? data.student.referred_by_agent._id
+              : data.student.referred_by_agent || '',
           admission_fee: data.student.fee_snapshot?.admission_fee ?? 0,
           course_fee: data.student.fee_snapshot?.course_fee ?? 0,
           visa_cost: data.student.fee_snapshot?.visa_cost ?? 0,
@@ -1215,6 +1228,13 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 </div>
               )}
 
+              {student.referred_by_agent && typeof student.referred_by_agent === 'object' && (
+                <div className="p-2.5 bg-blue-50/70 border border-blue-100 rounded-lg text-[11px] text-blue-900">
+                  <strong>Referred By Agent:</strong> {student.referred_by_agent.firstName}{' '}
+                  {student.referred_by_agent.lastName} ({student.referred_by_agent.employee_id})
+                </div>
+              )}
+
               {/* Assessment Scores */}
               {assessment && (
                 <div className="pt-2 border-t border-slate-100 space-y-2">
@@ -1931,6 +1951,22 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                   <option value="Passed">Passed (Exam &amp; Certification Passed)</option>
                   <option value="Failed">Failed (Exam Failed / Retake)</option>
                   <option value="Dropped">Dropped (Left Training)</option>
+                </select>
+              </div>
+
+              <div className="sm:col-span-2">
+                <label className="block font-bold text-slate-600 mb-1">Referred By Agent (HRM Commission)</label>
+                <select
+                  value={editFormData.referred_by_agent || ''}
+                  onChange={(e) => setEditFormData({ ...editFormData, referred_by_agent: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                >
+                  <option value="">Direct / Walk-in (No Agent)</option>
+                  {availableAgents.map((emp: any) => (
+                    <option key={emp._id} value={emp._id}>
+                      {emp.firstName} {emp.lastName} ({emp.employee_id} • {emp.department})
+                    </option>
+                  ))}
                 </select>
               </div>
             </div>

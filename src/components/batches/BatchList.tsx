@@ -57,6 +57,7 @@ export function BatchList() {
   const { user } = useAuth();
   const [batches, setBatches] = useState<BatchItem[]>([]);
   const [trades, setTrades] = useState<TradeOption[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
@@ -76,6 +77,7 @@ export function BatchList() {
     start_date: new Date().toISOString().split('T')[0],
     end_date: '',
     exam_date: '',
+    instructor_id: '',
     instructor: '',
     capacity: '30',
     status: 'Upcoming',
@@ -93,13 +95,19 @@ export function BatchList() {
       if (statusFilter !== 'all') params.append('status', statusFilter);
       if (tradeFilter !== 'all') params.append('trade_id', tradeFilter);
 
-      const [batchRes, tradeRes] = await Promise.all([
+      const [batchRes, tradeRes, empRes] = await Promise.all([
         fetch(`/api/batches?${params.toString()}`),
         fetch('/api/trades?active=true'),
+        fetch('/api/hrm/employees?status=Active'),
       ]);
 
       const batchData = await batchRes.json();
       const tradeData = await tradeRes.json();
+      const empData = await empRes.json();
+
+      if (empData.success && Array.isArray(empData.data)) {
+        setEmployees(empData.data);
+      }
 
       if (batchData.success) {
         setBatches(batchData.batches || []);
@@ -172,6 +180,7 @@ export function BatchList() {
         start_date: new Date().toISOString().split('T')[0],
         end_date: '',
         exam_date: '',
+        instructor_id: '',
         instructor: '',
         capacity: '30',
         status: 'Upcoming',
@@ -597,15 +606,28 @@ export function BatchList() {
 
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">
-                Trainer / Instructor
+                Trainer / Instructor (Employee)
               </label>
-              <input
-                type="text"
-                value={formData.instructor}
-                onChange={(e) => setFormData({ ...formData, instructor: e.target.value })}
-                placeholder="e.g. Engr. Shafiqul Islam"
+              <select
+                value={formData.instructor_id}
+                onChange={(e) => {
+                  const id = e.target.value;
+                  const emp = employees.find((x) => x._id === id);
+                  setFormData({
+                    ...formData,
+                    instructor_id: id,
+                    instructor: emp ? `${emp.firstName} ${emp.lastName}` : '',
+                  });
+                }}
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-blue-500"
-              />
+              >
+                <option value="">Select Employee Instructor (Optional)</option>
+                {employees.map((emp) => (
+                  <option key={emp._id} value={emp._id}>
+                    {emp.firstName} {emp.lastName} ({emp.employee_id} • {emp.department})
+                  </option>
+                ))}
+              </select>
             </div>
 
             <div>

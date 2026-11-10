@@ -3,15 +3,46 @@
 import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
-import { ShieldCheck, FileText } from 'lucide-react';
+import { ShieldCheck, FileText, UserCheck, CalendarCheck, Wallet } from 'lucide-react';
+import { useAuth } from '@/components/layout/DashboardLayout';
 
 export function HrmModuleNav() {
   const pathname = usePathname();
+  const { user } = useAuth();
+  const role = user?.role || 'Viewer';
 
   const tabs = [
-    { label: 'Users & Staff', href: '/users', icon: ShieldCheck },
-    { label: 'System Audit Logs', href: '/audit-logs', icon: FileText },
-  ];
+    {
+      label: 'Employees & Agents',
+      href: '/hrm/employees',
+      icon: UserCheck,
+      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+    },
+    {
+      label: 'Daily Attendance & Leaves',
+      href: '/hrm/attendance',
+      icon: CalendarCheck,
+      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+    },
+    {
+      label: 'Payroll & Commissions',
+      href: '/hrm/payroll',
+      icon: Wallet,
+      allowed: ['Admin', 'Accountant', 'Viewer'],
+    },
+    {
+      label: 'Users & Staff',
+      href: '/users',
+      icon: ShieldCheck,
+      allowed: ['Admin'],
+    },
+    {
+      label: 'System Audit Logs',
+      href: '/audit-logs',
+      icon: FileText,
+      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+    },
+  ].filter((t) => t.allowed.includes(role));
 
   return (
     <div className="flex items-center gap-1.5 overflow-x-auto pb-2 border-b border-slate-200 mb-6">
@@ -37,4 +68,3 @@ export function HrmModuleNav() {
     </div>
   );
 }
-

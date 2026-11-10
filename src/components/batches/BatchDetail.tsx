@@ -63,6 +63,7 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
   const [batch, setBatch] = useState<any | null>(null);
   const [trainees, setTrainees] = useState<TraineeAssessment[]>([]);
   const [availableStudents, setAvailableStudents] = useState<any[]>([]);
+  const [employees, setEmployees] = useState<any[]>([]);
   const [stats, setStats] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -102,8 +103,15 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
     setLoading(true);
     setError('');
     try {
-      const res = await fetch(`/api/batches/${batchId}`);
+      const [res, empRes] = await Promise.all([
+        fetch(`/api/batches/${batchId}`),
+        fetch('/api/hrm/employees?status=Active'),
+      ]);
       const data = await res.json();
+      const empData = await empRes.json();
+      if (empData.success && Array.isArray(empData.data)) {
+        setEmployees(empData.data);
+      }
       if (!res.ok || !data.success) {
         throw new Error(data.message || 'Failed to load batch');
       }
@@ -113,11 +121,17 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
       setAvailableStudents(data.availableTradeStudents || []);
       setStats(data.stats || null);
 
+      const instrId =
+        typeof data.batch.instructor_id === 'object' && data.batch.instructor_id
+          ? data.batch.instructor_id._id
+          : data.batch.instructor_id || '';
+
       setEditFormData({
         name: data.batch.name,
         start_date: data.batch.start_date ? data.batch.start_date.split('T')[0] : '',
         end_date: data.batch.end_date ? data.batch.end_date.split('T')[0] : '',
         exam_date: data.batch.exam_date ? data.batch.exam_date.split('T')[0] : '',
+        instructor_id: instrId,
         instructor: data.batch.instructor || '',
         capacity: data.batch.capacity?.toString() || '30',
         status: data.batch.status,
@@ -1083,14 +1097,32 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
-              Trainer / Instructor
+              Trainer / Instructor (Employee)
             </label>
-            <input
-              type="text"
-              value={editFormData.instructor || ''}
-              onChange={(e) => setEditFormData({ ...editFormData, instructor: e.target.value })}
+            <select
+              value={editFormData.instructor_id || ''}
+              onChange={(e) => {
+                const id = e.target.value;
+                const emp = employees.find((x) => x._id === id);
+                setEditFormData({
+                  ...editFormData,
+                  instructor_id: id,
+                  instructor: emp ? `${emp.firstName} ${emp.lastName}` : editFormData.instructor,
+                });
+              }}
               className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500"
-            />
+            >
+              <option value="">
+                {editFormData.instructor
+                  ? `Current: ${editFormData.instructor} (Legacy / Custom)`
+                  : 'Select Employee Instructor'}
+              </option>
+              {employees.map((emp) => (
+                <option key={emp._id} value={emp._id}>
+                  {emp.firstName} {emp.lastName} ({emp.employee_id} • {emp.department})
+                </option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">

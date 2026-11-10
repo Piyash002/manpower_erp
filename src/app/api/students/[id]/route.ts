@@ -8,6 +8,7 @@ import { StudentDocument } from '@/models/StudentDocument';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Batch } from '@/models/Batch';
 import { CountryCost } from '@/models/CountryCost';
+import { Employee } from '@/models/Employee';
 import { isWithin6Months } from '@/lib/formatters';
 
 // GET /api/students/[id] - Full profile
@@ -22,7 +23,9 @@ export async function GET(
     const { id } = await params;
     await connectDB();
 
-    const student = await Student.findById(id).populate('trade_id', 'name course_days');
+    const student = await Student.findById(id)
+      .populate('trade_id', 'name course_days')
+      .populate('referred_by_agent', 'employee_id firstName lastName phone department commission_rate');
     if (!student) {
       return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
     }
@@ -157,6 +160,10 @@ export async function PUT(
     }
     if (body.overseas_passport_url !== undefined) student.overseas_passport_url = body.overseas_passport_url;
     if (body.overseas_visa_url !== undefined) student.overseas_visa_url = body.overseas_visa_url;
+    if (body.referred_by_agent !== undefined) {
+      student.referred_by_agent =
+        body.referred_by_agent && body.referred_by_agent !== '' ? body.referred_by_agent : null;
+    }
 
     // Server-side auto-lookup if destination_country changed/set to a real country and visa_cost was 0 and not manually overridden
     let autoVisaCost = body.visa_cost;

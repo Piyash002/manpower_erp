@@ -80,6 +80,9 @@ export interface IStudent extends Document {
   total_paid: number;
   total_due: number;
 
+  // HRM Referral Tracking
+  referred_by_agent?: mongoose.Types.ObjectId | null;
+
   created_by: string;
   createdAt: Date;
   updatedAt: Date;
@@ -169,6 +172,9 @@ const StudentSchema = new Schema<IStudent>(
     // Cached payment summary
     total_paid: { type: Number, default: 0, min: 0 },
     total_due: { type: Number, default: 0, min: 0 },
+
+    // HRM Referral Agent Reference
+    referred_by_agent: { type: Schema.Types.ObjectId, ref: 'Employee', default: null, index: true },
 
     created_by: { type: String, required: true },
   },
