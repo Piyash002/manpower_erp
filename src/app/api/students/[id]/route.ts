@@ -7,6 +7,7 @@ import { Payment } from '@/models/Payment';
 import { StudentDocument } from '@/models/StudentDocument';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Batch } from '@/models/Batch';
+import { CountryCost } from '@/models/CountryCost';
 import { isWithin6Months } from '@/lib/formatters';
 
 // GET /api/students/[id] - Full profile
@@ -137,6 +138,7 @@ export async function PUT(
     if (body.permanent_address) student.permanent_address = body.permanent_address.trim();
     if (body.passport_issue_date) student.passport_issue_date = new Date(body.passport_issue_date);
     if (body.passport_expiry_date) student.passport_expiry_date = new Date(body.passport_expiry_date);
+    const prevCountry = student.destination_country;
     if (body.destination_country) student.destination_country = body.destination_country.trim();
     if (body.destination_contract_years !== undefined) student.destination_contract_years = Number(body.destination_contract_years);
     if (body.status) student.status = body.status;
@@ -145,19 +147,45 @@ export async function PUT(
     if (body.overseas_passport_url !== undefined) student.overseas_passport_url = body.overseas_passport_url;
     if (body.overseas_visa_url !== undefined) student.overseas_visa_url = body.overseas_visa_url;
 
+    // Server-side auto-lookup if destination_country changed/set to a real country and visa_cost was 0 and not manually overridden
+    let autoVisaCost = body.visa_cost;
+    let autoGovtFee = body.govt_fee;
+    if (
+      body.destination_country &&
+      body.destination_country !== 'Not decided yet' &&
+      body.destination_country !== prevCountry &&
+      body.visa_cost === undefined &&
+      (student.fee_snapshot?.visa_cost || 0) === 0
+    ) {
+      const rate =
+        (await CountryCost.findOne({
+          country: body.destination_country.trim(),
+          trade_id: student.trade_id,
+        }).lean()) ||
+        (await CountryCost.findOne({ country: body.destination_country.trim() }).lean());
+
+      if (rate) {
+        autoVisaCost = rate.visa_cost;
+        autoGovtFee = rate.govt_fee;
+        if (body.destination_contract_years === undefined) {
+          student.destination_contract_years = rate.contract_years;
+        }
+      }
+    }
+
     // Optional Visa / Country / Fee Package update (e.g. course-only student later includes Visa & Country)
     const hasFeeUpdate =
       body.admission_fee !== undefined ||
       body.course_fee !== undefined ||
-      body.visa_cost !== undefined ||
-      body.govt_fee !== undefined ||
+      autoVisaCost !== undefined ||
+      autoGovtFee !== undefined ||
       body.discount !== undefined;
 
     if (hasFeeUpdate) {
       const adm = Math.max(0, Math.round(Number(body.admission_fee ?? student.fee_snapshot.admission_fee)));
       const crs = Math.max(0, Math.round(Number(body.course_fee ?? student.fee_snapshot.course_fee)));
-      const visa = Math.max(0, Math.round(Number(body.visa_cost ?? student.fee_snapshot.visa_cost)));
-      const govt = Math.max(0, Math.round(Number(body.govt_fee ?? student.fee_snapshot.govt_fee)));
+      const visa = Math.max(0, Math.round(Number(autoVisaCost ?? student.fee_snapshot.visa_cost)));
+      const govt = Math.max(0, Math.round(Number(autoGovtFee ?? student.fee_snapshot.govt_fee)));
       const disc = Math.max(0, Math.round(Number(body.discount ?? student.fee_snapshot.discount)));
       const newPayable = Math.max(0, adm + crs + visa + govt - disc);
 

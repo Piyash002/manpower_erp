@@ -134,8 +134,9 @@ export function StudentList() {
     fetch('/api/country-costs')
       .then((r) => r.json())
       .then((d) => {
-        if (d.success && Array.isArray(d.costs)) {
-          const dynamicCountries = d.costs.map((c: any) => c.country_name).filter(Boolean);
+        const list = d.countryCosts || d.costs;
+        if (d.success && Array.isArray(list)) {
+          const dynamicCountries = list.map((c: any) => c.country || c.country_name).filter(Boolean);
           setCountries((prev) => Array.from(new Set([...prev, ...dynamicCountries])));
         }
       })
