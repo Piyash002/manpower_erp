@@ -27,6 +27,9 @@ import {
   SlidersHorizontal,
   FolderKanban,
   BarChart3,
+  Clock,
+  Settings2,
+  UploadCloud,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -150,6 +153,29 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           href: '/audit-logs',
           icon: FileText,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+      ],
+    },
+    {
+      heading: 'Attendance',
+      items: [
+        {
+          title: 'Attendance & Calendar',
+          href: '/attendance',
+          icon: Clock,
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Attendance Settings',
+          href: '/attendance/settings',
+          icon: Settings2,
+          allowed: ['Admin'],
+        },
+        {
+          title: 'Biometric / CSV Import',
+          href: '/attendance/import',
+          icon: UploadCloud,
+          allowed: ['Admin'],
         },
       ],
     },

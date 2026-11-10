@@ -24,6 +24,8 @@ export interface IEmployee extends Document {
   commission_rate: number; // Percentage (e.g., 5 for 5% on referred candidate payments)
   joining_date?: Date;
   status: EmployeeStatus;
+  schedule_id?: mongoose.Types.ObjectId | null;
+  manager_id?: mongoose.Types.ObjectId | null;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -53,6 +55,8 @@ const EmployeeSchema = new Schema<IEmployee>(
       default: 'Active',
       index: true,
     },
+    schedule_id: { type: Schema.Types.ObjectId, ref: 'WorkingSchedule', default: null },
+    manager_id: { type: Schema.Types.ObjectId, ref: 'Employee', default: null },
   },
   { timestamps: true }
 );
