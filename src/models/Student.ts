@@ -47,8 +47,10 @@ export interface IStudent extends Document {
   overseas_to_year?: number;
   overseas_trade?: string;
   overseas_passport_no?: string;
+  overseas_passport_url?: string;
   overseas_visa_type?: string;
   overseas_visa_no?: string;
+  overseas_visa_url?: string;
   overseas_visa_expiry?: Date;
   overseas_reason_for_return?: string;
 
@@ -111,8 +113,10 @@ const StudentSchema = new Schema<IStudent>(
     overseas_to_year: { type: Number },
     overseas_trade: { type: String, default: '' },
     overseas_passport_no: { type: String, default: '' },
+    overseas_passport_url: { type: String, default: '' },
     overseas_visa_type: { type: String, default: '' },
     overseas_visa_no: { type: String, default: '' },
+    overseas_visa_url: { type: String, default: '' },
     overseas_visa_expiry: { type: Date },
     overseas_reason_for_return: { type: String, default: '' },
 

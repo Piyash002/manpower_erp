@@ -60,7 +60,7 @@ export function AddressSelector({
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-semibold text-slate-600">
-              District (জেলা)
+              District
             </span>
             {value.customDistrict && (
               <button
@@ -109,7 +109,7 @@ export function AddressSelector({
         <div>
           <div className="flex items-center justify-between mb-1">
             <span className="text-[11px] font-semibold text-slate-600">
-              Thana / Upazila (থানা / উপজেলা)
+              Thana / Upazila
             </span>
             {value.customUpazila && upazilaOptions.length > 0 && (
               <button
@@ -184,3 +184,4 @@ export function AddressSelector({
     </div>
   );
 }
+

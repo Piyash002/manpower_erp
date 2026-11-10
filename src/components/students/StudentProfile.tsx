@@ -917,10 +917,39 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                         <strong>Old Passport:</strong> {student.overseas_passport_no}
                       </p>
                     )}
+                    {student.overseas_visa_no && (
+                      <p className="font-mono">
+                        <strong>Old Visa No:</strong> {student.overseas_visa_no}
+                      </p>
+                    )}
                     {student.overseas_reason_for_return && (
                       <p>
                         <strong>Return Reason:</strong> {student.overseas_reason_for_return}
                       </p>
+                    )}
+                    {(student.overseas_passport_url || student.overseas_visa_url) && (
+                      <div className="flex flex-wrap gap-2 pt-1">
+                        {student.overseas_passport_url && (
+                          <a
+                            href={student.overseas_passport_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded font-semibold"
+                          >
+                            View Old Passport
+                          </a>
+                        )}
+                        {student.overseas_visa_url && (
+                          <a
+                            href={student.overseas_visa_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-1 px-2 py-0.5 bg-white border border-blue-200 text-blue-700 hover:bg-blue-50 rounded font-semibold"
+                          >
+                            View Old Visa
+                          </a>
+                        )}
+                      </div>
                     )}
                   </div>
                 ) : (

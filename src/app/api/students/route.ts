@@ -134,6 +134,7 @@ export async function POST(req: NextRequest) {
       gender,
       blood_group,
       nid_or_birth_cert,
+      nid_doc_url,
       religion,
       marital_status,
       photo_url,
@@ -160,8 +161,10 @@ export async function POST(req: NextRequest) {
       overseas_to_year,
       overseas_trade,
       overseas_passport_no,
+      overseas_passport_url,
       overseas_visa_type,
       overseas_visa_no,
+      overseas_visa_url,
       overseas_visa_expiry,
       overseas_reason_for_return,
 
@@ -297,8 +300,10 @@ export async function POST(req: NextRequest) {
       overseas_to_year: overseas_to_year ? Number(overseas_to_year) : undefined,
       overseas_trade: overseas_trade || '',
       overseas_passport_no: overseas_passport_no || '',
+      overseas_passport_url: overseas_passport_url || '',
       overseas_visa_type: overseas_visa_type || '',
       overseas_visa_no: overseas_visa_no || '',
+      overseas_visa_url: overseas_visa_url || '',
       overseas_visa_expiry: overseas_visa_expiry ? new Date(overseas_visa_expiry) : undefined,
       overseas_reason_for_return: overseas_reason_for_return || '',
 
@@ -327,7 +332,7 @@ export async function POST(req: NextRequest) {
       created_by: auth.user.name,
     });
 
-    // 5. Default Documents Checklist Creation (attach Passport copy if uploaded at admission)
+    // 5. Default Documents Checklist Creation (attach Passport & NID/Birth Cert scans if uploaded)
     const documentRecords = DEFAULT_DOCUMENT_CHECKLIST.map((doc) => {
       if (doc.document_type === 'Passport copy' && passport_doc_url) {
         return {
@@ -338,6 +343,17 @@ export async function POST(req: NextRequest) {
           received_on: new Date(),
           expiry_date: passport_expiry_date ? new Date(passport_expiry_date) : null,
           file_url: passport_doc_url,
+          notes: 'Uploaded during new admission',
+        };
+      }
+      if (doc.document_type === 'NID / Birth certificate' && nid_doc_url) {
+        return {
+          student_id: newStudent._id,
+          document_type: doc.document_type,
+          needs_expiry: doc.needs_expiry,
+          received: true,
+          received_on: new Date(),
+          file_url: nid_doc_url,
           notes: 'Uploaded during new admission',
         };
       }
