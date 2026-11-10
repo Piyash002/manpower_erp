@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Student } from '@/models/Student';
+import { Batch } from '@/models/Batch';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { formatDate } from '@/lib/formatters';
 
@@ -23,24 +24,51 @@ export async function GET(req: NextRequest) {
     const q = searchParams.get('q')?.trim();
     const tradeId = searchParams.get('trade_id');
     const batch = searchParams.get('batch');
+    const batchId = searchParams.get('batch_id');
     const country = searchParams.get('country');
     const status = searchParams.get('status');
     const sort = searchParams.get('sort') || 'batch_asc';
     const format = searchParams.get('format') || 'csv';
 
     const filter: any = {};
+    let resolvedBatchCode = batch && batch !== 'all' ? batch : '';
+
+    if (batchId && batchId !== 'all') {
+      const batchDoc: any = await Batch.findById(batchId).lean();
+      if (!batchDoc) {
+        return NextResponse.json({ success: false, message: 'Batch not found' }, { status: 404 });
+      }
+      resolvedBatchCode = batchDoc.batch_code || batchDoc.name;
+      const linkedAssessments = await BatchAssessment.find({ batch_id: batchId })
+        .select('student_id')
+        .lean();
+      const linkedIds = linkedAssessments.map((a: any) => a.student_id);
+
+      filter.$or = [
+        { _id: { $in: linkedIds } },
+        { batch: batchDoc.batch_code },
+        { batch: batchDoc.name },
+      ];
+    } else if (batch && batch !== 'all') {
+      filter.batch = batch;
+    }
 
     if (q) {
-      filter.$or = [
+      const searchCond = [
         { name: { $regex: q, $options: 'i' } },
         { student_no: { $regex: q, $options: 'i' } },
         { mobile: { $regex: q, $options: 'i' } },
         { passport_no: { $regex: q, $options: 'i' } },
       ];
+      if (filter.$or) {
+        filter.$and = [{ $or: filter.$or }, { $or: searchCond }];
+        delete filter.$or;
+      } else {
+        filter.$or = searchCond;
+      }
     }
 
     if (tradeId && tradeId !== 'all') filter.trade_id = tradeId;
-    if (batch && batch !== 'all') filter.batch = batch;
     if (country && country !== 'all') filter.destination_country = country;
     if (status && status !== 'all') filter.status = status;
 
@@ -55,9 +83,11 @@ export async function GET(req: NextRequest) {
       .lean();
 
     const studentIds = students.map((s: any) => s._id);
-    const assessments = await BatchAssessment.find({
-      student_id: { $in: studentIds },
-    }).lean();
+    const assessQuery: any = { student_id: { $in: studentIds } };
+    if (batchId && batchId !== 'all') {
+      assessQuery.batch_id = batchId;
+    }
+    const assessments = await BatchAssessment.find(assessQuery).lean();
 
     const assessmentMap = new Map<string, any>();
     for (const a of assessments) {
@@ -149,7 +179,7 @@ export async function GET(req: NextRequest) {
     ];
 
     const csvContent = '\uFEFF' + csvLines.join('\n');
-    const batchLabel = batch && batch !== 'all' ? batch : 'AllBatches';
+    const batchLabel = resolvedBatchCode ? resolvedBatchCode.replace(/[^a-zA-Z0-9-_]/g, '') : 'AllBatches';
     const countryLabel = country && country !== 'all' ? country.replace(/[^a-zA-Z0-9]/g, '') : 'AllCountries';
     const filename = `Exam_Results_${batchLabel}_${countryLabel}_${new Date().toISOString().split('T')[0]}.csv`;
 

@@ -22,6 +22,8 @@ import {
   Check,
   UserPlus,
   Paperclip,
+  Download,
+  Printer,
 } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -370,7 +372,26 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/api/reports/exam-results?batch_id=${batchId}&format=csv`}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg shadow-xs transition-colors"
+            title="Download full batch results as CSV"
+          >
+            <Download className="w-3.5 h-3.5" />
+            <span>Result CSV</span>
+          </a>
+
+          <Link
+            href={`/batches/${batchId}/result`}
+            target="_blank"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-blue-700 bg-blue-50 hover:bg-blue-100 border border-blue-200 rounded-lg shadow-xs transition-colors"
+            title="Open printable full batch result sheet"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print Result</span>
+          </Link>
+
           {canEdit && (
             <>
               <button
