@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState } from 'react';
+import React from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
@@ -14,22 +14,12 @@ import {
   KeyRound,
   Banknote,
   GraduationCap,
-  BookOpen,
   FileText,
   PanelLeftClose,
   Sparkles,
   UserCheck,
-  CalendarCheck,
-  Wallet,
-  Receipt,
-  Layers,
-  FileSignature,
-  SlidersHorizontal,
-  FolderKanban,
-  BarChart3,
   Clock,
-  Settings2,
-  UploadCloud,
+  Receipt,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -70,10 +60,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
     items: NavItem[];
   }
 
-  // Exact 2-Module Core ERP Architecture requested by user:
-  // 1. MAIN (Dashboard Overview)
-  // 2. STUDENT ADMISSION (New Admission, Directory, Installments, Batches & Exam, Trades & Costs)
-  // 3. HRM (Staff, Roles, Audit Trail)
   const menuGroups: MenuGroup[] = [
     {
       heading: 'Main',
@@ -131,16 +117,16 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
-          title: 'Daily Attendance',
-          href: '/hrm/attendance',
-          icon: CalendarCheck,
+          title: 'Attendance & Calendar',
+          href: '/attendance',
+          icon: Clock,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
-          title: 'Payroll & Commissions',
-          href: '/hrm/payroll',
-          icon: Wallet,
-          allowed: ['Admin', 'Accountant', 'Viewer'],
+          title: 'Payroll & Payslips',
+          href: '/payroll',
+          icon: Receipt,
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
           title: 'Users & Staff',
@@ -153,70 +139,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           href: '/audit-logs',
           icon: FileText,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-        },
-      ],
-    },
-    {
-      heading: 'Attendance',
-      items: [
-        {
-          title: 'Attendance & Calendar',
-          href: '/attendance',
-          icon: Clock,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-        },
-        {
-          title: 'Attendance Settings',
-          href: '/attendance/settings',
-          icon: Settings2,
-          allowed: ['Admin'],
-        },
-        {
-          title: 'Biometric / CSV Import',
-          href: '/attendance/import',
-          icon: UploadCloud,
-          allowed: ['Admin'],
-        },
-      ],
-    },
-    {
-      heading: 'Payroll',
-      items: [
-        {
-          title: 'Payroll & Payslips',
-          href: '/payroll',
-          icon: Receipt,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-        },
-        {
-          title: 'Payslip Batches',
-          href: '/payroll/batches',
-          icon: FolderKanban,
-          allowed: ['Admin'],
-        },
-        {
-          title: 'Employee Contracts',
-          href: '/payroll/contracts',
-          icon: FileSignature,
-          allowed: ['Admin'],
-        },
-        {
-          title: 'Monthly Inputs',
-          href: '/payroll/inputs',
-          icon: SlidersHorizontal,
-          allowed: ['Admin'],
-        },
-        {
-          title: 'Salary Structures',
-          href: '/payroll/structures',
-          icon: Layers,
-          allowed: ['Admin'],
-        },
-        {
-          title: 'Payroll Reports',
-          href: '/payroll/reports',
-          icon: BarChart3,
-          allowed: ['Admin'],
         },
       ],
     },
@@ -273,7 +195,7 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           </div>
         </div>
 
-        {/* Navigation list grouped exactly like Dreams ERP */}
+        {/* Navigation list grouped cleanly under Main, Student Admission, HRM */}
         <div className="flex-1 px-3 py-3 overflow-y-auto space-y-4">
           {menuGroups.map((group) => {
             const visibleItems = group.items.filter((item) => item.allowed.includes(role));
@@ -281,7 +203,6 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
             return (
               <div key={group.heading} className="space-y-1">
-                {/* Dreams ERP Group Heading */}
                 <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
                   {group.heading}
                 </div>
