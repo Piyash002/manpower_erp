@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   CheckSquare,
   CheckCheck,
@@ -458,9 +459,12 @@ export function BulkManualAttendanceView() {
                         )}
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
-                        <div className="font-semibold text-slate-900">
+                        <Link
+                          href={`/hrm/employees/${row.employee._id}`}
+                          className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline block"
+                        >
                           {row.employee.firstName} {row.employee.lastName}
-                        </div>
+                        </Link>
                         <div className="text-[11px] font-mono text-slate-400">
                           {row.employee.employee_id}
                           {row.employee.biometric_id ? ` • Bio: ${row.employee.biometric_id}` : ''}

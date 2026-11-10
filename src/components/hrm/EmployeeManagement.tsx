@@ -545,9 +545,12 @@ export function EmployeeManagement() {
                           size="md"
                         />
                         <div>
-                          <div className="font-semibold text-slate-900">
+                          <Link
+                            href={`/hrm/employees/${emp._id}`}
+                            className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline block"
+                          >
                             {emp.firstName} {emp.lastName}
-                          </div>
+                          </Link>
                           <div className="text-[11px] font-mono text-slate-500">
                             {emp.employee_id} • {emp.employee_type || 'Permanent'}
                           </div>
@@ -692,9 +695,12 @@ export function EmployeeManagement() {
                       </span>
                       {getStatusBadge(emp.status)}
                     </div>
-                    <h3 className="text-base font-bold text-slate-900 mt-0.5">
+                    <Link
+                      href={`/hrm/employees/${emp._id}`}
+                      className="text-base font-bold text-slate-900 hover:text-emerald-700 hover:underline mt-0.5 block"
+                    >
                       {emp.firstName} {emp.lastName}
-                    </h3>
+                    </Link>
                     <p className="text-xs text-slate-500 flex items-center gap-1">
                       <Briefcase className="w-3 h-3" /> {emp.designation} • {emp.department}
                     </p>

@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import {
   Clock,
   LogIn,
@@ -680,6 +681,13 @@ export function AttendanceDashboardView() {
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
+              <Link
+                href="/attendance/bulk"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+              >
+                <CheckCheck className="w-3.5 h-3.5" />
+                <span>Bulk Entry (Multi Check-in / Late)</span>
+              </Link>
               <button
                 type="button"
                 disabled={busy}
@@ -744,9 +752,12 @@ export function AttendanceDashboardView() {
                   return (
                     <tr key={row.employee._id} className="hover:bg-slate-50/70">
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="font-semibold text-slate-900">
+                        <Link
+                          href={`/hrm/employees/${row.employee._id}`}
+                          className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline block"
+                        >
                           {row.employee.firstName} {row.employee.lastName}
-                        </div>
+                        </Link>
                         <div className="text-[11px] font-mono text-slate-500">
                           {row.employee.employee_id}
                         </div>
@@ -1002,7 +1013,18 @@ export function AttendanceDashboardView() {
                   <tr key={rec._id} className="hover:bg-slate-50/70 text-xs">
                     <td className="px-4 py-3 font-medium">{formatDate(rec.date)}</td>
                     <td className="px-4 py-3 font-semibold text-slate-900">
-                      {rec.employee_id?.firstName} {rec.employee_id?.lastName}{' '}
+                      {rec.employee_id?._id ? (
+                        <Link
+                          href={`/hrm/employees/${rec.employee_id._id}`}
+                          className="hover:text-emerald-700 hover:underline"
+                        >
+                          {rec.employee_id.firstName} {rec.employee_id.lastName}
+                        </Link>
+                      ) : (
+                        <>
+                          {rec.employee_id?.firstName} {rec.employee_id?.lastName}
+                        </>
+                      )}{' '}
                       <span className="font-mono text-slate-400">
                         ({rec.employee_id?.employee_id})
                       </span>
