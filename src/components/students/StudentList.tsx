@@ -17,16 +17,25 @@ import {
   Plane,
   GraduationCap,
   Upload,
+  Award,
+  FileText,
+  Download,
+  ArrowUpDown,
+  Printer,
+  ExternalLink,
 } from 'lucide-react';
 import { formatBDT } from '@/lib/formatters';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
+import { StudentResultDocument } from './StudentResultDocument';
 
 interface StudentListItem {
   _id: string;
   student_no: string;
   name: string;
+  father_name?: string;
+  mother_name?: string;
   photo_url?: string;
   trade_id?: { _id: string; name: string };
   trade_name: string;
@@ -41,6 +50,18 @@ interface StudentListItem {
     total_payable: number;
   };
   is_overdue?: boolean;
+  assessment?: {
+    theory_score?: number | null;
+    practical_score?: number | null;
+    total_score?: number | null;
+    result_status?: 'Pending' | 'Passed' | 'Failed';
+    certificate_no?: string;
+    certificate_url?: string;
+    certificate_issue_date?: string;
+    exam_date?: string;
+    remarks?: string;
+    evaluated_by?: string;
+  } | null;
 }
 
 export function StudentList() {
@@ -49,14 +70,30 @@ export function StudentList() {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedTrade, setSelectedTrade] = useState('all');
+  const [selectedBatch, setSelectedBatch] = useState('all');
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
+  const [sortBy, setSortBy] = useState('newest');
   const [trades, setTrades] = useState<any[]>([]);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
+  const [countries, setCountries] = useState<string[]>([
+    'Saudi Arabia',
+    'Singapore',
+    'UAE - Dubai',
+    'Qatar',
+    'Malaysia',
+    'Not decided yet',
+  ]);
   const [totalStudents, setTotalStudents] = useState(0);
 
   // Toast feedback
   const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Certificate / Marksheet Preview Modal State
+  const [docPreview, setDocPreview] = useState<{
+    student: StudentListItem;
+    type: 'certificate' | 'marksheet';
+  } | null>(null);
 
   // Edit Modal State
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -78,7 +115,7 @@ export function StudentList() {
     setTimeout(() => setToastMsg(null), 4000);
   };
 
-  // Load trades & batches filter list
+  // Load trades, batches, and destination countries filter lists
   useEffect(() => {
     fetch('/api/trades')
       .then((r) => r.json())
@@ -93,6 +130,16 @@ export function StudentList() {
         if (d.success) setAvailableBatches(d.batches || []);
       })
       .catch((e) => console.error(e));
+
+    fetch('/api/country-costs')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success && Array.isArray(d.costs)) {
+          const dynamicCountries = d.costs.map((c: any) => c.country_name).filter(Boolean);
+          setCountries((prev) => Array.from(new Set([...prev, ...dynamicCountries])));
+        }
+      })
+      .catch((e) => console.error(e));
   }, []);
 
   const fetchStudents = useCallback(async () => {
@@ -101,8 +148,10 @@ export function StudentList() {
       const params = new URLSearchParams();
       if (searchQuery) params.set('q', searchQuery);
       if (selectedTrade !== 'all') params.set('trade_id', selectedTrade);
+      if (selectedBatch !== 'all') params.set('batch', selectedBatch);
       if (selectedCountry !== 'all') params.set('country', selectedCountry);
       if (selectedStatus !== 'all') params.set('status', selectedStatus);
+      if (sortBy) params.set('sort', sortBy);
 
       const res = await fetch(`/api/students?${params.toString()}`);
       const data = await res.json();
@@ -116,7 +165,21 @@ export function StudentList() {
     } finally {
       setLoading(false);
     }
-  }, [searchQuery, selectedTrade, selectedCountry, selectedStatus]);
+  }, [searchQuery, selectedTrade, selectedBatch, selectedCountry, selectedStatus, sortBy]);
+
+  // Download Exam Results CSV based on active Batch, Trade, Country & Status filters
+  const handleDownloadExamResultsCSV = () => {
+    const params = new URLSearchParams();
+    if (searchQuery) params.set('q', searchQuery);
+    if (selectedTrade !== 'all') params.set('trade_id', selectedTrade);
+    if (selectedBatch !== 'all') params.set('batch', selectedBatch);
+    if (selectedCountry !== 'all') params.set('country', selectedCountry);
+    if (selectedStatus !== 'all') params.set('status', selectedStatus);
+    params.set('sort', sortBy === 'newest' ? 'batch_asc' : sortBy);
+    params.set('format', 'csv');
+
+    window.location.href = `/api/reports/exam-results?${params.toString()}`;
+  };
 
   // Fetch students with debounce
   useEffect(() => {
@@ -265,19 +328,31 @@ export function StudentList() {
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Student Directory</h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            Manage candidates, view training & visa pipelines, monitor payments, and track overdue installments.
+            Manage candidates, filter by batch/trade/country, download certificates &amp; marksheets, and export exam results.
           </p>
         </div>
 
-        {canAdmit && (
-          <Link
-            href="/admissions/new"
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+        <div className="flex flex-wrap items-center gap-2.5">
+          <button
+            type="button"
+            onClick={handleDownloadExamResultsCSV}
+            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 rounded-lg shadow-xs transition-colors"
+            title="Download Batch, Trade & Country-wise Exam Results CSV"
           >
-            <UserPlus className="w-4 h-4" />
-            <span>New Admission</span>
-          </Link>
-        )}
+            <Download className="w-4 h-4" />
+            <span>Exam Results CSV</span>
+          </button>
+
+          {canAdmit && (
+            <Link
+              href="/admissions/new"
+              className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-sm transition-colors"
+            >
+              <UserPlus className="w-4 h-4" />
+              <span>New Admission</span>
+            </Link>
+          )}
+        </div>
       </div>
 
       {/* Toast Message */}
@@ -305,13 +380,13 @@ export function StudentList() {
 
       {/* Search & Filter Toolbar */}
       <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-3">
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          {/* Search Box per PRD Section 8: "Search first. Every list has a search box." */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+          {/* Search Box */}
           <div className="relative sm:col-span-2 lg:col-span-1">
             <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search by Name, ID, Mobile, Passport..."
+              placeholder="Name, ID, Mobile, Passport..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
@@ -334,6 +409,22 @@ export function StudentList() {
             </select>
           </div>
 
+          {/* Batch Filter */}
+          <div>
+            <select
+              value={selectedBatch}
+              onChange={(e) => setSelectedBatch(e.target.value)}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-800 font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="all">All Batches</option>
+              {availableBatches.map((b) => (
+                <option key={b._id} value={b.batch_code}>
+                  {b.batch_code} ({b.name})
+                </option>
+              ))}
+            </select>
+          </div>
+
           {/* Destination Country Filter */}
           <div>
             <select
@@ -341,13 +432,12 @@ export function StudentList() {
               onChange={(e) => setSelectedCountry(e.target.value)}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-800 focus:outline-none focus:ring-2 focus:ring-blue-500"
             >
-              <option value="all">All Destinations</option>
-              <option value="Saudi Arabia">Saudi Arabia</option>
-              <option value="Singapore">Singapore</option>
-              <option value="UAE - Dubai">UAE - Dubai</option>
-              <option value="Qatar">Qatar</option>
-              <option value="Malaysia">Malaysia</option>
-              <option value="Not decided yet">Not decided yet</option>
+              <option value="all">All Countries</option>
+              {countries.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
             </select>
           </div>
 
@@ -365,7 +455,55 @@ export function StudentList() {
               <option value="Dropped">Dropped</option>
             </select>
           </div>
+
+          {/* Sorting Selector (Batch & More) */}
+          <div className="relative">
+            <ArrowUpDown className="absolute left-3 top-2.5 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+            <select
+              value={sortBy}
+              onChange={(e) => setSortBy(e.target.value)}
+              className="w-full pl-8 pr-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-800 font-medium focus:outline-none focus:ring-2 focus:ring-blue-500"
+              title="Sort Candidates"
+            >
+              <option value="newest">Sort: Newest First</option>
+              <option value="batch_asc">Sort: Batch (A → Z)</option>
+              <option value="batch_desc">Sort: Batch (Z → A)</option>
+              <option value="student_no_asc">Sort: Roll / ID</option>
+              <option value="name_asc">Sort: Name (A → Z)</option>
+              <option value="due_desc">Sort: Highest Due</option>
+            </select>
+          </div>
         </div>
+
+        {/* Active Filters Helper Strip */}
+        {(selectedTrade !== 'all' ||
+          selectedBatch !== 'all' ||
+          selectedCountry !== 'all' ||
+          selectedStatus !== 'all' ||
+          searchQuery) && (
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-100 text-xs">
+            <span className="text-slate-500">
+              Filtered Exam Results export will include matching candidates
+              {selectedBatch !== 'all' ? ` • Batch: ${selectedBatch}` : ''}
+              {selectedCountry !== 'all' ? ` • Country: ${selectedCountry}` : ''}
+              {selectedStatus !== 'all' ? ` • Status: ${selectedStatus}` : ''}
+            </span>
+            <button
+              type="button"
+              onClick={() => {
+                setSearchQuery('');
+                setSelectedTrade('all');
+                setSelectedBatch('all');
+                setSelectedCountry('all');
+                setSelectedStatus('all');
+                setSortBy('newest');
+              }}
+              className="text-blue-600 hover:underline font-semibold"
+            >
+              Reset All Filters
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Students Data Table */}
@@ -474,14 +612,56 @@ export function StudentList() {
                       </div>
                     </td>
 
-                    {/* Status */}
+                    {/* Status & Score */}
                     <td className="px-5 py-3.5 text-center whitespace-nowrap">
-                      <StatusBadge status={student.status} />
+                      <div className="flex flex-col items-center gap-1">
+                        <StatusBadge status={student.status} />
+                        {student.assessment?.total_score !== null &&
+                          student.assessment?.total_score !== undefined && (
+                            <span className="text-[10px] font-mono font-bold text-slate-600 bg-slate-100 px-1.5 py-0.5 rounded">
+                              Score: {student.assessment.total_score}/100
+                            </span>
+                          )}
+                      </div>
                     </td>
 
                     {/* Actions */}
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
                       <div className="flex items-center justify-end gap-1.5">
+                        {/* Download Certificate when Passed */}
+                        {(student.status === 'Passed' ||
+                          student.assessment?.result_status === 'Passed') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDocPreview({ student, type: 'certificate' });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-emerald-700 hover:text-white bg-emerald-50 hover:bg-emerald-600 border border-emerald-200 rounded-md transition-colors"
+                            title="View / Download Official Certificate"
+                          >
+                            <Award className="w-3.5 h-3.5" />
+                            <span>Certificate</span>
+                          </button>
+                        )}
+
+                        {/* Download Marksheet when Failed */}
+                        {(student.status === 'Failed' ||
+                          student.assessment?.result_status === 'Failed') && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDocPreview({ student, type: 'marksheet' });
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-purple-700 hover:text-white bg-purple-50 hover:bg-purple-600 border border-purple-200 rounded-md transition-colors"
+                            title="View / Download Exam Marksheet"
+                          >
+                            <FileText className="w-3.5 h-3.5" />
+                            <span>Marksheet</span>
+                          </button>
+                        )}
+
                         <Link
                           href={`/students/${student._id}`}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded-md transition-colors"
@@ -893,6 +1073,90 @@ export function StudentList() {
                 <span>{isDeleting ? 'Deleting...' : 'Yes, Delete Student'}</span>
               </button>
             </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* CERTIFICATE / MARKSHEET PREVIEW & DOWNLOAD MODAL */}
+      <Modal
+        isOpen={!!docPreview}
+        onClose={() => setDocPreview(null)}
+        title={
+          docPreview?.type === 'certificate'
+            ? `Official Training Certificate — ${docPreview?.student?.student_no}`
+            : `Exam Marksheet & Result Sheet — ${docPreview?.student?.student_no}`
+        }
+        description={
+          docPreview?.type === 'certificate'
+            ? `${docPreview?.student?.name} • Passed (${docPreview?.student?.trade_name})`
+            : `${docPreview?.student?.name} • Assessment Transcript (${docPreview?.student?.trade_name})`
+        }
+        maxWidth="4xl"
+      >
+        {docPreview && (
+          <div className="space-y-4">
+            {/* Action Toolbar */}
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 bg-slate-50 border border-slate-200 rounded-xl">
+              <div className="text-xs text-slate-600">
+                {docPreview.type === 'certificate' ? (
+                  <span>
+                    Certificate No:{' '}
+                    <strong className="font-mono text-slate-900">
+                      {docPreview.student.assessment?.certificate_no || 'Auto-Generated'}
+                    </strong>
+                  </span>
+                ) : (
+                  <span>
+                    Exam Result:{' '}
+                    <strong className="text-rose-700 uppercase">
+                      {docPreview.student.assessment?.result_status || docPreview.student.status}
+                    </strong>
+                    {docPreview.student.assessment?.total_score !== null &&
+                      docPreview.student.assessment?.total_score !== undefined && (
+                        <span className="ml-2 font-mono text-slate-700">
+                          (Score: {docPreview.student.assessment.total_score}/100)
+                        </span>
+                      )}
+                  </span>
+                )}
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                {docPreview.type === 'certificate' &&
+                  docPreview.student.assessment?.certificate_url && (
+                    <a
+                      href={docPreview.student.assessment.certificate_url}
+                      download
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-emerald-700 bg-emerald-100 hover:bg-emerald-200 border border-emerald-300 rounded-lg transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>Download Uploaded Certificate</span>
+                    </a>
+                  )}
+
+                <Link
+                  href={`/students/${docPreview.student._id}/result?type=${docPreview.type}`}
+                  target="_blank"
+                  className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs transition-colors"
+                >
+                  <Printer className="w-3.5 h-3.5" />
+                  <span>
+                    Print / Download{' '}
+                    {docPreview.type === 'certificate' ? 'Certificate' : 'Marksheet'} (PDF)
+                  </span>
+                  <ExternalLink className="w-3 h-3 opacity-80" />
+                </Link>
+              </div>
+            </div>
+
+            {/* Rendered Official Document Preview */}
+            <StudentResultDocument
+              student={docPreview.student}
+              assessment={docPreview.student.assessment}
+              docType={docPreview.type}
+            />
           </div>
         )}
       </Modal>

@@ -25,8 +25,9 @@ export async function GET(req: NextRequest) {
     const country = searchParams.get('country');
     const batch = searchParams.get('batch');
     const status = searchParams.get('status');
+    const sort = searchParams.get('sort') || 'newest';
     const page = parseInt(searchParams.get('page') || '1', 10);
-    const limit = parseInt(searchParams.get('limit') || '20', 10);
+    const limit = parseInt(searchParams.get('limit') || '50', 10);
 
     const filter: any = {};
 
@@ -40,41 +41,62 @@ export async function GET(req: NextRequest) {
       ];
     }
 
-    if (tradeId) filter.trade_id = tradeId;
+    if (tradeId && tradeId !== 'all') filter.trade_id = tradeId;
     if (country && country !== 'all') filter.destination_country = country;
     if (batch && batch !== 'all') filter.batch = batch;
     if (status && status !== 'all') filter.status = status;
+
+    let sortObj: any = { createdAt: -1 };
+    if (sort === 'batch_asc') sortObj = { batch: 1, student_no: 1 };
+    else if (sort === 'batch_desc') sortObj = { batch: -1, student_no: 1 };
+    else if (sort === 'name_asc') sortObj = { name: 1 };
+    else if (sort === 'student_no_asc') sortObj = { student_no: 1 };
+    else if (sort === 'due_desc') sortObj = { total_due: -1 };
 
     const skip = (page - 1) * limit;
 
     const [rawStudents, total] = await Promise.all([
       Student.find(filter)
         .populate('trade_id', 'name')
-        .sort({ createdAt: -1 })
+        .sort(sortObj)
         .skip(skip)
         .limit(limit)
         .lean(),
       Student.countDocuments(filter),
     ]);
 
-    // Check overdue installments for returned students
+    // Check overdue installments & fetch assessments for returned students
     const studentIds = rawStudents.map((s) => s._id);
     const today = new Date();
     today.setHours(23, 59, 59, 999);
 
-    const overdueInstallments = await Installment.find({
-      student_id: { $in: studentIds },
-      due_date: { $lt: today },
-      $expr: { $lt: ['$paid_amount', '$amount'] },
-    }).select('student_id');
+    const [overdueInstallments, assessments] = await Promise.all([
+      Installment.find({
+        student_id: { $in: studentIds },
+        due_date: { $lt: today },
+        $expr: { $lt: ['$paid_amount', '$amount'] },
+      }).select('student_id'),
+      BatchAssessment.find({
+        student_id: { $in: studentIds },
+      }).lean(),
+    ]);
 
     const overdueStudentIdSet = new Set(
       overdueInstallments.map((i) => i.student_id.toString())
     );
 
+    const assessmentMap = new Map<string, any>();
+    for (const a of assessments) {
+      assessmentMap.set(a.student_id.toString(), {
+        ...a,
+        _id: a._id.toString(),
+      });
+    }
+
     const students = rawStudents.map((s: any) => ({
       ...s,
       is_overdue: overdueStudentIdSet.has(s._id.toString()),
+      assessment: assessmentMap.get(s._id.toString()) || null,
     }));
 
     return NextResponse.json({
