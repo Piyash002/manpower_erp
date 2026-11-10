@@ -129,6 +129,7 @@ export async function POST(req: NextRequest) {
       name: body.name.trim(),
       code: cleanCode,
       department: body.department?.trim() || '',
+      shift: body.shift?.trim() || '',
       working_days: Array.isArray(body.working_days) ? body.working_days : [0, 1, 2, 3, 4],
       start_time: body.start_time || '09:00',
       end_time: body.end_time || '18:00',
@@ -140,6 +141,9 @@ export async function POST(req: NextRequest) {
       overtime_needs_approval: Boolean(body.overtime_needs_approval),
       late_rule_enabled: body.late_rule_enabled !== false,
       late_days_per_deduction: Number(body.late_days_per_deduction ?? 3),
+      duplicate_punch_window_minutes: Number(body.duplicate_punch_window_minutes ?? 5),
+      is_night_shift: Boolean(body.is_night_shift),
+      manual_priority_over_biometric: body.manual_priority_over_biometric !== false,
       is_default: Boolean(body.is_default),
       active: true,
     });
@@ -185,6 +189,7 @@ export async function PUT(req: NextRequest) {
         $set: {
           ...(body.name !== undefined ? { name: body.name.trim() } : {}),
           ...(body.department !== undefined ? { department: body.department.trim() } : {}),
+          ...(body.shift !== undefined ? { shift: body.shift.trim() } : {}),
           ...(body.working_days !== undefined ? { working_days: body.working_days } : {}),
           ...(body.start_time !== undefined ? { start_time: body.start_time } : {}),
           ...(body.end_time !== undefined ? { end_time: body.end_time } : {}),
@@ -205,6 +210,15 @@ export async function PUT(req: NextRequest) {
             : {}),
           ...(body.late_days_per_deduction !== undefined
             ? { late_days_per_deduction: Number(body.late_days_per_deduction) }
+            : {}),
+          ...(body.duplicate_punch_window_minutes !== undefined
+            ? { duplicate_punch_window_minutes: Number(body.duplicate_punch_window_minutes) }
+            : {}),
+          ...(body.is_night_shift !== undefined
+            ? { is_night_shift: Boolean(body.is_night_shift) }
+            : {}),
+          ...(body.manual_priority_over_biometric !== undefined
+            ? { manual_priority_over_biometric: Boolean(body.manual_priority_over_biometric) }
             : {}),
           ...(body.is_default !== undefined ? { is_default: Boolean(body.is_default) } : {}),
           ...(body.active !== undefined ? { active: Boolean(body.active) } : {}),

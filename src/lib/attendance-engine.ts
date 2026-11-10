@@ -2,9 +2,31 @@ import { Employee, IEmployee } from '@/models/Employee';
 import { WorkingSchedule, IWorkingSchedule } from '@/models/WorkingSchedule';
 import { Holiday } from '@/models/Holiday';
 import { AttendanceLog } from '@/models/AttendanceLog';
-import { DailyAttendance, DailyAttendanceStatus } from '@/models/DailyAttendance';
+import {
+  DailyAttendance,
+  DailyAttendanceStatus,
+  AttendanceSource,
+} from '@/models/DailyAttendance';
 import { Leave } from '@/models/Leave';
 import { ensureAttendanceSeeded } from '@/lib/attendance-seed';
+
+export function normalizeAttendanceSource(raw?: string): AttendanceSource {
+  switch (raw) {
+    case 'hr':
+    case 'Manual':
+      return 'Manual';
+    case 'biometric':
+    case 'Biometric':
+      return 'Biometric';
+    case 'csv':
+    case 'Import':
+      return 'Import';
+    case 'web':
+    case 'Self Check-in':
+    default:
+      return 'Self Check-in';
+  }
+}
 
 export function getDhakaDateString(d: Date = new Date()): string {
   return new Intl.DateTimeFormat('en-CA', {
@@ -26,23 +48,95 @@ export function normalizeDhakaDate(dateStr?: string): { dateObj: Date; dateStrin
 
 export function getDhakaDayOfWeek(dateString: string): number {
   const [y, m, d] = dateString.split('-').map(Number);
-  // UTC noon avoids DST/midnight edge cases; Bangladesh has no DST
   return new Date(Date.UTC(y, m - 1, d, 12, 0, 0)).getUTCDay();
 }
 
 export function parseDhakaTimeOnDate(dateString: string, hhmm: string): Date {
   const [y, m, d] = dateString.split('-').map(Number);
   const [hh, mm] = (hhmm || '09:00').split(':').map(Number);
-  // Asia/Dhaka is UTC+06:00 -> UTC time = local - 6h
   return new Date(Date.UTC(y, m - 1, d, (hh || 0) - 6, mm || 0, 0, 0));
 }
 
-export async function resolveEmployeeSchedule(emp: Partial<IEmployee> & { _id?: any; department?: string; schedule_id?: any }): Promise<IWorkingSchedule> {
+export interface RawPunchLite {
+  timestamp: Date | string;
+  punch_type: 'IN' | 'OUT';
+  source: string;
+}
+
+/**
+ * Pure helper: Ignore duplicate punches of the same punch_type within `windowMinutes`.
+ */
+export function deduplicatePunches<T extends RawPunchLite>(
+  punches: T[],
+  windowMinutes = 5
+): T[] {
+  const sorted = [...punches].sort(
+    (a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime()
+  );
+  if (windowMinutes <= 0) return sorted;
+
+  const result: T[] = [];
+  const windowMs = windowMinutes * 60 * 1000;
+
+  for (const p of sorted) {
+    const tMs = new Date(p.timestamp).getTime();
+    const prevSameType = [...result]
+      .reverse()
+      .find((prev) => prev.punch_type === p.punch_type);
+
+    if (prevSameType && tMs - new Date(prevSameType.timestamp).getTime() < windowMs) {
+      continue;
+    }
+    result.push(p);
+  }
+  return result;
+}
+
+export function extractFirstInLastOut(punches: RawPunchLite[]): {
+  firstIn: Date | null;
+  lastOut: Date | null;
+} {
+  if (punches.length === 0) return { firstIn: null, lastOut: null };
+  let firstIn: Date | null = null;
+  let lastOut: Date | null = null;
+
+  for (const p of punches) {
+    const ts = new Date(p.timestamp);
+    if (p.punch_type === 'IN' && !firstIn) firstIn = ts;
+    if (p.punch_type === 'OUT') lastOut = ts;
+  }
+
+  // Fallback for devices that send generic punches without IN/OUT direction
+  if (!firstIn && punches.length > 0) {
+    firstIn = new Date(punches[0].timestamp);
+  }
+  if (!lastOut && punches.length > 1) {
+    const tail = new Date(punches[punches.length - 1].timestamp);
+    if (firstIn && tail > firstIn) {
+      lastOut = tail;
+    }
+  }
+
+  return { firstIn, lastOut };
+}
+
+export async function resolveEmployeeSchedule(
+  emp: Partial<IEmployee> & { _id?: any; department?: string; shift?: string; schedule_id?: any }
+): Promise<IWorkingSchedule> {
   await ensureAttendanceSeeded();
 
   if (emp.schedule_id) {
     const assigned = await WorkingSchedule.findById(emp.schedule_id).lean();
     if (assigned) return assigned as unknown as IWorkingSchedule;
+  }
+
+  if (emp.shift && emp.department) {
+    const shiftDeptSched = await WorkingSchedule.findOne({
+      department: emp.department,
+      shift: emp.shift,
+      active: true,
+    }).lean();
+    if (shiftDeptSched) return shiftDeptSched as unknown as IWorkingSchedule;
   }
 
   if (emp.department) {
@@ -66,10 +160,10 @@ export async function recomputeDailyAttendance(
   dateStr?: string,
   options?: {
     ignoreLock?: boolean;
-    preserveManualOverride?: boolean;
     explicitStatusOverride?: DailyAttendanceStatus;
     notes?: string;
     legacyAttendanceId?: string;
+    preferredSource?: AttendanceSource;
   }
 ) {
   await ensureAttendanceSeeded();
@@ -84,10 +178,6 @@ export async function recomputeDailyAttendance(
     throw new Error(`Attendance for ${dateString} is locked because payroll has been confirmed.`);
   }
 
-  if (existing?.is_manual_override && options?.preserveManualOverride) {
-    return existing;
-  }
-
   const schedule = await resolveEmployeeSchedule(emp);
   const dayOfWeek = getDhakaDayOfWeek(dateString);
   const isWorkingDay = (schedule.working_days || [0, 1, 2, 3, 4]).includes(dayOfWeek);
@@ -100,29 +190,84 @@ export async function recomputeDailyAttendance(
     end_date: { $gte: dateObj },
   }).lean();
 
-  const logs = await AttendanceLog.find({
-    employee_id: employeeId,
-    date: dateObj,
-  })
-    .sort({ timestamp: 1 })
-    .lean();
-
-  let firstIn: Date | null = null;
-  let lastOut: Date | null = null;
-
-  for (const log of logs) {
-    if (log.punch_type === 'IN' && !firstIn) {
-      firstIn = new Date(log.timestamp);
-    }
-    if (log.punch_type === 'OUT') {
-      lastOut = new Date(log.timestamp);
-    }
+  // Fetch raw logs (supporting night shift cross-midnight window if enabled)
+  let rawLogs: any[];
+  if (schedule.is_night_shift) {
+    const shiftStartWindow = parseDhakaTimeOnDate(dateString, '12:00');
+    const shiftEndWindow = new Date(shiftStartWindow.getTime() + 24 * 60 * 60 * 1000);
+    rawLogs = await AttendanceLog.find({
+      employee_id: employeeId,
+      matched: true,
+      timestamp: { $gte: shiftStartWindow, $lt: shiftEndWindow },
+    })
+      .sort({ timestamp: 1 })
+      .lean();
+  } else {
+    rawLogs = await AttendanceLog.find({
+      employee_id: employeeId,
+      matched: true,
+      date: dateObj,
+    })
+      .sort({ timestamp: 1 })
+      .lean();
   }
 
-  // Fallback if only IN/OUT pairs or mixed punches
-  if (!firstIn && logs.length > 0) {
-    firstIn = new Date(logs[0].timestamp);
+  const dedupWindow = schedule.duplicate_punch_window_minutes ?? 5;
+  const dedupedLogs = deduplicatePunches(rawLogs, dedupWindow);
+
+  // Partition by canonical source
+  const manualLogs = dedupedLogs.filter((l) => normalizeAttendanceSource(l.source) === 'Manual');
+  const biometricLogs = dedupedLogs.filter(
+    (l) => normalizeAttendanceSource(l.source) === 'Biometric'
+  );
+  const importLogs = dedupedLogs.filter((l) => normalizeAttendanceSource(l.source) === 'Import');
+  const selfLogs = dedupedLogs.filter(
+    (l) => normalizeAttendanceSource(l.source) === 'Self Check-in'
+  );
+
+  const manualPair = extractFirstInLastOut(manualLogs);
+  const bioPair = extractFirstInLastOut(biometricLogs);
+
+  const hasManual = manualLogs.length > 0;
+  const hasBiometric = biometricLogs.length > 0;
+  const hasManualBioConflict = hasManual && hasBiometric;
+
+  let conflictDetails = '';
+  if (hasManualBioConflict) {
+    const fmt = (d: Date | null) =>
+      d
+        ? d.toLocaleTimeString('en-US', {
+            timeZone: 'Asia/Dhaka',
+            hour: '2-digit',
+            minute: '2-digit',
+          })
+        : '—';
+    conflictDetails = `Manual (${fmt(manualPair.firstIn)}–${fmt(manualPair.lastOut)}) vs Biometric (${fmt(bioPair.firstIn)}–${fmt(bioPair.lastOut)})`;
   }
+
+  // Apply configurable priority rule (default: Manual priority over Biometric)
+  const manualWins = schedule.manual_priority_over_biometric !== false;
+  let activeLogs = dedupedLogs;
+  let resolvedSource: AttendanceSource = options?.preferredSource || 'Manual';
+
+  if (hasManual && hasBiometric) {
+    activeLogs = manualWins ? manualLogs : biometricLogs;
+    resolvedSource = manualWins ? 'Manual' : 'Biometric';
+  } else if (hasManual) {
+    activeLogs = manualLogs;
+    resolvedSource = 'Manual';
+  } else if (hasBiometric) {
+    activeLogs = biometricLogs;
+    resolvedSource = 'Biometric';
+  } else if (importLogs.length > 0) {
+    activeLogs = importLogs;
+    resolvedSource = 'Import';
+  } else if (selfLogs.length > 0) {
+    activeLogs = selfLogs;
+    resolvedSource = 'Self Check-in';
+  }
+
+  const { firstIn, lastOut } = extractFirstInLastOut(activeLogs);
 
   let workedHours = 0;
   let missingCheckout = false;
@@ -149,15 +294,12 @@ export async function recomputeDailyAttendance(
   if (workedHours > otThreshold) {
     overtimeHours = Math.round((workedHours - otThreshold) * 100) / 100;
   } else if (firstIn && lastOut && (!isWorkingDay || Boolean(holiday))) {
-    // Working on Holiday/Weekend counts as overtime
     overtimeHours = workedHours;
   }
 
-  // Conflict check: both punches AND approved leave on same day
-  const hasPunch = logs.length > 0;
-  const hasConflict = Boolean(hasPunch && approvedLeave);
+  const hasPunch = activeLogs.length > 0;
+  const hasLeaveConflict = Boolean(hasPunch && approvedLeave);
 
-  // Determine Daily Status
   let status: DailyAttendanceStatus = 'Absent';
   if (options?.explicitStatusOverride) {
     status = options.explicitStatusOverride;
@@ -168,11 +310,7 @@ export async function recomputeDailyAttendance(
   } else if (approvedLeave && !hasPunch) {
     status = 'Leave';
   } else if (hasPunch) {
-    if (
-      !missingCheckout &&
-      workedHours > 0 &&
-      workedHours < (schedule.half_day_hours || 4)
-    ) {
+    if (!missingCheckout && workedHours > 0 && workedHours < (schedule.half_day_hours || 4)) {
       status = 'Half-day';
     } else if (lateMinutes > 0) {
       status = 'Late';
@@ -191,8 +329,13 @@ export async function recomputeDailyAttendance(
 
   const updatePayload = {
     schedule_id: schedule._id,
+    source: resolvedSource,
     first_in: firstIn,
     last_out: lastOut,
+    biometric_first_in: bioPair.firstIn,
+    biometric_last_out: bioPair.lastOut,
+    manual_first_in: manualPair.firstIn,
+    manual_last_out: manualPair.lastOut,
     worked_hours: workedHours,
     late_minutes: lateMinutes,
     overtime_hours: overtimeHours,
@@ -200,9 +343,11 @@ export async function recomputeDailyAttendance(
     status,
     leave_id: approvedLeave ? approvedLeave._id : null,
     leave_is_paid: leaveIsPaid,
-    has_conflict: hasConflict,
+    has_conflict: hasLeaveConflict || hasManualBioConflict,
+    has_manual_biometric_conflict: hasManualBioConflict,
+    conflict_details: conflictDetails,
     missing_checkout: missingCheckout,
-    is_manual_override: Boolean(options?.explicitStatusOverride),
+    is_manual_override: Boolean(options?.explicitStatusOverride) || (hasManual && manualWins),
     notes: options?.notes !== undefined ? options.notes : existing?.notes || '',
     ...(options?.legacyAttendanceId ? { legacy_attendance_id: options.legacyAttendanceId } : {}),
   };
@@ -210,7 +355,7 @@ export async function recomputeDailyAttendance(
   const saved = await DailyAttendance.findOneAndUpdate(
     { employee_id: employeeId, date: dateObj },
     { $set: updatePayload },
-    { upsert: true, new: true }
+    { upsert: true, returnDocument: 'after' }
   );
 
   return saved;
@@ -232,7 +377,10 @@ export async function autoMarkAbsentForDate(dateStr?: string) {
       continue;
     }
 
-    const res = await recomputeDailyAttendance(emp._id.toString(), dateString);
+    const res = await recomputeDailyAttendance(emp._id.toString(), dateString, {
+      preferredSource: 'Manual',
+      notes: 'Auto-marked on schedule check',
+    });
     processed++;
     if (res.status === 'Absent') markedAbsent++;
     else if (res.status === 'Holiday' || res.status === 'Weekend' || res.status === 'Leave') {
@@ -247,4 +395,3 @@ export async function autoMarkAbsentForDate(dateStr?: string) {
     markedHolidayOrWeekendOrLeave,
   };
 }
-

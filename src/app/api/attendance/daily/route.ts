@@ -131,12 +131,13 @@ export async function GET(req: NextRequest) {
     const endDateParam = searchParams.get('endDate');
     const department = searchParams.get('department') || 'all';
     const statusFilter = searchParams.get('status') || 'all';
+    const sourceFilter = searchParams.get('source') || 'all';
 
     const empFilter: Record<string, any> = { status: { $in: ['Active', 'On Leave'] } };
     if (department !== 'all') empFilter.department = department;
 
     const employees = await Employee.find(empFilter)
-      .select('employee_id firstName lastName phone department designation schedule_id')
+      .select('employee_id biometric_id shift firstName lastName phone department designation schedule_id')
       .sort({ department: 1, firstName: 1 })
       .lean();
 
@@ -151,6 +152,7 @@ export async function GET(req: NextRequest) {
         date: { $gte: rangeStart, $lte: rangeEnd },
       };
       if (statusFilter !== 'all') query.status = statusFilter;
+      if (sourceFilter !== 'all') query.source = sourceFilter;
 
       const records = await DailyAttendance.find(query)
         .populate('employee_id', 'employee_id firstName lastName department designation')
@@ -207,6 +209,9 @@ export async function GET(req: NextRequest) {
 
     if (statusFilter !== 'all') {
       roster = roster.filter((r) => (r.daily?.status || 'Unmarked') === statusFilter);
+    }
+    if (sourceFilter !== 'all') {
+      roster = roster.filter((r) => r.daily?.source === sourceFilter);
     }
 
     return NextResponse.json({

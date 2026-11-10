@@ -14,6 +14,8 @@ export type EmployeeStatus = 'Active' | 'On Leave' | 'Inactive' | 'Terminated';
 export interface IEmployee extends Document {
   userId?: mongoose.Types.ObjectId | null;
   employee_id: string;
+  biometric_id?: string | null;
+  shift?: string;
   firstName: string;
   lastName: string;
   phone: string;
@@ -21,7 +23,7 @@ export interface IEmployee extends Document {
   department: EmployeeDepartment;
   designation: string;
   basic_salary: number;
-  commission_rate: number; // Percentage (e.g., 5 for 5% on referred candidate payments)
+  commission_rate: number;
   joining_date?: Date;
   status: EmployeeStatus;
   schedule_id?: mongoose.Types.ObjectId | null;
@@ -33,7 +35,22 @@ export interface IEmployee extends Document {
 const EmployeeSchema = new Schema<IEmployee>(
   {
     userId: { type: Schema.Types.ObjectId, ref: 'User', default: null, index: true },
-    employee_id: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
+    employee_id: {
+      type: String,
+      required: true,
+      unique: true,
+      uppercase: true,
+      trim: true,
+      index: true,
+    },
+    biometric_id: {
+      type: String,
+      default: null,
+      trim: true,
+      uppercase: true,
+      index: { unique: true, sparse: true },
+    },
+    shift: { type: String, default: 'Regular', trim: true },
     firstName: { type: String, required: true, trim: true },
     lastName: { type: String, required: true, trim: true },
     phone: { type: String, required: true, trim: true },
@@ -63,4 +80,3 @@ const EmployeeSchema = new Schema<IEmployee>(
 
 export const Employee: Model<IEmployee> =
   mongoose.models.Employee || mongoose.model<IEmployee>('Employee', EmployeeSchema);
-

@@ -8,6 +8,8 @@ import { Student } from '@/models/Student';
 
 interface UpdateEmployeeBody {
   userId?: string | null;
+  biometric_id?: string | null;
+  shift?: string;
   firstName?: string;
   lastName?: string;
   phone?: string;
@@ -97,6 +99,23 @@ export async function PUT(
       employee.userId = cleanUserId as any;
     }
 
+    if (body.biometric_id !== undefined) {
+      const cleanBio = body.biometric_id?.trim() ? body.biometric_id.trim().toUpperCase() : null;
+      if (cleanBio) {
+        const bioDup = await Employee.findOne({ biometric_id: cleanBio, _id: { $ne: id } });
+        if (bioDup) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Biometric ID "${cleanBio}" is already mapped to ${bioDup.employee_id}.`,
+            },
+            { status: 409 }
+          );
+        }
+      }
+      employee.biometric_id = cleanBio;
+    }
+    if (body.shift !== undefined) employee.shift = body.shift.trim() || 'Regular';
     if (body.firstName !== undefined) employee.firstName = body.firstName.trim();
     if (body.lastName !== undefined) employee.lastName = body.lastName.trim();
     if (body.phone !== undefined) employee.phone = body.phone.trim();

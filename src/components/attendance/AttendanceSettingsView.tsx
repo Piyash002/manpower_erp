@@ -30,6 +30,7 @@ export function AttendanceSettingsView() {
     name: '',
     code: '',
     department: '',
+    shift: 'Regular',
     working_days: [0, 1, 2, 3, 4],
     start_time: '09:00',
     end_time: '18:00',
@@ -41,6 +42,9 @@ export function AttendanceSettingsView() {
     overtime_needs_approval: false,
     late_rule_enabled: true,
     late_days_per_deduction: '3',
+    duplicate_punch_window_minutes: '5',
+    is_night_shift: false,
+    manual_priority_over_biometric: true,
     is_default: false,
   });
 
@@ -96,6 +100,7 @@ export function AttendanceSettingsView() {
         overtime_after_hours: Number(schedForm.overtime_after_hours),
         overtime_multiplier: Number(schedForm.overtime_multiplier),
         late_days_per_deduction: Number(schedForm.late_days_per_deduction),
+        duplicate_punch_window_minutes: Number(schedForm.duplicate_punch_window_minutes),
       }),
     });
     const json = await res.json();
@@ -172,6 +177,7 @@ export function AttendanceSettingsView() {
                 name: '',
                 code: '',
                 department: '',
+                shift: 'Regular',
                 working_days: [0, 1, 2, 3, 4],
                 start_time: '09:00',
                 end_time: '18:00',
@@ -183,6 +189,9 @@ export function AttendanceSettingsView() {
                 overtime_needs_approval: false,
                 late_rule_enabled: true,
                 late_days_per_deduction: '3',
+                duplicate_punch_window_minutes: '5',
+                is_night_shift: false,
+                manual_priority_over_biometric: true,
                 is_default: false,
               });
               setIsSchedModalOpen(true);
@@ -242,7 +251,8 @@ export function AttendanceSettingsView() {
                       {s.is_default && <Badge variant="success">Default</Badge>}
                     </div>
                     <p className="text-[11px] font-mono text-slate-500 mt-0.5">
-                      {s.code} {s.department ? `• Dept: ${s.department}` : ''}
+                      {s.code} • Shift: {s.shift || 'Regular'} {s.is_night_shift ? '(Night)' : ''}{' '}
+                      {s.department ? `• Dept: ${s.department}` : ''}
                     </p>
                   </div>
                   <button
@@ -253,6 +263,7 @@ export function AttendanceSettingsView() {
                         name: s.name,
                         code: s.code,
                         department: s.department || '',
+                        shift: s.shift || 'Regular',
                         working_days: s.working_days || [0, 1, 2, 3, 4],
                         start_time: s.start_time,
                         end_time: s.end_time,
@@ -264,6 +275,12 @@ export function AttendanceSettingsView() {
                         overtime_needs_approval: Boolean(s.overtime_needs_approval),
                         late_rule_enabled: Boolean(s.late_rule_enabled),
                         late_days_per_deduction: String(s.late_days_per_deduction),
+                        duplicate_punch_window_minutes: String(
+                          s.duplicate_punch_window_minutes ?? 5
+                        ),
+                        is_night_shift: Boolean(s.is_night_shift),
+                        manual_priority_over_biometric:
+                          s.manual_priority_over_biometric !== false,
                         is_default: Boolean(s.is_default),
                       });
                       setIsSchedModalOpen(true);
@@ -292,7 +309,7 @@ export function AttendanceSettingsView() {
                   })}
                 </div>
 
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 text-[11px] text-slate-600 border-t border-slate-100">
+                <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 pt-2 text-[11px] text-slate-600 border-t border-slate-100">
                   <div>
                     Hours: <strong>{s.start_time}–{s.end_time}</strong>
                   </div>
@@ -306,6 +323,15 @@ export function AttendanceSettingsView() {
                     Late Rule:{' '}
                     <strong>
                       {s.late_rule_enabled ? `${s.late_days_per_deduction} late = 1d` : 'Off'}
+                    </strong>
+                  </div>
+                  <div>
+                    Debounce: <strong>{s.duplicate_punch_window_minutes ?? 5}m</strong>
+                  </div>
+                  <div>
+                    Priority:{' '}
+                    <strong>
+                      {s.manual_priority_over_biometric !== false ? 'Manual Wins' : 'Latest'}
                     </strong>
                   </div>
                 </div>
@@ -532,6 +558,35 @@ export function AttendanceSettingsView() {
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Shift Name
+              </label>
+              <select
+                value={schedForm.shift}
+                onChange={(e) => setSchedForm({ ...schedForm, shift: e.target.value })}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg bg-white"
+              >
+                <option value="Regular">Regular</option>
+                <option value="Morning">Morning</option>
+                <option value="Evening">Evening</option>
+                <option value="Night">Night</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Dup Punch Window (Min)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={schedForm.duplicate_punch_window_minutes}
+                onChange={(e) =>
+                  setSchedForm({ ...schedForm, duplicate_punch_window_minutes: e.target.value })
+                }
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
+              />
+            </div>
           </div>
 
           <div className="flex flex-wrap gap-4 text-xs">
@@ -544,6 +599,29 @@ export function AttendanceSettingsView() {
                 }
               />
               <span>Enable Late Deduction Rule</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={schedForm.is_night_shift}
+                onChange={(e) =>
+                  setSchedForm({ ...schedForm, is_night_shift: e.target.checked })
+                }
+              />
+              <span>Night Shift (Crosses Midnight)</span>
+            </label>
+            <label className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={schedForm.manual_priority_over_biometric}
+                onChange={(e) =>
+                  setSchedForm({
+                    ...schedForm,
+                    manual_priority_over_biometric: e.target.checked,
+                  })
+                }
+              />
+              <span>Manual Overrides Biometric Priority</span>
             </label>
             <label className="flex items-center gap-2">
               <input

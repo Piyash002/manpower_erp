@@ -4,6 +4,7 @@ export interface IWorkingSchedule extends Document {
   name: string;
   code: string;
   department?: string;
+  shift?: string;
   working_days: number[]; // 0=Sun, 1=Mon, 2=Tue, 3=Wed, 4=Thu, 5=Fri, 6=Sat
   start_time: string; // "09:00"
   end_time: string; // "18:00"
@@ -14,7 +15,10 @@ export interface IWorkingSchedule extends Document {
   overtime_multiplier: number;
   overtime_needs_approval: boolean;
   late_rule_enabled: boolean;
-  late_days_per_deduction: number; // e.g., 3 lates = 1 day salary deduction
+  late_days_per_deduction: number;
+  duplicate_punch_window_minutes: number;
+  is_night_shift: boolean;
+  manual_priority_over_biometric: boolean;
   is_default: boolean;
   active: boolean;
   createdAt: Date;
@@ -26,7 +30,8 @@ const WorkingScheduleSchema = new Schema<IWorkingSchedule>(
     name: { type: String, required: true, trim: true },
     code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
     department: { type: String, default: '', trim: true },
-    working_days: { type: [Number], default: [0, 1, 2, 3, 4] }, // Sun-Thu default
+    shift: { type: String, default: '', trim: true },
+    working_days: { type: [Number], default: [0, 1, 2, 3, 4] },
     start_time: { type: String, required: true, default: '09:00' },
     end_time: { type: String, required: true, default: '18:00' },
     grace_minutes: { type: Number, default: 10, min: 0 },
@@ -37,6 +42,9 @@ const WorkingScheduleSchema = new Schema<IWorkingSchedule>(
     overtime_needs_approval: { type: Boolean, default: false },
     late_rule_enabled: { type: Boolean, default: true },
     late_days_per_deduction: { type: Number, default: 3, min: 1 },
+    duplicate_punch_window_minutes: { type: Number, default: 5, min: 0 },
+    is_night_shift: { type: Boolean, default: false },
+    manual_priority_over_biometric: { type: Boolean, default: true },
     is_default: { type: Boolean, default: false },
     active: { type: Boolean, default: true },
   },
@@ -46,4 +54,3 @@ const WorkingScheduleSchema = new Schema<IWorkingSchedule>(
 export const WorkingSchedule: Model<IWorkingSchedule> =
   mongoose.models.WorkingSchedule ||
   mongoose.model<IWorkingSchedule>('WorkingSchedule', WorkingScheduleSchema);
-

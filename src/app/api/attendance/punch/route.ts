@@ -81,14 +81,16 @@ export async function POST(req: NextRequest) {
         date: dateObj,
         timestamp: now,
         punch_type: punchType,
-        source: 'web',
+        source: 'Self Check-in',
         ip_address: ipAddress,
         location: body.location?.trim() || '',
         reason: 'Self web check-in/out',
         recorded_by: auth.user.name,
       });
 
-      const summary = await recomputeDailyAttendance(emp._id.toString(), todayStr);
+      const summary = await recomputeDailyAttendance(emp._id.toString(), todayStr, {
+        preferredSource: 'Self Check-in',
+      });
 
       await createAuditLog({
         user: auth.user,
@@ -153,7 +155,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, schedule.start_time || '09:00'),
           punch_type: 'IN',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: 'Bulk manual HR Present marking',
           recorded_by: auth.user.name,
@@ -163,7 +165,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, schedule.end_time || '18:00'),
           punch_type: 'OUT',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: 'Bulk manual HR Present marking',
           recorded_by: auth.user.name,
@@ -222,7 +224,11 @@ export async function POST(req: NextRequest) {
 
     // Quick status marking from roster row (Present, Late, Half-day, Absent)
     if (body.quick_status) {
-      await AttendanceLog.deleteMany({ employee_id: emp._id, date: dateObj });
+      await AttendanceLog.deleteMany({
+        employee_id: emp._id,
+        date: dateObj,
+        source: { $in: ['Manual', 'hr'] },
+      });
 
       if (body.quick_status !== 'Absent') {
         const schedule = await resolveEmployeeSchedule(emp as any);
@@ -245,7 +251,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, inTime),
           punch_type: 'IN',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: reasonText,
           recorded_by: auth.user.name,
@@ -255,7 +261,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, outTime),
           punch_type: 'OUT',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: reasonText,
           recorded_by: auth.user.name,
@@ -264,6 +270,7 @@ export async function POST(req: NextRequest) {
 
       const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
         explicitStatusOverride: body.quick_status,
+        preferredSource: 'Manual',
         notes: reasonText,
       });
 
@@ -289,9 +296,13 @@ export async function POST(req: NextRequest) {
       });
     }
 
-    // Replace existing manual HR punches on this date if check_in/out times are supplied
+    // Replace existing manual HR punches on this date (preserving biometric logs!) if check_in/out times are supplied
     if (body.check_in_time || body.check_out_time) {
-      await AttendanceLog.deleteMany({ employee_id: emp._id, date: dateObj });
+      await AttendanceLog.deleteMany({
+        employee_id: emp._id,
+        date: dateObj,
+        source: { $in: ['Manual', 'hr'] },
+      });
 
       if (body.check_in_time) {
         await AttendanceLog.create({
@@ -299,7 +310,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, body.check_in_time),
           punch_type: 'IN',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: reasonText,
           recorded_by: auth.user.name,
@@ -312,7 +323,7 @@ export async function POST(req: NextRequest) {
           date: dateObj,
           timestamp: parseDhakaTimeOnDate(dateString, body.check_out_time),
           punch_type: 'OUT',
-          source: 'hr',
+          source: 'Manual',
           ip_address: ipAddress,
           reason: reasonText,
           recorded_by: auth.user.name,
@@ -322,6 +333,7 @@ export async function POST(req: NextRequest) {
 
     const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
       explicitStatusOverride: body.status_override ? body.status_override : undefined,
+      preferredSource: 'Manual',
       notes: reasonText,
     });
 

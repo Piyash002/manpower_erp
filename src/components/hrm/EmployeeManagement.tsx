@@ -26,6 +26,8 @@ import { useAuth } from '@/components/layout/DashboardLayout';
 interface EmployeeRecord {
   _id: string;
   employee_id: string;
+  biometric_id?: string | null;
+  shift?: string;
   firstName: string;
   lastName: string;
   phone: string;
@@ -94,6 +96,8 @@ export function EmployeeManagement() {
     joining_date: new Date().toISOString().split('T')[0],
     status: 'Active',
     userId: '',
+    biometric_id: '',
+    shift: 'Regular',
   });
   const [submitting, setSubmitting] = useState(false);
   const [modalError, setModalError] = useState('');
@@ -154,6 +158,8 @@ export function EmployeeManagement() {
       joining_date: new Date().toISOString().split('T')[0],
       status: 'Active',
       userId: '',
+      biometric_id: '',
+      shift: 'Regular',
     });
     setModalError('');
     setIsModalOpen(true);
@@ -173,6 +179,8 @@ export function EmployeeManagement() {
       joining_date: emp.joining_date ? emp.joining_date.split('T')[0] : '',
       status: emp.status,
       userId: emp.userId?._id || '',
+      biometric_id: emp.biometric_id || '',
+      shift: emp.shift || 'Regular',
     });
     setModalError('');
     setIsModalOpen(true);
@@ -525,7 +533,10 @@ export function EmployeeManagement() {
                       <div className="font-semibold text-slate-900">
                         {emp.firstName} {emp.lastName}
                       </div>
-                      <div className="text-[11px] font-mono text-slate-500">{emp.employee_id}</div>
+                      <div className="text-[11px] font-mono text-slate-500">
+                        {emp.employee_id}
+                        {emp.biometric_id ? ` • Bio: ${emp.biometric_id}` : ''}
+                      </div>
                     </td>
 
                     <td className="px-4 py-3 whitespace-nowrap">
@@ -820,6 +831,38 @@ export function EmployeeManagement() {
                     {s}
                   </option>
                 ))}
+              </select>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">
+                Biometric Device User ID
+              </label>
+              <input
+                type="text"
+                value={(formData as any).biometric_id || ''}
+                onChange={(e) =>
+                  setFormData({
+                    ...formData,
+                    biometric_id: e.target.value.toUpperCase(),
+                  } as any)
+                }
+                placeholder="e.g. 1001 or BIO-01"
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono uppercase"
+              />
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Shift</label>
+              <select
+                value={(formData as any).shift || 'Regular'}
+                onChange={(e) => setFormData({ ...formData, shift: e.target.value } as any)}
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              >
+                <option value="Regular">Regular</option>
+                <option value="Morning">Morning</option>
+                <option value="Evening">Evening</option>
+                <option value="Night">Night</option>
               </select>
             </div>
 

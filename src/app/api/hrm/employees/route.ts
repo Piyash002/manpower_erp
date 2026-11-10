@@ -7,6 +7,8 @@ import { generateEmployeeId } from '@/models/Counter';
 interface CreateEmployeeBody {
   userId?: string | null;
   employee_id?: string;
+  biometric_id?: string | null;
+  shift?: string;
   firstName: string;
   lastName: string;
   phone: string;
@@ -70,6 +72,8 @@ export async function POST(req: NextRequest) {
     const {
       userId,
       employee_id,
+      biometric_id,
+      shift,
       firstName,
       lastName,
       phone,
@@ -127,9 +131,25 @@ export async function POST(req: NextRequest) {
           ? 5
           : 0;
 
+    const cleanBioId = biometric_id?.trim() ? biometric_id.trim().toUpperCase() : null;
+    if (cleanBioId) {
+      const bioDup = await Employee.findOne({ biometric_id: cleanBioId });
+      if (bioDup) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Biometric ID "${cleanBioId}" is already assigned to ${bioDup.employee_id}.`,
+          },
+          { status: 409 }
+        );
+      }
+    }
+
     const employee = await Employee.create({
       userId: cleanUserId,
       employee_id: finalEmpId,
+      biometric_id: cleanBioId,
+      shift: shift?.trim() || 'Regular',
       firstName: firstName.trim(),
       lastName: lastName.trim(),
       phone: phone.trim(),

@@ -93,6 +93,7 @@ export function AttendanceDashboardView() {
   const [rosterDate, setRosterDate] = useState(todayDhaka);
   const [rosterDept, setRosterDept] = useState('all');
   const [rosterStatus, setRosterStatus] = useState('all');
+  const [rosterSource, setRosterSource] = useState('all');
   const [rosterData, setRosterData] = useState<any | null>(null);
 
   // Date-Range Report State
@@ -150,12 +151,12 @@ export function AttendanceDashboardView() {
       if (isAdmin) {
         reqs.push(
           fetch(
-            `/api/attendance/daily?mode=roster&date=${rosterDate}&department=${rosterDept}&status=${rosterStatus}`
+            `/api/attendance/daily?mode=roster&date=${rosterDate}&department=${rosterDept}&status=${rosterStatus}&source=${rosterSource}`
           )
         );
         reqs.push(
           fetch(
-            `/api/attendance/daily?mode=roster&startDate=${rangeStart}&endDate=${rangeEnd}&department=${rosterDept}&status=${rosterStatus}`
+            `/api/attendance/daily?mode=roster&startDate=${rangeStart}&endDate=${rangeEnd}&department=${rosterDept}&status=${rosterStatus}&source=${rosterSource}`
           )
         );
       }
@@ -187,7 +188,7 @@ export function AttendanceDashboardView() {
   useEffect(() => {
     loadAll();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [myMonth, myYear, rosterDate, rosterDept, rosterStatus, rangeStart, rangeEnd, isAdmin]);
+  }, [myMonth, myYear, rosterDate, rosterDept, rosterStatus, rosterSource, rangeStart, rangeEnd, isAdmin]);
 
   const handleSelfPunch = async (punchType: 'IN' | 'OUT') => {
     setBusy(true);
@@ -685,6 +686,17 @@ export function AttendanceDashboardView() {
                 <option value="Leave">Leave</option>
                 <option value="Unmarked">Not Marked</option>
               </select>
+              <select
+                value={rosterSource}
+                onChange={(e) => setRosterSource(e.target.value)}
+                className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+              >
+                <option value="all">Source: All</option>
+                <option value="Manual">Manual</option>
+                <option value="Biometric">Biometric</option>
+                <option value="Import">Import</option>
+                <option value="Self Check-in">Self Check-in</option>
+              </select>
             </div>
 
             <div className="flex flex-wrap items-center gap-2">
@@ -766,11 +778,21 @@ export function AttendanceDashboardView() {
                         • {row.employee.designation}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap font-mono text-xs">
-                        {fmtTime(d?.first_in)} → {fmtTime(d?.last_out)}
-                        {d?.missing_checkout && (
-                          <span className="ml-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
-                            No Out
-                          </span>
+                        <div>
+                          {fmtTime(d?.first_in)} → {fmtTime(d?.last_out)}
+                          {d?.missing_checkout && (
+                            <span className="ml-1.5 text-[10px] font-semibold text-amber-700 bg-amber-50 px-1.5 py-0.5 rounded">
+                              No Out
+                            </span>
+                          )}
+                        </div>
+                        {(d?.manual_first_in || d?.biometric_first_in) && d?.has_manual_biometric_conflict && (
+                          <div
+                            title={d?.conflict_details || 'Manual vs Biometric time difference'}
+                            className="mt-0.5 text-[10px] text-amber-700 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded inline-flex items-center gap-1"
+                          >
+                            <span>Conflict: M({fmtTime(d.manual_first_in)}) / B({fmtTime(d.biometric_first_in)})</span>
+                          </div>
                         )}
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap font-mono text-xs">
@@ -789,7 +811,14 @@ export function AttendanceDashboardView() {
                         )}
                       </td>
                       <td className="px-4 py-3 text-center whitespace-nowrap">
-                        {getStatusBadge(d?.status)}
+                        <div className="flex flex-col items-center gap-1">
+                          {getStatusBadge(d?.status)}
+                          {d?.source && (
+                            <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                              {d.source}
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-1">
@@ -963,6 +992,17 @@ export function AttendanceDashboardView() {
                 </option>
               ))}
             </select>
+            <select
+              value={rosterSource}
+              onChange={(e) => setRosterSource(e.target.value)}
+              className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+            >
+              <option value="all">Source: All</option>
+              <option value="Manual">Manual</option>
+              <option value="Biometric">Biometric</option>
+              <option value="Import">Import</option>
+              <option value="Self Check-in">Self Check-in</option>
+            </select>
           </div>
 
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
@@ -974,7 +1014,7 @@ export function AttendanceDashboardView() {
                   <th className="px-4 py-3">Department</th>
                   <th className="px-4 py-3">In / Out</th>
                   <th className="px-4 py-3 text-right">Worked</th>
-                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-center">Status / Source</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -989,12 +1029,26 @@ export function AttendanceDashboardView() {
                     </td>
                     <td className="px-4 py-3">{rec.employee_id?.department}</td>
                     <td className="px-4 py-3 font-mono">
-                      {fmtTime(rec.first_in)} → {fmtTime(rec.last_out)}
+                      <div>{fmtTime(rec.first_in)} → {fmtTime(rec.last_out)}</div>
+                      {rec.has_manual_biometric_conflict && (
+                        <div className="text-[10px] text-amber-700 font-sans">
+                          {rec.conflict_details || 'Manual/Biometric conflict'}
+                        </div>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-right font-mono font-semibold">
                       {rec.worked_hours}h
                     </td>
-                    <td className="px-4 py-3 text-center">{getStatusBadge(rec.status)}</td>
+                    <td className="px-4 py-3 text-center">
+                      <div className="flex flex-col items-center gap-1">
+                        {getStatusBadge(rec.status)}
+                        {rec.source && (
+                          <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                            {rec.source}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
