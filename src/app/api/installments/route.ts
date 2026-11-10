@@ -17,6 +17,10 @@ export async function GET(req: NextRequest) {
     const search = searchParams.get('search')?.trim() || '';
     const statusFilter = searchParams.get('status')?.trim() || 'all';
     const timeframe = searchParams.get('timeframe')?.trim() || 'all';
+    const batchFilter = searchParams.get('batch')?.trim() || 'all';
+    const tradeFilter = searchParams.get('trade')?.trim() || 'all';
+    const monthFilter = searchParams.get('month')?.trim() || 'all'; // 'all' | 'this_month' | 'YYYY-MM'
+    const sortBy = searchParams.get('sort')?.trim() || 'due_asc';
 
     const now = new Date();
     const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -33,6 +37,8 @@ export async function GET(req: NextRequest) {
           { student_no: searchRegex },
           { mobile: searchRegex },
           { passport_no: searchRegex },
+          { batch: searchRegex },
+          { trade_name: searchRegex },
         ],
       }).select('_id');
 
@@ -40,7 +46,7 @@ export async function GET(req: NextRequest) {
       studentIdFilter = { $in: matchedIds };
     }
 
-    // 2. Fetch all installments (or matching student installments) populated with student details
+    // 2. Fetch all installments populated with student details (including batch)
     const installmentQuery: any = {};
     if (studentIdFilter) {
       installmentQuery.student_id = studentIdFilter;
@@ -49,12 +55,13 @@ export async function GET(req: NextRequest) {
     const rawInstallments = await Installment.find(installmentQuery)
       .populate({
         path: 'student_id',
-        select: 'name student_no mobile passport_no trade_name destination_country total_paid total_due fee_snapshot status',
+        select:
+          'name student_no mobile passport_no trade_name batch destination_country total_paid total_due fee_snapshot status',
       })
       .sort({ due_date: 1, installment_no: 1 })
       .lean();
 
-    // 3. Filter out orphaned installments (if student was deleted) and calculate status & metrics
+    // 3. Filter out orphaned installments and compute metrics + filter facets
     let totalOutstandingDue = 0;
     let overdueCount = 0;
     let overdueAmount = 0;
@@ -62,6 +69,10 @@ export async function GET(req: NextRequest) {
     let dueThisMonthAmount = 0;
     let paidCount = 0;
     let paidAmount = 0;
+
+    const batchSet = new Set<string>();
+    const tradeSet = new Set<string>();
+    const monthSet = new Set<string>();
 
     const formattedList = rawInstallments
       .filter((inst: any) => inst.student_id)
@@ -71,6 +82,14 @@ export async function GET(req: NextRequest) {
         const isPaid = inst.status === 'Paid' || remainingDue === 0;
         const isOverdue = !isPaid && dueDate < now;
         const isDueThisMonth = !isPaid && dueDate >= startOfMonth && dueDate <= endOfMonth;
+
+        // Collect filter facets
+        if (inst.student_id.batch) batchSet.add(inst.student_id.batch);
+        if (inst.student_id.trade_name) tradeSet.add(inst.student_id.trade_name);
+        if (!isNaN(dueDate.getTime())) {
+          const ym = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
+          monthSet.add(ym);
+        }
 
         // Effective status
         let effectiveStatus: 'Paid' | 'Partial' | 'Pending' | 'Overdue' = inst.status;
@@ -110,6 +129,7 @@ export async function GET(req: NextRequest) {
             mobile: inst.student_id.mobile,
             passport_no: inst.student_id.passport_no,
             trade_name: inst.student_id.trade_name,
+            batch: inst.student_id.batch || '',
             destination_country: inst.student_id.destination_country,
             total_paid: inst.student_id.total_paid,
             total_due: inst.student_id.total_due,
@@ -127,7 +147,7 @@ export async function GET(req: NextRequest) {
         };
       });
 
-    // 4. Apply status and timeframe filters
+    // 4. Apply status, timeframe, month, batch, and trade filters
     let filteredList = formattedList;
 
     if (statusFilter !== 'all') {
@@ -156,6 +176,58 @@ export async function GET(req: NextRequest) {
       }
     }
 
+    if (monthFilter && monthFilter !== 'all') {
+      if (monthFilter === 'this_month') {
+        filteredList = filteredList.filter((item) => {
+          const d = new Date(item.due_date);
+          return d >= startOfMonth && d <= endOfMonth;
+        });
+      } else {
+        // Expects YYYY-MM
+        filteredList = filteredList.filter((item) => {
+          const d = new Date(item.due_date);
+          const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+          return ym === monthFilter;
+        });
+      }
+    }
+
+    if (batchFilter && batchFilter !== 'all') {
+      filteredList = filteredList.filter((item) => item.student.batch === batchFilter);
+    }
+
+    if (tradeFilter && tradeFilter !== 'all') {
+      filteredList = filteredList.filter((item) => item.student.trade_name === tradeFilter);
+    }
+
+    // 5. Sort filtered list
+    filteredList.sort((a, b) => {
+      if (sortBy === 'due_desc') {
+        return new Date(b.due_date).getTime() - new Date(a.due_date).getTime();
+      }
+      if (sortBy === 'amount_desc') {
+        return b.remaining_due - a.remaining_due;
+      }
+      if (sortBy === 'total_due_desc') {
+        return b.student.total_due - a.student.total_due;
+      }
+      if (sortBy === 'batch_asc') {
+        const cmp = (a.student.batch || '').localeCompare(b.student.batch || '');
+        return cmp !== 0 ? cmp : new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      }
+      if (sortBy === 'trade_asc') {
+        const cmp = (a.student.trade_name || '').localeCompare(b.student.trade_name || '');
+        return cmp !== 0 ? cmp : new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+      }
+      // Default: 'due_asc' (nearest due date first)
+      return new Date(a.due_date).getTime() - new Date(b.due_date).getTime();
+    });
+
+    const filteredDueAmount = filteredList.reduce(
+      (sum, item) => sum + (item.status !== 'Paid' ? item.remaining_due : 0),
+      0
+    );
+
     return NextResponse.json({
       success: true,
       stats: {
@@ -167,6 +239,13 @@ export async function GET(req: NextRequest) {
         paidCount,
         paidAmount,
         totalInstallments: formattedList.length,
+        filteredDueAmount,
+        filteredCount: filteredList.length,
+      },
+      facets: {
+        batches: Array.from(batchSet).sort(),
+        trades: Array.from(tradeSet).sort(),
+        months: Array.from(monthSet).sort(),
       },
       installments: filteredList,
     });

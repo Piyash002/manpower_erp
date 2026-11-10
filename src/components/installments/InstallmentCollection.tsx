@@ -11,18 +11,15 @@ import {
   Calendar,
   CheckCircle2,
   Clock,
-  ExternalLink,
   Eye,
-  DollarSign,
-  User,
-  ArrowRight,
-  Filter,
   Check,
   Printer,
-  Sparkles,
   Download,
   FileSpreadsheet,
   ChevronDown,
+  ArrowUpDown,
+  RotateCcw,
+  ExternalLink,
 } from 'lucide-react';
 import { formatBDT, formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
@@ -37,6 +34,7 @@ interface InstallmentItem {
     mobile: string;
     passport_no: string;
     trade_name: string;
+    batch?: string;
     destination_country: string;
     total_paid: number;
     total_due: number;
@@ -62,6 +60,15 @@ interface StatsData {
   paidCount: number;
   paidAmount: number;
   totalInstallments: number;
+  filteredDueAmount?: number;
+  filteredCount?: number;
+}
+
+function formatMonthLabel(ym: string): string {
+  const [y, m] = ym.split('-');
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  if (isNaN(d.getTime())) return ym;
+  return d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
 }
 
 function InstallmentCollectionContent() {
@@ -70,14 +77,23 @@ function InstallmentCollectionContent() {
 
   const [installments, setInstallments] = useState<InstallmentItem[]>([]);
   const [stats, setStats] = useState<StatsData | null>(null);
+  const [facets, setFacets] = useState<{ batches: string[]; trades: string[]; months: string[] }>({
+    batches: [],
+    trades: [],
+    months: [],
+  });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters
+  // Filters & Sorting
   const [search, setSearch] = useState('');
   const [activeTab, setActiveTab] = useState<'all' | 'overdue' | 'due_this_month' | 'unpaid' | 'paid'>(
-    initialStatus === 'overdue' ? 'overdue' : 'all'
+    initialStatus === 'overdue' ? 'overdue' : 'unpaid'
   );
+  const [selectedMonth, setSelectedMonth] = useState<string>('all');
+  const [selectedBatch, setSelectedBatch] = useState<string>('all');
+  const [selectedTrade, setSelectedTrade] = useState<string>('all');
+  const [sortBy, setSortBy] = useState<string>('due_asc');
 
   // Collect Payment Modal state
   const [selectedItem, setSelectedItem] = useState<InstallmentItem | null>(null);
@@ -112,6 +128,7 @@ function InstallmentCollectionContent() {
       'Mobile',
       'Passport No',
       'Trade',
+      'Batch',
       'Destination Country',
       'Due Date',
       'Installment Amount (BDT)',
@@ -127,6 +144,7 @@ function InstallmentCollectionContent() {
       `"${item.student?.mobile || ''}"`,
       `"${item.student?.passport_no || ''}"`,
       `"${item.student?.trade_name || ''}"`,
+      `"${item.student?.batch || ''}"`,
       `"${item.student?.destination_country || ''}"`,
       `"${formatDate(item.due_date)}"`,
       item.amount || 0,
@@ -142,7 +160,7 @@ function InstallmentCollectionContent() {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `Installments_Report_${activeTab}_${Date.now()}.csv`);
+    link.setAttribute('download', `Installments_Report_${activeTab}_${selectedMonth}_${Date.now()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -166,6 +184,11 @@ function InstallmentCollectionContent() {
         params.append('status', 'paid');
       }
 
+      if (selectedMonth !== 'all') params.append('month', selectedMonth);
+      if (selectedBatch !== 'all') params.append('batch', selectedBatch);
+      if (selectedTrade !== 'all') params.append('trade', selectedTrade);
+      if (sortBy) params.append('sort', sortBy);
+
       const res = await fetch(`/api/installments?${params.toString()}`);
       const data = await res.json();
       if (!res.ok || !data.success) {
@@ -174,6 +197,9 @@ function InstallmentCollectionContent() {
 
       setInstallments(data.installments || []);
       setStats(data.stats || null);
+      if (data.facets) {
+        setFacets(data.facets);
+      }
     } catch (err: any) {
       setError(err.message || 'Could not fetch installments');
     } finally {
@@ -186,7 +212,8 @@ function InstallmentCollectionContent() {
       fetchInstallments();
     }, 250);
     return () => clearTimeout(timer);
-  }, [search, activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search, activeTab, selectedMonth, selectedBatch, selectedTrade, sortBy]);
 
   const openPaymentModal = (item: InstallmentItem) => {
     setSelectedItem(item);
@@ -258,9 +285,9 @@ function InstallmentCollectionContent() {
   const getDueBadge = (item: InstallmentItem) => {
     if (item.status === 'Paid') {
       return (
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full border border-emerald-200">
-          <CheckCircle2 className="w-3 h-3 text-emerald-600" />
-          Paid
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+          <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />
+          Cleared
         </span>
       );
     }
@@ -275,30 +302,29 @@ function InstallmentCollectionContent() {
     if (diffDays < 0) {
       const absDays = Math.abs(diffDays);
       return (
-        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full border border-rose-200">
-          <AlertTriangle className="w-3 h-3 text-rose-600" />
-          Overdue by {absDays} day{absDays > 1 ? 's' : ''}
+        <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-rose-700 bg-rose-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+          <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+          {absDays}d Overdue
         </span>
       );
     } else if (diffDays === 0) {
       return (
-        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-300 animate-pulse">
-          <Clock className="w-3 h-3 text-amber-700" />
+        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full whitespace-nowrap animate-pulse">
+          <Clock className="w-3 h-3 text-amber-700 shrink-0" />
           Due Today
         </span>
       );
-    } else if (diffDays <= 7) {
+    } else if (diffDays <= 14) {
       return (
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full border border-amber-200">
-          <Clock className="w-3 h-3 text-amber-600" />
-          Due in {diffDays} day{diffDays > 1 ? 's' : ''}
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-amber-700 bg-amber-50 px-2 py-0.5 rounded-full whitespace-nowrap">
+          <Clock className="w-3 h-3 text-amber-600 shrink-0" />
+          Due in {diffDays}d
         </span>
       );
     } else {
       return (
-        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-600 bg-slate-100 px-2 py-0.5 rounded-full">
-          <Calendar className="w-3 h-3 text-slate-500" />
-          Due on {formatDate(item.due_date)}
+        <span className="inline-flex items-center gap-1 text-[11px] font-medium text-slate-500 bg-slate-100 px-2 py-0.5 rounded-full whitespace-nowrap">
+          In {diffDays} days
         </span>
       );
     }
@@ -403,10 +429,18 @@ function InstallmentCollectionContent() {
         </div>
       </div>
 
-      {/* KPI Stats Cards */}
+      {/* KPI Stats Cards (Clickable Quick Filters) */}
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {/* Total Outstanding Due */}
-        <div className="p-4 bg-white rounded-xl border border-slate-200 shadow-xs">
+        <div
+          onClick={() => {
+            setActiveTab('unpaid');
+            setSelectedMonth('all');
+          }}
+          className={`p-4 bg-white rounded-xl border shadow-xs cursor-pointer transition-all hover:shadow-md ${
+            activeTab === 'unpaid' ? 'border-slate-400 ring-1 ring-slate-200' : 'border-slate-200'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">
               Total Outstanding Due
@@ -419,12 +453,17 @@ function InstallmentCollectionContent() {
             {formatBDT(stats?.totalOutstandingDue || 0)}
           </p>
           <p className="mt-1 text-xs text-slate-500">
-            Across all candidate installment plans
+            Across all unpaid plans
           </p>
         </div>
 
         {/* Overdue Installments */}
-        <div className="p-4 bg-white rounded-xl border border-rose-200 shadow-xs bg-rose-50/20">
+        <div
+          onClick={() => setActiveTab('overdue')}
+          className={`p-4 bg-white rounded-xl border shadow-xs bg-rose-50/20 cursor-pointer transition-all hover:shadow-md ${
+            activeTab === 'overdue' ? 'border-rose-400 ring-1 ring-rose-200' : 'border-rose-200'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-rose-700 uppercase tracking-wider">
               Overdue Installments
@@ -443,7 +482,12 @@ function InstallmentCollectionContent() {
         </div>
 
         {/* Due This Month */}
-        <div className="p-4 bg-white rounded-xl border border-amber-200 shadow-xs bg-amber-50/20">
+        <div
+          onClick={() => setActiveTab('due_this_month')}
+          className={`p-4 bg-white rounded-xl border shadow-xs bg-amber-50/20 cursor-pointer transition-all hover:shadow-md ${
+            activeTab === 'due_this_month' ? 'border-amber-400 ring-1 ring-amber-200' : 'border-amber-200'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-amber-800 uppercase tracking-wider">
               Due This Month
@@ -462,7 +506,12 @@ function InstallmentCollectionContent() {
         </div>
 
         {/* Total Collected */}
-        <div className="p-4 bg-white rounded-xl border border-emerald-200 shadow-xs bg-emerald-50/20">
+        <div
+          onClick={() => setActiveTab('paid')}
+          className={`p-4 bg-white rounded-xl border shadow-xs bg-emerald-50/20 cursor-pointer transition-all hover:shadow-md ${
+            activeTab === 'paid' ? 'border-emerald-400 ring-1 ring-emerald-200' : 'border-emerald-200'
+          }`}
+        >
           <div className="flex items-center justify-between">
             <span className="text-xs font-semibold text-emerald-800 uppercase tracking-wider">
               Paid / Cleared
@@ -481,20 +530,31 @@ function InstallmentCollectionContent() {
         </div>
       </div>
 
-      {/* Filter Tabs & Search Bar */}
+      {/* Clean & Fresh Filter + Sort Toolbar */}
       <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3">
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          {/* Filter Pills */}
-          <div className="flex flex-wrap items-center gap-1.5 p-1 bg-slate-100 rounded-lg text-xs font-medium text-slate-600">
+        {/* Top Row: Quick View Tabs & Search */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100/90 rounded-lg text-xs font-medium text-slate-600">
             <button
-              onClick={() => setActiveTab('all')}
+              onClick={() => setActiveTab('unpaid')}
               className={`px-3 py-1.5 rounded-md transition-all ${
-                activeTab === 'all'
+                activeTab === 'unpaid'
                   ? 'bg-white text-slate-900 font-semibold shadow-xs'
                   : 'hover:text-slate-900 hover:bg-slate-200/50'
               }`}
             >
-              All Installments
+              Unpaid Dues
+            </button>
+            <button
+              onClick={() => setActiveTab('due_this_month')}
+              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md transition-all ${
+                activeTab === 'due_this_month'
+                  ? 'bg-amber-600 text-white font-semibold shadow-xs'
+                  : 'text-amber-800 hover:bg-amber-100/70'
+              }`}
+            >
+              <Calendar className="w-3.5 h-3.5" />
+              This Month ({stats?.dueThisMonthCount || 0})
             </button>
             <button
               onClick={() => setActiveTab('overdue')}
@@ -508,27 +568,6 @@ function InstallmentCollectionContent() {
               Overdue ({stats?.overdueCount || 0})
             </button>
             <button
-              onClick={() => setActiveTab('due_this_month')}
-              className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md transition-all ${
-                activeTab === 'due_this_month'
-                  ? 'bg-amber-600 text-white font-semibold shadow-xs'
-                  : 'text-amber-800 hover:bg-amber-100/70'
-              }`}
-            >
-              <Calendar className="w-3.5 h-3.5" />
-              Due This Month ({stats?.dueThisMonthCount || 0})
-            </button>
-            <button
-              onClick={() => setActiveTab('unpaid')}
-              className={`px-3 py-1.5 rounded-md transition-all ${
-                activeTab === 'unpaid'
-                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
-                  : 'hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-            >
-              Unpaid / Partial
-            </button>
-            <button
               onClick={() => setActiveTab('paid')}
               className={`inline-flex items-center gap-1 px-3 py-1.5 rounded-md transition-all ${
                 activeTab === 'paid'
@@ -539,23 +578,131 @@ function InstallmentCollectionContent() {
               <Check className="w-3.5 h-3.5" />
               Paid ({stats?.paidCount || 0})
             </button>
+            <button
+              onClick={() => setActiveTab('all')}
+              className={`px-3 py-1.5 rounded-md transition-all ${
+                activeTab === 'all'
+                  ? 'bg-white text-slate-900 font-semibold shadow-xs'
+                  : 'hover:text-slate-900 hover:bg-slate-200/50'
+              }`}
+            >
+              All
+            </button>
           </div>
 
-          {/* Search Bar */}
-          <div className="relative min-w-[280px]">
+          <div className="relative w-full lg:w-72">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
             <input
               type="text"
-              placeholder="Search candidate, ID, phone, passport..."
+              placeholder="Search name, ID, phone, batch..."
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 text-xs md:text-sm bg-slate-50 border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
+              className="w-full pl-9 pr-3 py-2 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500 focus:bg-white transition-all"
             />
+          </div>
+        </div>
+
+        {/* Bottom Row: Month, Batch, Trade & Sort Controls (Fresh minimal strip) */}
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2.5 border-t border-slate-100">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 w-full lg:w-auto lg:flex-1">
+            {/* Due Month Filter */}
+            <select
+              value={selectedMonth}
+              onChange={(e) => setSelectedMonth(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+              title="Filter Dues by Month"
+            >
+              <option value="all">Month: All Months</option>
+              <option value="this_month">Month: This Month Only</option>
+              {facets.months.map((m) => (
+                <option key={m} value={m}>
+                  {formatMonthLabel(m)}
+                </option>
+              ))}
+            </select>
+
+            {/* Batch Filter */}
+            <select
+              value={selectedBatch}
+              onChange={(e) => setSelectedBatch(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 font-mono focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+              title="Filter Dues by Batch"
+            >
+              <option value="all">Batch: All Batches</option>
+              {facets.batches.map((b) => (
+                <option key={b} value={b}>
+                  Batch: {b}
+                </option>
+              ))}
+            </select>
+
+            {/* Trade Filter */}
+            <select
+              value={selectedTrade}
+              onChange={(e) => setSelectedTrade(e.target.value)}
+              className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-medium text-slate-700 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+              title="Filter Dues by Trade"
+            >
+              <option value="all">Trade: All Trades</option>
+              {facets.trades.map((t) => (
+                <option key={t} value={t}>
+                  {t}
+                </option>
+              ))}
+            </select>
+
+            {/* Sort By Selector */}
+            <div className="relative">
+              <ArrowUpDown className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-400 pointer-events-none" />
+              <select
+                value={sortBy}
+                onChange={(e) => setSortBy(e.target.value)}
+                className="w-full pl-8 pr-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg text-xs font-semibold text-slate-800 focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
+                title="Sort Installment Dues"
+              >
+                <option value="due_asc">Sort: Earliest Due Date</option>
+                <option value="due_desc">Sort: Latest Due Date</option>
+                <option value="amount_desc">Sort: Highest Inst. Due</option>
+                <option value="total_due_desc">Sort: Highest Total Due</option>
+                <option value="batch_asc">Sort: Batch (A → Z)</option>
+                <option value="trade_asc">Sort: Trade (A → Z)</option>
+              </select>
+            </div>
+          </div>
+
+          {/* Filtered Summary + Reset */}
+          <div className="flex items-center gap-2 text-xs ml-auto">
+            {stats?.filteredDueAmount !== undefined && (
+              <span className="px-2.5 py-1 bg-rose-50 text-rose-700 border border-rose-100 rounded-md font-semibold whitespace-nowrap">
+                Filtered Due: {formatBDT(stats.filteredDueAmount)} ({installments.length})
+              </span>
+            )}
+            {(selectedMonth !== 'all' ||
+              selectedBatch !== 'all' ||
+              selectedTrade !== 'all' ||
+              sortBy !== 'due_asc' ||
+              search) && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch('');
+                  setSelectedMonth('all');
+                  setSelectedBatch('all');
+                  setSelectedTrade('all');
+                  setSortBy('due_asc');
+                  setActiveTab('unpaid');
+                }}
+                className="inline-flex items-center gap-1 px-2.5 py-1 text-slate-600 hover:text-slate-900 bg-slate-100 hover:bg-slate-200 rounded-md font-medium transition-colors"
+              >
+                <RotateCcw className="w-3 h-3" />
+                <span>Reset</span>
+              </button>
+            )}
           </div>
         </div>
       </div>
 
-      {/* Installments Table */}
+      {/* Installments Table (Clean 6-column spacious layout) */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
         {loading ? (
           <div className="py-20 text-center">
@@ -576,22 +723,20 @@ function InstallmentCollectionContent() {
             <p className="text-xs text-slate-400 mt-1">
               {search
                 ? `No match found for query "${search}"`
-                : 'There are no installments matching this filter.'}
+                : 'Try changing the Month, Batch, Trade, or Status filters.'}
             </p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
-              <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-500 uppercase tracking-wider">
+              <thead className="bg-slate-50/80 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
                 <tr>
-                  <th className="px-4 py-3.5">Student / Candidate</th>
-                  <th className="px-4 py-3.5">Trade & Country</th>
-                  <th className="px-4 py-3.5">Installment #</th>
-                  <th className="px-4 py-3.5">Due Date & Timeline</th>
-                  <th className="px-4 py-3.5 text-right">Inst. Amount</th>
-                  <th className="px-4 py-3.5 text-right">Remaining Due</th>
-                  <th className="px-4 py-3.5 text-center">Status</th>
-                  <th className="px-4 py-3.5 text-right">Actions</th>
+                  <th className="px-4 py-3">Candidate</th>
+                  <th className="px-4 py-3">Trade &amp; Batch</th>
+                  <th className="px-4 py-3">Due Schedule</th>
+                  <th className="px-4 py-3 text-right">Due Balance</th>
+                  <th className="px-4 py-3 text-center">Status</th>
+                  <th className="px-4 py-3 text-right">Action</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
@@ -604,112 +749,110 @@ function InstallmentCollectionContent() {
                         item.isOverdue ? 'bg-rose-50/20' : ''
                       }`}
                     >
-                      {/* Candidate Column */}
+                      {/* 1. Candidate Column */}
                       <td className="px-4 py-3.5">
                         <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
+                          <div className="w-8 h-8 rounded-full bg-slate-100 border border-slate-200 flex items-center justify-center text-xs font-bold text-slate-700 shrink-0">
                             {student.name.charAt(0).toUpperCase()}
                           </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <Link
-                                href={`/students/${student._id}`}
-                                className="font-semibold text-slate-900 hover:text-emerald-700 transition-colors"
-                              >
-                                {student.name}
-                              </Link>
-                            </div>
-                            <div className="flex items-center gap-2 text-xs text-slate-500 mt-0.5">
-                              <span className="font-mono bg-slate-100 px-1.5 py-0.2 rounded text-[11px] text-slate-700">
+                          <div className="min-w-0">
+                            <Link
+                              href={`/students/${student._id}`}
+                              className="font-semibold text-slate-900 hover:text-emerald-700 transition-colors block truncate"
+                            >
+                              {student.name}
+                            </Link>
+                            <div className="flex items-center gap-1.5 text-xs text-slate-500 mt-0.5 whitespace-nowrap">
+                              <span className="font-mono text-[11px] font-medium text-slate-700 bg-slate-100 px-1.5 py-0.5 rounded">
                                 {student.student_no}
                               </span>
                               <span>•</span>
-                              <span>{student.mobile}</span>
+                              <span className="font-mono">{student.mobile}</span>
                             </div>
                           </div>
                         </div>
                       </td>
 
-                      {/* Trade & Country */}
+                      {/* 2. Trade & Batch Column */}
                       <td className="px-4 py-3.5">
-                        <div className="text-xs font-medium text-slate-800">
+                        <div className="text-xs font-semibold text-slate-800 max-w-[200px] truncate" title={student.trade_name}>
                           {student.trade_name}
                         </div>
-                        <div className="text-xs text-slate-500 mt-0.5">
-                          {student.destination_country}
+                        <div className="flex items-center gap-1.5 text-[11px] text-slate-500 mt-1 whitespace-nowrap">
+                          {student.batch ? (
+                            <span className="font-mono font-semibold text-blue-700 bg-blue-50 px-1.5 py-0.5 rounded">
+                              {student.batch}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">No Batch</span>
+                          )}
+                          <span>•</span>
+                          <span>{student.destination_country}</span>
                         </div>
                       </td>
 
-                      {/* Installment Number */}
-                      <td className="px-4 py-3.5">
-                        <span className="font-semibold text-slate-700">
-                          Installment #{item.installment_no}
-                        </span>
-                      </td>
-
-                      {/* Due Date & Timeline Badge */}
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-col gap-1 items-start">
-                          <span className="font-medium text-slate-800">
+                      {/* 3. Due Schedule Column */}
+                      <td className="px-4 py-3.5 whitespace-nowrap">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-slate-800 text-xs">
                             {formatDate(item.due_date)}
                           </span>
-                          {getDueBadge(item)}
+                          <span className="text-[11px] font-mono text-slate-400">
+                            #{item.installment_no}
+                          </span>
+                        </div>
+                        <div className="mt-1">{getDueBadge(item)}</div>
+                      </td>
+
+                      {/* 4. Due Balance Column */}
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <div
+                          className={`font-bold text-sm font-mono ${
+                            item.remaining_due > 0 ? 'text-rose-700' : 'text-emerald-600'
+                          }`}
+                        >
+                          {item.remaining_due > 0 ? formatBDT(item.remaining_due) : formatBDT(item.amount)}
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-0.5 font-mono">
+                          {item.remaining_due > 0 ? (
+                            student.total_due > item.remaining_due ? (
+                              <>Total Due: {formatBDT(student.total_due)}</>
+                            ) : (
+                              <>Inst: {formatBDT(item.amount)}</>
+                            )
+                          ) : (
+                            <>Paid in full</>
+                          )}
                         </div>
                       </td>
 
-                      {/* Installment Amount */}
-                      <td className="px-4 py-3.5 text-right font-medium text-slate-700">
-                        {formatBDT(item.amount)}
-                        {item.paid_amount > 0 && (
-                          <div className="text-xs text-emerald-600">
-                            Paid: {formatBDT(item.paid_amount)}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Remaining Due */}
-                      <td className="px-4 py-3.5 text-right">
-                        <span
-                          className={`font-bold text-base ${
-                            item.remaining_due > 0 ? 'text-rose-700' : 'text-slate-400'
-                          }`}
-                        >
-                          {formatBDT(item.remaining_due)}
-                        </span>
-                        {item.remaining_due > 0 && student.total_due > item.remaining_due && (
-                          <div className="text-[11px] text-slate-400">
-                            Total Due: {formatBDT(student.total_due)}
-                          </div>
-                        )}
-                      </td>
-
-                      {/* Status */}
-                      <td className="px-4 py-3.5 text-center">
+                      {/* 5. Status Column */}
+                      <td className="px-4 py-3.5 text-center whitespace-nowrap">
                         {getStatusBadge(item.status)}
                       </td>
 
-                      {/* Actions */}
-                      <td className="px-4 py-3.5 text-right">
-                        <div className="flex items-center justify-end gap-2">
+                      {/* 6. Action Column */}
+                      <td className="px-4 py-3.5 text-right whitespace-nowrap">
+                        <div className="flex items-center justify-end gap-1.5">
                           {item.remaining_due > 0 ? (
                             <button
                               onClick={() => openPaymentModal(item)}
-                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 active:bg-emerald-800 rounded-lg shadow-xs transition-colors"
+                              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs transition-colors whitespace-nowrap"
                               title="Collect payment for this installment"
                             >
                               <CreditCard className="w-3.5 h-3.5" />
-                              Collect Payment
+                              <span>Collect</span>
                             </button>
                           ) : (
-                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 py-1.5 px-2 bg-emerald-50 rounded-lg">
-                              <CheckCircle2 className="w-3.5 h-3.5" /> Cleared
+                            <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-700 py-1 px-2.5 bg-emerald-50 rounded-md">
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Paid
                             </span>
                           )}
 
                           <Link
                             href={`/students/${student._id}`}
                             className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-md transition-colors"
-                            title="View candidate full profile"
+                            title="View candidate profile"
                           >
                             <Eye className="w-4 h-4" />
                           </Link>
