@@ -191,6 +191,7 @@ export async function DELETE(
       Installment.deleteMany({ student_id: id }),
       Payment.deleteMany({ student_id: id }),
       StudentDocument.deleteMany({ student_id: id }),
+      BatchAssessment.deleteMany({ student_id: id }),
     ]);
 
     await createAuditLog({

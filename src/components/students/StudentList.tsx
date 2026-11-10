@@ -1,20 +1,26 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
 import {
   Search,
-  Filter,
   UserPlus,
   Users,
   AlertTriangle,
-  ChevronRight,
-  ArrowUpDown,
-  Building,
   Eye,
+  Edit3,
+  Trash2,
+  Loader2,
+  CheckCircle2,
+  User,
+  Phone,
+  Plane,
+  GraduationCap,
+  Upload,
 } from 'lucide-react';
 import { formatBDT } from '@/lib/formatters';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
+import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 interface StudentListItem {
@@ -46,9 +52,33 @@ export function StudentList() {
   const [selectedCountry, setSelectedCountry] = useState('all');
   const [selectedStatus, setSelectedStatus] = useState('all');
   const [trades, setTrades] = useState<any[]>([]);
+  const [availableBatches, setAvailableBatches] = useState<any[]>([]);
   const [totalStudents, setTotalStudents] = useState(0);
 
-  // Load trades filter list
+  // Toast feedback
+  const [toastMsg, setToastMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+
+  // Edit Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editingStudentId, setEditingStudentId] = useState<string | null>(null);
+  const [editingStudentNo, setEditingStudentNo] = useState('');
+  const [isLoadingEdit, setIsLoadingEdit] = useState(false);
+  const [isSavingEdit, setIsSavingEdit] = useState(false);
+  const [editError, setEditError] = useState('');
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [editFormData, setEditFormData] = useState<any>({});
+
+  // Delete Modal State
+  const [deletingStudent, setDeletingStudent] = useState<StudentListItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+
+  const showToast = (type: 'success' | 'error', text: string) => {
+    setToastMsg({ type, text });
+    setTimeout(() => setToastMsg(null), 4000);
+  };
+
+  // Load trades & batches filter list
   useEffect(() => {
     fetch('/api/trades')
       .then((r) => r.json())
@@ -56,42 +86,177 @@ export function StudentList() {
         if (d.success) setTrades(d.trades || []);
       })
       .catch((e) => console.error(e));
+
+    fetch('/api/batches')
+      .then((r) => r.json())
+      .then((d) => {
+        if (d.success) setAvailableBatches(d.batches || []);
+      })
+      .catch((e) => console.error(e));
   }, []);
+
+  const fetchStudents = useCallback(async () => {
+    setLoading(true);
+    try {
+      const params = new URLSearchParams();
+      if (searchQuery) params.set('q', searchQuery);
+      if (selectedTrade !== 'all') params.set('trade_id', selectedTrade);
+      if (selectedCountry !== 'all') params.set('country', selectedCountry);
+      if (selectedStatus !== 'all') params.set('status', selectedStatus);
+
+      const res = await fetch(`/api/students?${params.toString()}`);
+      const data = await res.json();
+
+      if (data.success) {
+        setStudents(data.students || []);
+        setTotalStudents(data.total || 0);
+      }
+    } catch (err) {
+      console.error('Fetch students error:', err);
+    } finally {
+      setLoading(false);
+    }
+  }, [searchQuery, selectedTrade, selectedCountry, selectedStatus]);
 
   // Fetch students with debounce
   useEffect(() => {
-    let isCancelled = false;
-    setLoading(true);
-
-    const timer = setTimeout(async () => {
-      try {
-        const params = new URLSearchParams();
-        if (searchQuery) params.set('q', searchQuery);
-        if (selectedTrade !== 'all') params.set('trade_id', selectedTrade);
-        if (selectedCountry !== 'all') params.set('country', selectedCountry);
-        if (selectedStatus !== 'all') params.set('status', selectedStatus);
-
-        const res = await fetch(`/api/students?${params.toString()}`);
-        const data = await res.json();
-
-        if (!isCancelled && data.success) {
-          setStudents(data.students || []);
-          setTotalStudents(data.total || 0);
-        }
-      } catch (err) {
-        console.error('Fetch students error:', err);
-      } finally {
-        if (!isCancelled) setLoading(false);
-      }
+    const timer = setTimeout(() => {
+      fetchStudents();
     }, 250);
 
     return () => {
-      isCancelled = true;
       clearTimeout(timer);
     };
-  }, [searchQuery, selectedTrade, selectedCountry, selectedStatus]);
+  }, [fetchStudents]);
+
+  const toInputDate = (val?: string | Date) => {
+    if (!val) return '';
+    const d = new Date(val);
+    if (isNaN(d.getTime())) return '';
+    return d.toISOString().split('T')[0];
+  };
+
+  // Open Edit Modal & Fetch Full Student Info
+  const handleOpenEditModal = async (student: StudentListItem) => {
+    setEditError('');
+    setEditingStudentId(student._id);
+    setEditingStudentNo(student.student_no);
+    setIsEditModalOpen(true);
+    setIsLoadingEdit(true);
+
+    try {
+      const res = await fetch(`/api/students/${student._id}`);
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to load student details');
+      }
+      const st = data.student;
+      setEditFormData({
+        name: st.name || '',
+        father_name: st.father_name || '',
+        mother_name: st.mother_name || '',
+        date_of_birth: toInputDate(st.date_of_birth),
+        gender: st.gender || 'Male',
+        blood_group: st.blood_group || '',
+        nid_or_birth_cert: st.nid_or_birth_cert || '',
+        religion: st.religion || 'Islam',
+        marital_status: st.marital_status || 'Single',
+        mobile: st.mobile || '',
+        email: st.email || '',
+        emergency_contact_name: st.emergency_contact_name || '',
+        emergency_contact_phone: st.emergency_contact_phone || '',
+        present_address: st.present_address || '',
+        permanent_address: st.permanent_address || '',
+        passport_no: st.passport_no || '',
+        passport_issue_date: toInputDate(st.passport_issue_date),
+        passport_expiry_date: toInputDate(st.passport_expiry_date),
+        destination_country: st.destination_country || '',
+        batch: st.batch || '',
+        status: st.status || 'Active',
+        photo_url: st.photo_url || '',
+      });
+    } catch (err: any) {
+      setEditError(err.message || 'Could not load student data');
+    } finally {
+      setIsLoadingEdit(false);
+    }
+  };
+
+  const handlePhotoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingPhoto(true);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const res = await fetch('/api/upload', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (data.success && data.url) {
+        setEditFormData((prev: any) => ({ ...prev, photo_url: data.url }));
+      } else {
+        setEditError(data.message || 'Photo upload failed');
+      }
+    } catch {
+      setEditError('Photo upload failed');
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
+
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingStudentId) return;
+    setEditError('');
+    setIsSavingEdit(true);
+
+    try {
+      const res = await fetch(`/api/students/${editingStudentId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(editFormData),
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to update student');
+      }
+
+      setIsEditModalOpen(false);
+      showToast('success', `Candidate ${editingStudentNo} updated successfully.`);
+      fetchStudents();
+    } catch (err: any) {
+      setEditError(err.message || 'Update failed');
+    } finally {
+      setIsSavingEdit(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingStudent) return;
+    setDeleteError('');
+    setIsDeleting(true);
+
+    try {
+      const res = await fetch(`/api/students/${deletingStudent._id}`, {
+        method: 'DELETE',
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to delete student');
+      }
+
+      setStudents((prev) => prev.filter((s) => s._id !== deletingStudent._id));
+      setTotalStudents((prev) => Math.max(0, prev - 1));
+      showToast('success', `Student ${deletingStudent.student_no} (${deletingStudent.name}) deleted.`);
+      setDeletingStudent(null);
+    } catch (err: any) {
+      setDeleteError(err.message || 'Failed to delete student');
+    } finally {
+      setIsDeleting(false);
+    }
+  };
 
   const canAdmit = user?.role === 'Admin' || user?.role === 'Counselor';
+  const canDelete = user?.role === 'Admin';
 
   return (
     <div className="space-y-6">
@@ -114,6 +279,29 @@ export function StudentList() {
           </Link>
         )}
       </div>
+
+      {/* Toast Message */}
+      {toastMsg && (
+        <div
+          className={`p-3.5 rounded-xl border flex items-center justify-between text-xs font-medium ${
+            toastMsg.type === 'success'
+              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+              : 'bg-rose-50 border-rose-200 text-rose-800'
+          }`}
+        >
+          <div className="flex items-center gap-2">
+            {toastMsg.type === 'success' ? (
+              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+            ) : (
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+            )}
+            <span>{toastMsg.text}</span>
+          </div>
+          <button onClick={() => setToastMsg(null)} className="text-slate-400 hover:text-slate-600 font-bold px-1">
+            &times;
+          </button>
+        </div>
+      )}
 
       {/* Search & Filter Toolbar */}
       <div className="p-4 bg-white border border-slate-200 rounded-xl shadow-xs space-y-3">
@@ -293,13 +481,47 @@ export function StudentList() {
 
                     {/* Actions */}
                     <td className="px-5 py-3.5 text-right whitespace-nowrap">
-                      <Link
-                        href={`/students/${student._id}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded-md transition-colors"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>Profile</span>
-                      </Link>
+                      <div className="flex items-center justify-end gap-1.5">
+                        <Link
+                          href={`/students/${student._id}`}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded-md transition-colors"
+                          title="View Profile"
+                        >
+                          <Eye className="w-3.5 h-3.5" />
+                          <span>Profile</span>
+                        </Link>
+
+                        {canAdmit && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              handleOpenEditModal(student);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-amber-700 hover:text-white bg-amber-50 hover:bg-amber-600 rounded-md transition-colors"
+                            title="Edit Candidate"
+                          >
+                            <Edit3 className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+                        )}
+
+                        {canDelete && (
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setDeleteError('');
+                              setDeletingStudent(student);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:text-white bg-rose-50 hover:bg-rose-600 rounded-md transition-colors"
+                            title="Delete Candidate"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Delete</span>
+                          </button>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -314,6 +536,366 @@ export function StudentList() {
           <span className="font-mono">BD Manpower Training & Recruitment ERP</span>
         </div>
       </div>
+
+      {/* EDIT STUDENT MODAL */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        title={`Edit Student Profile — ${editingStudentNo}`}
+        description="Update candidate personal, passport, contact, batch, and status information."
+        maxWidth="2xl"
+      >
+        {isLoadingEdit ? (
+          <div className="py-12 flex flex-col items-center justify-center text-slate-500 gap-2">
+            <Loader2 className="w-6 h-6 animate-spin text-blue-600" />
+            <span className="text-xs font-medium">Loading candidate details...</span>
+          </div>
+        ) : (
+          <form onSubmit={handleSaveEdit} className="space-y-4">
+            {editError && (
+              <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{editError}</span>
+              </div>
+            )}
+
+            {/* Personal & Parent Info */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <User className="w-3.5 h-3.5 text-blue-600" />
+                <span>Candidate Personal &amp; Parent Details</span>
+              </h4>
+
+              {/* Photo Upload Row */}
+              <div className="flex flex-col sm:flex-row sm:items-center gap-3 p-3 bg-white border border-slate-200 rounded-lg">
+                <div className="w-12 h-12 rounded-xl overflow-hidden bg-slate-100 border border-slate-200 flex items-center justify-center shrink-0">
+                  {editFormData.photo_url ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img
+                      src={editFormData.photo_url}
+                      alt="Candidate"
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
+                    <User className="w-5 h-5 text-slate-400" />
+                  )}
+                </div>
+                <div className="flex-1 flex flex-wrap items-center gap-2">
+                  <label className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 rounded-lg text-xs font-semibold cursor-pointer">
+                    <Upload className="w-3.5 h-3.5" />
+                    <span>{uploadingPhoto ? 'Uploading...' : 'Change Photo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handlePhotoUpload}
+                      disabled={uploadingPhoto}
+                      className="hidden"
+                    />
+                  </label>
+                  {editFormData.photo_url && (
+                    <button
+                      type="button"
+                      onClick={() => setEditFormData({ ...editFormData, photo_url: '' })}
+                      className="text-xs text-rose-600 hover:underline px-2"
+                    >
+                      Remove Photo
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Full Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.name || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Father&apos;s Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.father_name || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, father_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Mother&apos;s Name *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.mother_name || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, mother_name: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Date of Birth *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editFormData.date_of_birth || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, date_of_birth: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Gender *</label>
+                  <select
+                    value={editFormData.gender || 'Male'}
+                    onChange={(e) => setEditFormData({ ...editFormData, gender: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  >
+                    <option value="Male">Male</option>
+                    <option value="Female">Female</option>
+                    <option value="Other">Other</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">NID / Birth Cert *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.nid_or_birth_cert || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, nid_or_birth_cert: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Contact Info */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Phone className="w-3.5 h-3.5 text-blue-600" />
+                <span>Contact &amp; Addresses</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Mobile Number *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.mobile || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, mobile: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={editFormData.email || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, email: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <label className="block font-bold text-slate-600 mb-1">Present Address</label>
+                  <input
+                    type="text"
+                    value={editFormData.present_address || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, present_address: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Passport & Destination */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <Plane className="w-3.5 h-3.5 text-blue-600" />
+                <span>Passport &amp; Overseas Target</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Passport Number *</label>
+                  <input
+                    type="text"
+                    required
+                    value={editFormData.passport_no || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, passport_no: e.target.value.toUpperCase() })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono font-bold uppercase"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Passport Expiry Date *</label>
+                  <input
+                    type="date"
+                    required
+                    value={editFormData.passport_expiry_date || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, passport_expiry_date: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Destination Country</label>
+                  <input
+                    type="text"
+                    value={editFormData.destination_country || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, destination_country: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900"
+                  />
+                </div>
+              </div>
+            </div>
+
+            {/* Batch & Status */}
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3 bg-slate-50/50">
+              <h4 className="text-xs font-bold text-slate-800 uppercase tracking-wider flex items-center gap-1.5">
+                <GraduationCap className="w-3.5 h-3.5 text-blue-600" />
+                <span>Training Batch &amp; Status</span>
+              </h4>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Training Batch</label>
+                  <select
+                    value={editFormData.batch || ''}
+                    onChange={(e) => setEditFormData({ ...editFormData, batch: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
+                  >
+                    <option value="">No Batch Assigned</option>
+                    {availableBatches.map((b) => (
+                      <option key={b._id} value={b.batch_code}>
+                        {b.batch_code} ({b.name})
+                      </option>
+                    ))}
+                    {editFormData.batch && !availableBatches.some((b) => b.batch_code === editFormData.batch) && (
+                      <option value={editFormData.batch}>{editFormData.batch}</option>
+                    )}
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-slate-600 mb-1">Status</label>
+                  <select
+                    value={editFormData.status || 'Active'}
+                    onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })}
+                    className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-semibold"
+                  >
+                    <option value="Active">Active</option>
+                    <option value="Passed">Passed</option>
+                    <option value="Failed">Failed</option>
+                    <option value="Dropped">Dropped</option>
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+              <button
+                type="button"
+                onClick={() => setIsEditModalOpen(false)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="submit"
+                disabled={isSavingEdit || uploadingPhoto}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold shadow-sm inline-flex items-center gap-1.5"
+              >
+                {isSavingEdit && <Loader2 className="w-3.5 h-3.5 animate-spin" />}
+                <span>{isSavingEdit ? 'Saving...' : 'Save Changes'}</span>
+              </button>
+            </div>
+          </form>
+        )}
+      </Modal>
+
+      {/* DELETE CONFIRMATION MODAL */}
+      <Modal
+        isOpen={!!deletingStudent}
+        onClose={() => !isDeleting && setDeletingStudent(null)}
+        title="Confirm Delete Student"
+        description="Permanent action — candidate record and linked transactions will be removed."
+        maxWidth="md"
+      >
+        {deletingStudent && (
+          <div className="space-y-4">
+            {deleteError && (
+              <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                <span>{deleteError}</span>
+              </div>
+            )}
+
+            <div className="p-4 bg-rose-50/70 border border-rose-200 rounded-xl flex items-start gap-3">
+              <AlertTriangle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+              <div className="text-xs text-rose-900 space-y-1">
+                <p className="font-bold">
+                  আপনি কি নিশ্চিত যে এই ছাত্র/প্রার্থীর রেকর্ড ডিলিট করতে চান?
+                </p>
+                <p className="text-rose-700">
+                  এটি করলে এই প্রার্থীর প্রোফাইল, কিস্তির শিডিউল, পেমেন্ট হিস্ট্রি ও ডকুমেন্ট স্থায়ীভাবে মুছে যাবে।
+                </p>
+              </div>
+            </div>
+
+            <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-xl text-xs space-y-1">
+              <div className="flex justify-between">
+                <span className="text-slate-500">Student ID:</span>
+                <span className="font-mono font-bold text-slate-900">{deletingStudent.student_no}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Name:</span>
+                <span className="font-bold text-slate-900">{deletingStudent.name}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Trade &amp; Batch:</span>
+                <span className="text-slate-800">{deletingStudent.trade_name} ({deletingStudent.batch})</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-slate-500">Paid / Due:</span>
+                <span className="font-mono">
+                  <strong className="text-emerald-700">{formatBDT(deletingStudent.total_paid)}</strong> /{' '}
+                  <strong className="text-rose-600">{formatBDT(deletingStudent.total_due)}</strong>
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end gap-3 border-t border-slate-100">
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={() => setDeletingStudent(null)}
+                className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={isDeleting}
+                onClick={handleConfirmDelete}
+                className="px-5 py-2 bg-rose-600 hover:bg-rose-700 disabled:opacity-60 text-white rounded-lg text-xs font-bold shadow-sm inline-flex items-center gap-1.5"
+              >
+                {isDeleting ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-3.5 h-3.5" />
+                )}
+                <span>{isDeleting ? 'Deleting...' : 'Yes, Delete Student'}</span>
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
     </div>
   );
 }
