@@ -87,6 +87,9 @@ function InstallmentCollectionContent() {
   const [paymentDate, setPaymentDate] = useState<string>(new Date().toISOString().split('T')[0]);
   const [paymentRef, setPaymentRef] = useState('');
   const [paymentNote, setPaymentNote] = useState('');
+  const [nextDueDate, setNextDueDate] = useState<string>(
+    new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]
+  );
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [payError, setPayError] = useState('');
 
@@ -192,6 +195,7 @@ function InstallmentCollectionContent() {
     setPaymentDate(new Date().toISOString().split('T')[0]);
     setPaymentRef('');
     setPaymentNote(`Installment #${item.installment_no} Collection`);
+    setNextDueDate(new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]);
     setPayError('');
     setIsPayModalOpen(true);
   };
@@ -226,6 +230,7 @@ function InstallmentCollectionContent() {
           reference: paymentRef,
           payment_date: paymentDate,
           note: paymentNote,
+          next_due_date: nextDueDate,
         }),
       });
 
@@ -861,6 +866,30 @@ function InstallmentCollectionContent() {
                 className="w-full px-3 py-2 text-sm bg-white border border-slate-300 rounded-lg focus:outline-hidden focus:ring-2 focus:ring-emerald-500"
               />
             </div>
+
+            {/* Next Due Date Section (বকেয়া থাকলে পরবর্তী কিস্তির তারিখ নির্ধারণ) */}
+            {selectedItem && (Number(paymentAmount) < selectedItem.student.total_due) && (
+              <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5 text-xs">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-amber-900 flex items-center gap-1.5">
+                    <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                    <span>Next Due Date (পরবর্তী কিস্তির তারিখ)</span>
+                  </label>
+                  <span className="text-[11px] text-amber-700 font-mono font-bold">
+                    Remaining Due: {formatBDT(selectedItem.student.total_due - (Number(paymentAmount) || 0))}
+                  </span>
+                </div>
+                <input
+                  type="date"
+                  value={nextDueDate}
+                  onChange={(e) => setNextDueDate(e.target.value)}
+                  className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-slate-900 font-bold focus:ring-2 focus:ring-amber-500"
+                />
+                <p className="text-[10px] text-amber-800">
+                  এই পেমেন্টের পর প্রার্থীর অবশিষ্ট বকেয়া পরিশোধের নির্ধারিত তারিখ সেট করুন।
+                </p>
+              </div>
+            )}
 
             <div className="flex items-center justify-end gap-3 pt-3 border-t border-slate-200">
               <button

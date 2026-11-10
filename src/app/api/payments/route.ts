@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const { student_id, amount, method, reference, payment_date, note } = await req.json();
+    const { student_id, amount, method, reference, payment_date, note, next_due_date } = await req.json();
 
     const paymentAmount = Math.round(Number(amount));
     if (!student_id || !paymentAmount || paymentAmount <= 0 || !method) {
@@ -81,6 +81,29 @@ export async function POST(req: NextRequest) {
       }
     }
 
+    // Schedule / update next due date if specified and student still has outstanding dues
+    if (next_due_date && student.total_due > 0) {
+      const nextPendingInst = await Installment.findOne({
+        student_id,
+        status: { $in: ['Pending', 'Partial'] },
+      }).sort({ installment_no: 1 });
+
+      if (nextPendingInst) {
+        nextPendingInst.due_date = new Date(next_due_date);
+        await nextPendingInst.save();
+      } else {
+        const lastInst = await Installment.findOne({ student_id }).sort({ installment_no: -1 });
+        await Installment.create({
+          student_id,
+          installment_no: (lastInst?.installment_no || 0) + 1,
+          due_date: new Date(next_due_date),
+          amount: student.total_due,
+          paid_amount: 0,
+          status: 'Pending',
+        });
+      }
+    }
+
     await createAuditLog({
       user: auth.user,
       action: 'PAYMENT_RECORDED',
@@ -91,6 +114,7 @@ export async function POST(req: NextRequest) {
         student_no: student.student_no,
         amount: paymentAmount,
         method,
+        next_due_date: next_due_date ? new Date(next_due_date) : null,
       },
     });
 

@@ -3,6 +3,7 @@ import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Payment } from '@/models/Payment';
 import { Student } from '@/models/Student';
+import { Installment } from '@/models/Installment';
 import { amountInWords } from '@/lib/formatters';
 
 export async function GET(
@@ -26,6 +27,12 @@ export async function GET(
       return NextResponse.json({ success: false, message: 'Student associated with receipt not found' }, { status: 404 });
     }
 
+    // Look up upcoming installment if dues remain
+    const nextInst = await Installment.findOne({
+      student_id: student._id,
+      status: { $in: ['Pending', 'Partial'] },
+    }).sort({ installment_no: 1 });
+
     const inWords = amountInWords(payment.amount);
 
     return NextResponse.json({
@@ -39,6 +46,7 @@ export async function GET(
         reference: payment.reference,
         note: payment.note,
         created_by: payment.created_by,
+        next_due_date: nextInst ? nextInst.due_date : null,
         student: {
           _id: student._id,
           student_no: student.student_no,

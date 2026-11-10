@@ -13,6 +13,7 @@ interface ReceiptData {
   reference?: string;
   note?: string;
   created_by: string;
+  next_due_date?: string | Date | null;
   student: {
     student_no: string;
     name: string;
@@ -195,7 +196,7 @@ export function MoneyReceipt({ receipt, onClose }: MoneyReceiptProps) {
         </div>
 
         {/* Balance Status Card */}
-        <div className="grid grid-cols-3 gap-3 my-6 p-3 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs">
+        <div className={`grid ${student.total_due > 0 && receipt.next_due_date ? 'grid-cols-4' : 'grid-cols-3'} gap-3 my-6 p-3 bg-slate-50 border border-slate-200 rounded-lg text-center text-xs`}>
           <div>
             <p className="text-slate-500">Total Agreed Package</p>
             <p className="text-sm font-bold text-slate-800 mt-0.5">
@@ -214,6 +215,18 @@ export function MoneyReceipt({ receipt, onClose }: MoneyReceiptProps) {
               {formatBDT(student.total_due)}
             </p>
           </div>
+          {student.total_due > 0 && receipt.next_due_date && (
+            <div className="bg-amber-50/80 border border-amber-200 rounded-md p-1">
+              <p className="text-amber-800 font-semibold">Next Due Date</p>
+              <p className="text-xs font-bold text-amber-900 mt-0.5 font-mono">
+                {new Date(receipt.next_due_date).toLocaleDateString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  year: 'numeric',
+                })}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Signatures */}

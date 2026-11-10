@@ -90,6 +90,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
     reference: '',
     payment_date: new Date().toISOString().split('T')[0],
     note: '',
+    next_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
   });
 
   const [updatingStatus, setUpdatingStatus] = useState(false);
@@ -396,6 +397,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
           reference: paymentFormData.reference,
           payment_date: paymentFormData.payment_date,
           note: paymentFormData.note,
+          next_due_date: paymentFormData.next_due_date,
         }),
       });
 
@@ -411,6 +413,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
         reference: '',
         payment_date: new Date().toISOString().split('T')[0],
         note: '',
+        next_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
       });
 
       // View Receipt
@@ -1981,6 +1984,32 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
             />
           </div>
+
+          {/* Next Due Date Section (বকেয়া থাকলে পরবর্তী কিস্তির তারিখ নির্ধারণ) */}
+          {Number(paymentFormData.amount) < student.total_due && (
+            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5 text-xs">
+              <div className="flex items-center justify-between">
+                <label className="font-bold text-amber-900 flex items-center gap-1.5">
+                  <Calendar className="w-3.5 h-3.5 text-amber-700" />
+                  <span>Next Due Date (পরবর্তী কিস্তির তারিখ)</span>
+                </label>
+                <span className="text-[11px] text-amber-700 font-mono font-bold">
+                  Remaining Due: {formatBDT(student.total_due - (Number(paymentFormData.amount) || 0))}
+                </span>
+              </div>
+              <input
+                type="date"
+                value={paymentFormData.next_due_date}
+                onChange={(e) =>
+                  setPaymentFormData({ ...paymentFormData, next_due_date: e.target.value })
+                }
+                className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-slate-900 font-bold focus:ring-2 focus:ring-amber-500"
+              />
+              <p className="text-[10px] text-amber-800">
+                এই পেমেন্টের পর প্রার্থীর অবশিষ্ট বকেয়া পরিশোধের নির্ধারিত তারিখ সেট করুন।
+              </p>
+            </div>
+          )}
 
           <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
             <button
