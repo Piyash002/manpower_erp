@@ -19,8 +19,7 @@ import {
   GraduationCap,
   Trash2,
 } from 'lucide-react';
-import { formatBDT, formatDate, calculateInstallments } from '@/lib/formatters';
-import { MoneyReceipt } from '@/components/receipt/MoneyReceipt';
+import { formatBDT, formatDate } from '@/lib/formatters';
 import { Modal } from '@/components/ui/Modal';
 import {
   AddressSelector,
@@ -55,6 +54,8 @@ export function AdmissionForm() {
   const [trades, setTrades] = useState<TradeItem[]>([]);
   const [allCountryCosts, setAllCountryCosts] = useState<CountryCostItem[]>([]);
   const [availableCountryCosts, setAvailableCountryCosts] = useState<CountryCostItem[]>([]);
+  const [feeTemplates, setFeeTemplates] = useState<any[]>([]);
+  const [manualTemplatePicked, setManualTemplatePicked] = useState(false);
   const [loadingInitial, setLoadingInitial] = useState(true);
 
   // Form State
@@ -118,19 +119,14 @@ export function AdmissionForm() {
     destination_contract_years: 0,
     referred_by_agent: '',
 
-    // 6. Fees
+    // 6. Accounts Fee Template & Optional Discount Request
+    fee_template_id: '',
     admission_fee: 0,
     course_fee: 0,
     visa_cost: 0,
     govt_fee: 0,
     discount: 0,
-
-    // 7. Payment
-    paid_now: 0,
-    payment_method: 'Cash',
-    payment_reference: '',
-    payment_note: 'Admission & Initial Payment',
-    installment_count: 3,
+    discount_reason: '',
   });
 
   const [uploadingField, setUploadingField] = useState<string | null>(null);
@@ -151,26 +147,30 @@ export function AdmissionForm() {
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
-  const [successReceipt, setSuccessReceipt] = useState<any | null>(null);
-  const [createdStudent, setCreatedStudent] = useState<any | null>(null);
   const [existingBatches, setExistingBatches] = useState<any[]>([]);
   const [agentsList, setAgentsList] = useState<any[]>([]);
 
-  // Fetch initial Trades, Country Costs, Batches, and HRM Agents
+  // Fetch initial Trades, Country Costs, Batches, HRM Agents, and Accounts Fee Templates
   useEffect(() => {
     async function loadData() {
       try {
-        const [tradesRes, costsRes, batchesRes, empRes] = await Promise.all([
+        const [tradesRes, costsRes, batchesRes, empRes, tplRes] = await Promise.all([
           fetch('/api/trades?active=true'),
           fetch('/api/country-costs'),
           fetch('/api/batches'),
           fetch('/api/hrm/employees?status=Active'),
+          fetch('/api/accounts/fee-templates?activeOnly=1'),
         ]);
 
         const tradesData = await tradesRes.json();
         const costsData = await costsRes.json();
         const batchesData = await batchesRes.json();
         const empData = await empRes.json();
+        const tplData = await tplRes.json();
+
+        if (tplData.success && Array.isArray(tplData.data)) {
+          setFeeTemplates(tplData.data);
+        }
 
         if (empData.success && Array.isArray(empData.data)) {
           setAgentsList(empData.data);
@@ -326,7 +326,7 @@ export function AdmissionForm() {
     }
   };
 
-  // Handle Country selection change
+  // Handle Country selection change (descriptive only; pricing auto-resolves from Accounts Fee Template)
   const handleCountryChange = (countryName: string) => {
     if (countryName === 'Not decided yet') {
       setFormData((prev) => ({
@@ -340,35 +340,95 @@ export function AdmissionForm() {
     }
 
     const matched = availableCountryCosts.find((c) => c.country === countryName);
-    if (matched) {
-      setFormData((prev) => ({
-        ...prev,
-        destination_country: matched.country,
-        destination_contract_years: matched.contract_years,
-        visa_cost: matched.visa_cost,
-        govt_fee: matched.govt_fee,
-      }));
-    }
+    setFormData((prev) => ({
+      ...prev,
+      destination_country: matched ? matched.country : countryName,
+      destination_contract_years: matched ? matched.contract_years : prev.destination_contract_years || 2,
+      visa_cost: matched ? matched.visa_cost : 0,
+      govt_fee: matched ? matched.govt_fee : 0,
+    }));
   };
 
-  // Calculations (PRD Section 7)
-  const totalPayable = Math.max(
-    0,
-    Number(formData.admission_fee || 0) +
-      Number(formData.course_fee || 0) +
-      Number(formData.visa_cost || 0) +
-      Number(formData.govt_fee || 0) -
-      Number(formData.discount || 0)
+  // Unified Destination Country options for Card 1 (merges Admission descriptive catalog + Accounts Fee Templates)
+  const card1CountryOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const c of availableCountryCosts) {
+      map.set(c.country, `${c.contract_years} yr contract · ${c.visa_days}d processing`);
+    }
+    for (const t of feeTemplates) {
+      const tTradeId = typeof t.tradeId === 'object' && t.tradeId ? t.tradeId._id : t.tradeId;
+      const cName = String(t.country || '').trim();
+      if (!cName || cName.toLowerCase() === 'all' || cName === 'Not decided yet') continue;
+      if (!tTradeId || String(tTradeId) === String(formData.trade_id)) {
+        if (!map.has(cName)) map.set(cName, 'Accounts Package Configured');
+      }
+    }
+    return Array.from(map.entries())
+      .map(([country, meta]) => ({ country, meta }))
+      .sort((a, b) => a.country.localeCompare(b.country));
+  }, [availableCountryCosts, feeTemplates, formData.trade_id]);
+
+  // Auto-resolve Accounts Fee Templates matching the selected (Trade + Destination Country)
+  const matchedTemplates = useMemo(() => {
+    if (!feeTemplates.length || !formData.trade_id) return [];
+    const byTrade = (t: any) => {
+      const tTradeId = typeof t.tradeId === 'object' && t.tradeId ? t.tradeId._id : t.tradeId;
+      return String(tTradeId || '') === String(formData.trade_id);
+    };
+    const isGeneralTrade = (t: any) => !t.tradeId;
+    const destLower = String(formData.destination_country || '').trim().toLowerCase();
+
+    if (destLower && destLower !== 'not decided yet') {
+      const exactTradeCountry = feeTemplates.filter(
+        (t) => byTrade(t) && String(t.country || '').trim().toLowerCase() === destLower
+      );
+      if (exactTradeCountry.length > 0) return exactTradeCountry;
+
+      const anyTradeExactCountry = feeTemplates.filter(
+        (t) => isGeneralTrade(t) && String(t.country || '').trim().toLowerCase() === destLower
+      );
+      if (anyTradeExactCountry.length > 0) return anyTradeExactCountry;
+
+      const tradeAllCountry = feeTemplates.filter(
+        (t) => byTrade(t) && String(t.country || '').trim().toLowerCase() === 'all'
+      );
+      if (tradeAllCountry.length > 0) return tradeAllCountry;
+
+      return [];
+    }
+
+    // Course Only ("Not decided yet"): only match course-only / All-country packages for this trade
+    return feeTemplates.filter(
+      (t) => byTrade(t) && String(t.country || '').trim().toLowerCase() === 'all'
+    );
+  }, [feeTemplates, formData.trade_id, formData.destination_country]);
+
+  // Calculations (Accounts Fee Template or descriptive rate fallback)
+  const selectedFeeTemplate = useMemo(
+    () =>
+      matchedTemplates.find((t) => t._id === formData.fee_template_id) ||
+      (matchedTemplates.length === 1 ? matchedTemplates[0] : null),
+    [matchedTemplates, formData.fee_template_id]
   );
 
-  const remainingBalance = Math.max(0, totalPayable - Number(formData.paid_now || 0));
+  const grossPackageBdt = selectedFeeTemplate
+    ? Math.round((selectedFeeTemplate.totalAmountPaisa || 0) / 100)
+    : formData.destination_country === 'Not decided yet'
+    ? Math.max(0, Number(formData.admission_fee || 0) + Number(formData.course_fee || 0))
+    : 0;
 
-  // Live calculated installment schedule preview
-  const installmentPreview = calculateInstallments(
-    remainingBalance,
-    formData.installment_count,
-    formData.admission_date || new Date()
-  );
+  const totalPayable = Math.max(0, grossPackageBdt - Number(formData.discount || 0));
+
+  // Auto-sync fee_template_id whenever Trade or Destination Country changes
+  useEffect(() => {
+    if (manualTemplatePicked && matchedTemplates.some((t) => t._id === formData.fee_template_id)) {
+      return;
+    }
+    const nextId = matchedTemplates[0]?._id || '';
+    if (nextId !== formData.fee_template_id) {
+      setFormData((prev) => ({ ...prev, fee_template_id: nextId }));
+    }
+  }, [matchedTemplates, formData.fee_template_id, manualTemplatePicked]);
 
   // Unified File Upload Handler (Photo, Passport, NID/Birth Cert, Previous Passport/Visa)
   const handleFileUpload = async (
@@ -519,19 +579,7 @@ export function AdmissionForm() {
         throw new Error(data.message || 'Admission failed');
       }
 
-      setCreatedStudent(data.student);
-
-      if (data.receipt) {
-        // Fetch complete receipt details for print voucher
-        const receiptRes = await fetch(`/api/payments/${data.receipt.receipt_no}`);
-        const receiptData = await receiptRes.json();
-        if (receiptData.success) {
-          setSuccessReceipt(receiptData.receipt);
-        }
-      } else {
-        // If no payment was made, redirect directly to student profile
-        router.push(`/students/${data.student._id}`);
-      }
+      router.push(`/students/${data.student._id}`);
     } catch (err: any) {
       setErrorMsg(err.message);
       window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -595,7 +643,7 @@ export function AdmissionForm() {
         <span className="text-slate-300">→</span>
         <div className="flex items-center gap-2 text-emerald-600 shrink-0">
           <span className="w-5 h-5 rounded-full bg-emerald-100 text-emerald-700 flex items-center justify-center font-bold text-[11px]">5</span>
-          <span>5. Fee & First Receipt</span>
+          <span>5. Accounts Fee Package</span>
         </div>
       </div>
 
@@ -625,7 +673,14 @@ export function AdmissionForm() {
                   <select
                     required
                     value={formData.trade_id}
-                    onChange={(e) => setFormData({ ...formData, trade_id: e.target.value })}
+                    onChange={(e) => {
+                      setManualTemplatePicked(false);
+                      setFormData({
+                        ...formData,
+                        trade_id: e.target.value,
+                        destination_country: 'Not decided yet',
+                      });
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
                   >
                     {trades.map((t) => (
@@ -638,17 +693,20 @@ export function AdmissionForm() {
 
                 <div>
                   <label className="block text-xs font-semibold text-slate-700 uppercase mb-1">
-                    Destination Country & Visa Package *
+                    Destination Country *
                   </label>
                   <select
                     value={formData.destination_country}
-                    onChange={(e) => handleCountryChange(e.target.value)}
+                    onChange={(e) => {
+                      setManualTemplatePicked(false);
+                      handleCountryChange(e.target.value);
+                    }}
                     className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-500 font-semibold"
                   >
                     <option value="Not decided yet">Not decided yet (Course Only)</option>
-                    {availableCountryCosts.map((c) => (
-                      <option key={c._id} value={c.country}>
-                        {c.country} ({c.contract_years} yr contract - Visa: {formatBDT(c.total)})
+                    {card1CountryOptions.map((c) => (
+                      <option key={c.country} value={c.country}>
+                        {c.country} ({c.meta})
                       </option>
                     ))}
                   </select>
@@ -1490,190 +1548,141 @@ export function AdmissionForm() {
             </div>
           </div>
 
-          {/* Right Column: Dynamic Fee Preview & First Payment (Span 1) */}
+          {/* Right Column: Read-Only Accounts Fee Package Assignment (Span 1) */}
           <div className="space-y-6">
-            {/* CARD 6: LIVE FEE BREAKDOWN PREVIEW */}
+            {/* CARD 6: ACCOUNTS FEE PACKAGE & INSTALLMENT SCHEDULE */}
             <div className="bg-slate-900 text-white rounded-xl shadow-lg p-6 space-y-5 sticky top-20">
               <div className="flex items-center justify-between pb-3 border-b border-slate-800">
                 <div className="flex items-center gap-2">
                   <CreditCard className="w-5 h-5 text-blue-400" />
-                  <h3 className="font-semibold text-white text-base">6. Fee Breakdown & Ledger</h3>
+                  <h3 className="font-semibold text-white text-base">6. Accounts Fee Package</h3>
                 </div>
                 <span className="text-xs px-2 py-0.5 bg-blue-500/20 text-blue-300 rounded-full font-mono">
-                  Live Snapshot
+                  Owned by Accounts
                 </span>
               </div>
 
-              {/* Price Items Breakdown */}
-              <div className="space-y-2.5 text-sm">
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Admission Fee</span>
-                  <span className="font-medium font-mono text-white">
-                    {formatBDT(formData.admission_fee)}
-                  </span>
+              {/* Auto-Resolved Accounts Fee Package */}
+              {matchedTemplates.length > 1 ? (
+                <div>
+                  <label className="block text-xs text-slate-400 mb-1.5">
+                    Select Package Variant ({matchedTemplates.length} options for {formData.destination_country})
+                  </label>
+                  <select
+                    value={formData.fee_template_id}
+                    onChange={(e) => {
+                      setManualTemplatePicked(true);
+                      setFormData({ ...formData, fee_template_id: e.target.value });
+                    }}
+                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {matchedTemplates.map((tpl) => (
+                      <option key={tpl._id} value={tpl._id}>
+                        {tpl.code} — {tpl.name} ({formatBDT(Math.round((tpl.totalAmountPaisa || 0) / 100))})
+                      </option>
+                    ))}
+                  </select>
                 </div>
-
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Course Tuition Fee</span>
-                  <span className="font-medium font-mono text-white">
-                    {formatBDT(formData.course_fee)}
-                  </span>
+              ) : selectedFeeTemplate ? (
+                <div className="p-3 bg-slate-800/80 border border-slate-700 rounded-lg space-y-1">
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">
+                      Auto-Matched from Trade &amp; Country
+                    </span>
+                    <span className="text-[10px] font-mono text-slate-400">{selectedFeeTemplate.code}</span>
+                  </div>
+                  <p className="text-xs font-semibold text-white">{selectedFeeTemplate.name}</p>
                 </div>
-
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Visa Processing Cost</span>
-                  <span className="font-medium font-mono text-white">
-                    {formatBDT(formData.visa_cost)}
-                  </span>
+              ) : (
+                <div className="p-3 bg-amber-500/10 border border-amber-500/30 rounded-lg text-xs text-amber-200 leading-relaxed">
+                  No active Accounts Fee Template configured yet for{' '}
+                  <strong>{formData.trade_name || 'selected trade'}</strong> +{' '}
+                  <strong>{formData.destination_country}</strong>.
+                  {formData.destination_country === 'Not decided yet'
+                    ? ' Base trade rate will be used, or configure a template in Accounts → Fee Templates.'
+                    : ' Candidate will be admitted without a Fee Plan until assigned in Accounts → Student Fees.'}
                 </div>
+              )}
 
-                <div className="flex justify-between items-center text-slate-300">
-                  <span>Government Fee</span>
-                  <span className="font-medium font-mono text-white">
-                    {formatBDT(formData.govt_fee)}
-                  </span>
+              {/* Package Breakdown Preview */}
+              {selectedFeeTemplate ? (
+                <div className="bg-slate-950/60 p-3 rounded-lg border border-slate-800 space-y-2 text-xs">
+                  <p className="text-slate-400 text-[10px] uppercase font-bold">
+                    Stage Schedule ({selectedFeeTemplate.stages?.length || 0} stages)
+                  </p>
+                  {(selectedFeeTemplate.stages || []).map((st: any, i: number) => (
+                    <div key={i} className="flex justify-between text-slate-300">
+                      <span>
+                        {i + 1}. {st.label} (+{st.dueOffsetDays || 0}d)
+                      </span>
+                      <span className="font-mono text-white">
+                        {formatBDT(Math.round((st.amountPaisa || 0) / 100))}
+                      </span>
+                    </div>
+                  ))}
                 </div>
-
-                {/* Special Discount */}
-                <div className="pt-2 border-t border-slate-800">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="text-xs text-slate-400">Special Discount (BDT)</span>
-                    <input
-                      type="number"
-                      min={0}
-                      value={formData.discount}
-                      onChange={(e) =>
-                        setFormData({
-                          ...formData,
-                          discount: Math.max(0, Number(e.target.value)),
-                        })
-                      }
-                      className="w-28 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-right font-mono text-emerald-400 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
-                    />
+              ) : formData.destination_country === 'Not decided yet' ? (
+                <div className="space-y-2 text-xs text-slate-300">
+                  <div className="flex justify-between">
+                    <span>Admission Fee</span>
+                    <span className="font-mono">{formatBDT(formData.admission_fee)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Course Fee</span>
+                    <span className="font-mono">{formatBDT(formData.course_fee)}</span>
                   </div>
                 </div>
+              ) : null}
 
-                {/* Total Payable Summary */}
-                <div className="pt-3 border-t-2 border-slate-700 flex justify-between items-baseline">
-                  <span className="text-sm font-bold uppercase tracking-wider text-slate-300">
-                    Total Payable:
-                  </span>
-                  <span className="text-2xl font-black text-amber-400 font-mono">
-                    {formatBDT(totalPayable)}
-                  </span>
-                </div>
-              </div>
-
-              {/* FIRST PAYMENT INPUTS */}
-              <div className="pt-4 border-t border-slate-800 space-y-3">
-                <h4 className="text-xs font-bold uppercase tracking-wider text-blue-400">
-                  First Payment Recording
-                </h4>
-
-                <div>
-                  <label className="block text-xs text-slate-400 mb-1">Amount Paid Now (BDT) *</label>
+              {/* Optional Discount Request (Requires Admin Approval in Accounts) */}
+              <div className="pt-2 border-t border-slate-800 space-y-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-slate-400">Request Discount (BDT)</span>
                   <input
                     type="number"
                     min={0}
-                    max={totalPayable}
-                    value={formData.paid_now}
+                    max={grossPackageBdt}
+                    value={formData.discount}
                     onChange={(e) =>
                       setFormData({
                         ...formData,
-                        paid_now: Math.min(totalPayable, Math.max(0, Number(e.target.value))),
+                        discount: Math.min(grossPackageBdt, Math.max(0, Number(e.target.value))),
                       })
                     }
-                    className="w-full px-3 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white font-mono text-lg font-bold focus:outline-none focus:ring-2 focus:ring-blue-500 text-right"
+                    className="w-28 px-2 py-1 bg-slate-800 border border-slate-700 rounded text-right font-mono text-emerald-400 text-sm focus:outline-none focus:ring-1 focus:ring-emerald-500"
                   />
                 </div>
+                {Number(formData.discount || 0) > 0 && (
+                  <input
+                    type="text"
+                    value={formData.discount_reason}
+                    onChange={(e) => setFormData({ ...formData, discount_reason: e.target.value })}
+                    placeholder="Reason for discount (requires Admin approval in Accounts)"
+                    className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded text-xs text-white"
+                  />
+                )}
+              </div>
 
-                <div className="grid grid-cols-2 gap-2">
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">Method *</label>
-                    <select
-                      value={formData.payment_method}
-                      onChange={(e) =>
-                        setFormData({ ...formData, payment_method: e.target.value })
-                      }
-                      className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
-                      <option value="Cash">Cash</option>
-                      <option value="bKash">bKash</option>
-                      <option value="Nagad">Nagad</option>
-                      <option value="Rocket">Rocket</option>
-                      <option value="Bank transfer">Bank transfer</option>
-                      <option value="Cheque">Cheque</option>
-                      <option value="Card">Card</option>
-                    </select>
-                  </div>
-
-                  <div>
-                    <label className="block text-xs text-slate-400 mb-1">Reference / Trx ID</label>
-                    <input
-                      type="text"
-                      value={formData.payment_reference}
-                      onChange={(e) =>
-                        setFormData({ ...formData, payment_reference: e.target.value })
-                      }
-                      placeholder="Trx or cheque #"
-                      className="w-full px-2.5 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-xs text-white font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  </div>
+              {/* Gross Fee Summary */}
+              <div className="pt-3 border-t-2 border-slate-700 space-y-1">
+                <div className="flex justify-between items-baseline">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">
+                    Gross Fee Billed to Accounts:
+                  </span>
+                  <span className="text-2xl font-black text-amber-400 font-mono">
+                    {formatBDT(grossPackageBdt)}
+                  </span>
                 </div>
+                {Number(formData.discount || 0) > 0 && (
+                  <p className="text-[11px] text-emerald-300">
+                    Pending discount {formatBDT(formData.discount)} (Est. net after approval: {formatBDT(totalPayable)})
+                  </p>
+                )}
+              </div>
 
-                {/* Remaining & Installment schedule preview */}
-                <div className="pt-3 border-t border-slate-800 space-y-2">
-                  <div className="flex justify-between items-center text-xs">
-                    <span className="text-slate-400">Remaining Balance:</span>
-                    <span className="font-bold font-mono text-rose-400 text-sm">
-                      {formatBDT(remainingBalance)}
-                    </span>
-                  </div>
-
-                  {remainingBalance > 0 && (
-                    <>
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="text-slate-400">Installments:</span>
-                        <select
-                          value={formData.installment_count}
-                          onChange={(e) =>
-                            setFormData({
-                              ...formData,
-                              installment_count: Number(e.target.value),
-                            })
-                          }
-                          className="px-2 py-1 bg-slate-800 border border-slate-700 rounded text-xs text-white"
-                        >
-                          {[1, 2, 3, 4, 5, 6, 8, 10, 12].map((n) => (
-                            <option key={n} value={n}>
-                              {n} Monthly Installment{n > 1 ? 's' : ''}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-
-                      {/* Small schedule preview */}
-                      <div className="bg-slate-950/60 p-2.5 rounded-lg border border-slate-800 space-y-1.5 text-[11px] font-mono">
-                        <p className="text-slate-400 text-[10px] font-sans uppercase font-bold">
-                          Monthly Installment Schedule
-                        </p>
-                        {installmentPreview.slice(0, 4).map((inst) => (
-                          <div key={inst.number} className="flex justify-between text-slate-300">
-                            <span>
-                              Inst #{inst.number} ({inst.dueDate}):
-                            </span>
-                            <span className="font-bold text-white">{formatBDT(inst.amount)}</span>
-                          </div>
-                        ))}
-                        {installmentPreview.length > 4 && (
-                          <p className="text-[10px] text-slate-500 italic">
-                            + {installmentPreview.length - 4} more installments...
-                          </p>
-                        )}
-                      </div>
-                    </>
-                  )}
-                </div>
+              <div className="p-3 bg-blue-500/10 border border-blue-500/30 rounded-lg text-[11px] text-blue-200 leading-relaxed">
+                Confirming admission posts the fee plan to <strong>Accounts Receivable (1210)</strong>. Collect fees and print official money receipts from <strong>Accounts → Money Receipts</strong>.
+              </div>
 
                 {/* Submit Admission Button */}
                 <button
@@ -1687,24 +1696,7 @@ export function AdmissionForm() {
               </div>
             </div>
           </div>
-        </div>
       </form>
-
-      {/* SUCCESS MODAL WITH PRINTABLE MONEY RECEIPT */}
-      {successReceipt && (
-        <Modal
-          isOpen={true}
-          onClose={() => router.push(`/students/${createdStudent?._id}`)}
-          title="Admission Confirmed & First Money Receipt"
-          description={`Student ID: ${createdStudent?.student_no} admitted successfully.`}
-          maxWidth="4xl"
-        >
-          <MoneyReceipt
-            receipt={successReceipt}
-            onClose={() => router.push(`/students/${createdStudent?._id}`)}
-          />
-        </Modal>
-      )}
 
       {/* QUICK CREATE BATCH MODAL */}
       <Modal

@@ -81,13 +81,8 @@ export function PayrollRunsView() {
   const [previewLoading, setPreviewLoading] = useState(false);
   const [genError, setGenError] = useState('');
 
-  // Confirm / Pay / Reverse Modals
-  const [confirmModalAction, setConfirmModalAction] = useState<'confirm' | 'pay' | 'reverse' | null>(null);
-  const [payForm, setPayForm] = useState({
-    payment_method: 'Bank',
-    payment_date: now.toISOString().split('T')[0],
-    payment_reference: '',
-  });
+  // Confirm / Reverse Modals
+  const [confirmModalAction, setConfirmModalAction] = useState<'confirm' | 'reverse' | null>(null);
   const [reverseReason, setReverseReason] = useState('');
   const [modalError, setModalError] = useState('');
 
@@ -220,7 +215,6 @@ export function PayrollRunsView() {
       }
       setConfirmModalAction(null);
       setReverseReason('');
-      setPayForm((p) => ({ ...p, payment_reference: '' }));
       setBanner({ type: 'ok', msg: json.message });
       await loadRuns(activeRunData.batch._id);
     } catch (err: any) {
@@ -340,51 +334,78 @@ export function PayrollRunsView() {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-5">
-          {/* Run Selector Sidebar */}
-          <div className="lg:col-span-3 space-y-2.5">
-            <h3 className="text-xs font-bold text-slate-500 uppercase tracking-wider px-1">
-              All Payroll Runs ({runs.length})
-            </h3>
-            <div className="space-y-2 max-h-[680px] overflow-y-auto pr-1">
-              {runs.map((r) => {
-                const isSelected = r._id === selectedRunId;
-                return (
-                  <button
-                    key={r._id}
-                    type="button"
-                    onClick={() => {
-                      setSelectedRunId(r._id);
-                      loadRunDetail(r._id);
-                    }}
-                    className={`w-full text-left p-3.5 rounded-xl border transition-all ${
-                      isSelected
-                        ? 'bg-slate-900 text-white border-slate-900 shadow-sm'
-                        : 'bg-white text-slate-800 border-slate-200 hover:border-slate-300'
-                    }`}
-                  >
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-mono text-[11px] font-bold opacity-85">
+        <div className="space-y-5">
+          {/* Clean Full-Width Run Selector & Next-Step Bar */}
+          <div className="bg-white border border-slate-200 rounded-xl px-4 py-3 shadow-2xs flex flex-col md:flex-row md:items-center justify-between gap-3">
+            <div className="flex flex-wrap items-center gap-2.5 flex-1">
+              <span className="text-[11px] font-bold text-slate-500 uppercase tracking-wider shrink-0">
+                Payroll Run ({runs.length}):
+              </span>
+              <select
+                value={selectedRunId}
+                onChange={(e) => {
+                  const nextId = e.target.value;
+                  setSelectedRunId(nextId);
+                  loadRunDetail(nextId);
+                }}
+                className="min-w-[260px] max-w-md px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-300 rounded-lg text-slate-900"
+              >
+                {runs.map((r) => (
+                  <option key={r._id} value={r._id}>
+                    {r.batch_code} — {r.name} ({r.status} · {r.payslip_count} emp · {formatBDT(r.total_net_pay)})
+                  </option>
+                ))}
+              </select>
+
+              {runs.length > 1 && (
+                <div className="hidden xl:flex items-center gap-1.5">
+                  {runs.slice(0, 3).map((r) => {
+                    const active = r._id === selectedRunId;
+                    return (
+                      <button
+                        key={r._id}
+                        type="button"
+                        onClick={() => {
+                          setSelectedRunId(r._id);
+                          loadRunDetail(r._id);
+                        }}
+                        className={`px-2.5 py-1 rounded-md text-[11px] font-semibold transition-colors ${
+                          active
+                            ? 'bg-slate-900 text-white'
+                            : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                        }`}
+                      >
                         {r.batch_code}
-                      </span>
-                      {getStatusBadge(r.status)}
-                    </div>
-                    <p className="text-sm font-bold mt-1 truncate">{r.name}</p>
-                    <div className="flex items-center justify-between text-[11px] mt-2 opacity-80">
-                      <span>{r.payslip_count} emp • {r.branch || 'Main'}</span>
-                      <span className="font-mono font-semibold">{formatBDT(r.total_net_pay)}</span>
-                    </div>
-                  </button>
-                );
-              })}
+                      </button>
+                    );
+                  })}
+                </div>
+              )}
             </div>
+
+            {run && (
+              <div className="text-[11px] text-slate-500 flex items-center gap-1.5 shrink-0">
+                <span className="font-semibold text-slate-700">Next Step:</span>
+                <span>
+                  {run.status === 'Draft'
+                    ? 'Review anomalies or Recalculate, then Verify Run.'
+                    : run.status === 'Verified'
+                      ? 'Admin confirms & locks run before payment.'
+                      : run.status === 'Confirmed'
+                        ? 'Download Bank Sheet & Mark as Paid.'
+                        : run.status === 'Paid'
+                          ? 'Disbursement completed.'
+                          : 'Reversed audit record.'}
+                </span>
+              </div>
+            )}
           </div>
 
-          {/* Active Run Workspace */}
+          {/* Full-Width Active Run Workspace */}
           {run && (
-            <div className="lg:col-span-9 space-y-5">
-              {/* Top Stepper & Action Bar */}
-              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs space-y-4">
+            <div className="space-y-4">
+              {/* Calm Header + Connected Progress Stepper */}
+              <div className="bg-white rounded-xl border border-slate-200 p-5 shadow-2xs space-y-4">
                 <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
                     <div className="flex items-center gap-2 flex-wrap">
@@ -392,15 +413,6 @@ export function PayrollRunsView() {
                         {run.batch_code}
                       </span>
                       {getStatusBadge(run.status)}
-                      <span className="text-[11px] font-medium text-slate-500">
-                        Branch: {run.branch || 'Main'} • Basis:{' '}
-                        {run.days_basis === 'fixed_30' || run.days_basis === '30'
-                          ? 'Fixed 30 days'
-                          : run.days_basis === 'working_days'
-                            ? `Working ${run.settings_snapshot?.working_days_per_month || 26} days`
-                            : 'Calendar days'}{' '}
-                        • OT: {run.overtime_multiplier || 2}x
-                      </span>
                       <Link
                         href={`/payroll/settings?version=${run.settings_version || 1}`}
                         className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
@@ -409,7 +421,16 @@ export function PayrollRunsView() {
                         Settings v{run.settings_version || 1} ↗
                       </Link>
                     </div>
-                    <h2 className="text-lg font-bold text-slate-900 mt-1">{run.name}</h2>
+                    <h2 className="text-lg font-bold text-slate-900 mt-1.5">{run.name}</h2>
+                    <p className="text-xs text-slate-500 mt-0.5">
+                      Branch: {run.branch || 'Main'} · Days:{' '}
+                      {run.days_basis === 'fixed_30' || run.days_basis === '30'
+                        ? 'Fixed 30'
+                        : run.days_basis === 'working_days'
+                          ? `Working ${run.settings_snapshot?.working_days_per_month || 26}`
+                          : 'Calendar'}{' '}
+                      · OT {run.overtime_multiplier || 2}x
+                    </p>
                   </div>
 
                   {/* Status-Driven Role Actions */}
@@ -420,7 +441,7 @@ export function PayrollRunsView() {
                           type="button"
                           disabled={busyAction}
                           onClick={() => executeRunAction('recalculate')}
-                          className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg disabled:opacity-50"
                         >
                           <RefreshCw className={`w-3.5 h-3.5 ${busyAction ? 'animate-spin' : ''}`} />
                           Recalculate All
@@ -429,7 +450,7 @@ export function PayrollRunsView() {
                           type="button"
                           disabled={busyAction}
                           onClick={() => executeRunAction('verify')}
-                          className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg disabled:opacity-50"
+                          className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-purple-600 hover:bg-purple-700 rounded-lg shadow-xs disabled:opacity-50"
                         >
                           <ShieldCheck className="w-3.5 h-3.5" />
                           Verify Run
@@ -445,7 +466,7 @@ export function PayrollRunsView() {
                           setModalError('');
                           setConfirmModalAction('confirm');
                         }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs disabled:opacity-50"
                       >
                         <CheckCircle2 className="w-3.5 h-3.5" />
                         Confirm Run (Lock)
@@ -456,34 +477,29 @@ export function PayrollRunsView() {
                       <>
                         <a
                           href={`/api/payroll/batches/${run._id}?export=bank_csv`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+                          className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
                         >
                           <Download className="w-3.5 h-3.5" />
-                          Bank Sheet CSV
+                          Bank CSV
                         </a>
                         <a
                           href={`/api/payroll/batches/${run._id}?export=bank_xlsx`}
-                          className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg"
+                          className="inline-flex items-center gap-1 px-3 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg"
                         >
                           <FileSpreadsheet className="w-3.5 h-3.5" />
-                          Bank Sheet Excel
+                          Bank Excel
                         </a>
                       </>
                     )}
 
-                    {run.status === 'Confirmed' && canPay && (
-                      <button
-                        type="button"
-                        disabled={busyAction}
-                        onClick={() => {
-                          setModalError('');
-                          setConfirmModalAction('pay');
-                        }}
-                        className="inline-flex items-center gap-1.5 px-3.5 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+                    {run.status === 'Confirmed' && (
+                      <Link
+                        href="/accounts/payroll"
+                        className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs"
                       >
                         <Banknote className="w-3.5 h-3.5" />
-                        Mark as Paid
-                      </button>
+                        {canPay ? 'Disburse in Accounts →' : 'Awaiting Accounts Disbursement'}
+                      </Link>
                     )}
 
                     {run.status === 'Confirmed' && canConfirmOrReverse && (
@@ -494,241 +510,294 @@ export function PayrollRunsView() {
                           setModalError('');
                           setConfirmModalAction('reverse');
                         }}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-lg disabled:opacity-50"
+                        className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-rose-700 bg-rose-50 border border-rose-200 hover:bg-rose-100 rounded-lg disabled:opacity-50"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        Reverse Run
+                        Reverse
                       </button>
                     )}
                   </div>
                 </div>
 
-                {/* Status Stepper */}
+                {/* Clean Connected Progress Stepper */}
                 {run.status === 'Reversed' || run.status === 'Cancelled' ? (
                   <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-xs text-rose-800 flex items-center gap-2">
                     <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
                     <span>
                       <strong>{run.is_reversal ? 'Reversal Record' : `Run ${run.status}`}:</strong>{' '}
-                      {run.reversal_reason || 'This payroll run has been reversed cleanly with full audit history.'}{' '}
+                      {run.reversal_reason || 'This payroll run has been reversed with full audit history.'}{' '}
                       {run.reversed_at ? `(${formatDateDMY(run.reversed_at)} by ${run.reversed_by})` : ''}
                     </span>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-4 gap-2 pt-1">
+                  <div className="flex items-center justify-between gap-2 pt-3 border-t border-slate-100 overflow-x-auto">
                     {RUN_STEPS.map((step, idx) => {
                       const done = currentStepIdx >= idx;
                       const current = currentStepIdx === idx;
                       return (
-                        <div
-                          key={step}
-                          className={`px-3 py-2 rounded-lg border text-xs flex items-center justify-between ${
-                            current
-                              ? 'bg-slate-900 text-white border-slate-900 font-bold'
-                              : done
-                                ? 'bg-emerald-50 text-emerald-800 border-emerald-200 font-semibold'
-                                : 'bg-slate-50 text-slate-400 border-slate-200'
-                          }`}
-                        >
-                          <span>
-                            {idx + 1}. {step}
-                          </span>
-                          {done && <CheckCircle2 className="w-3.5 h-3.5 shrink-0" />}
-                        </div>
+                        <React.Fragment key={step}>
+                          <div className="flex items-center gap-2 shrink-0">
+                            <span
+                              className={`w-6 h-6 rounded-full text-[11px] font-bold flex items-center justify-center ${
+                                current
+                                  ? 'bg-slate-900 text-white'
+                                  : done
+                                    ? 'bg-emerald-600 text-white'
+                                    : 'bg-slate-100 text-slate-400 border border-slate-200'
+                              }`}
+                            >
+                              {done && !current ? '✓' : idx + 1}
+                            </span>
+                            <span
+                              className={`text-xs ${
+                                current
+                                  ? 'font-bold text-slate-900'
+                                  : done
+                                    ? 'font-semibold text-emerald-700'
+                                    : 'text-slate-400'
+                              }`}
+                            >
+                              {step}
+                            </span>
+                          </div>
+                          {idx < RUN_STEPS.length - 1 && (
+                            <div
+                              className={`flex-1 h-0.5 min-w-[20px] rounded ${
+                                currentStepIdx > idx ? 'bg-emerald-500' : 'bg-slate-200'
+                              }`}
+                            />
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   </div>
                 )}
 
                 {(run.status === 'Confirmed' || run.status === 'Paid') && (
-                  <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap pt-1 border-t border-slate-100">
+                  <div className="text-[11px] text-slate-500 flex items-center gap-2 flex-wrap pt-2 border-t border-slate-100">
                     <Lock className="w-3.5 h-3.5 text-slate-400" />
                     <span>
-                      Payslips in this run are locked. Confirmed on {formatDateDMY(run.confirmed_at)} by {run.confirmed_by || 'Admin'}.
+                      Payslips locked on {formatDateDMY(run.confirmed_at)} by {run.confirmed_by || 'Admin'}.
                     </span>
                     {run.status === 'Paid' && (
                       <span className="font-semibold text-emerald-700">
-                        • Paid via {run.payment_method} on {formatDateDMY(run.payment_date)} (Ref: {run.payment_reference})
+                        · Paid via {run.payment_method} on {formatDateDMY(run.payment_date)} (Ref: {run.payment_reference})
+                      </span>
+                    )}
+                    {Array.isArray(activeRunData?.accountsVouchers) && activeRunData.accountsVouchers.length > 0 && (
+                      <span className="inline-flex items-center gap-1 ml-1">
+                        · Accounts Vouchers:
+                        {activeRunData.accountsVouchers.map((je: any) => (
+                          <span
+                            key={je._id}
+                            className="font-mono px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 font-semibold"
+                          >
+                            {je.voucherNo}
+                          </span>
+                        ))}
                       </span>
                     )}
                   </div>
                 )}
               </div>
 
-              {/* Summary Cards with Last-Month % Change */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1">
+              {/* Clean Summary KPI Cards */}
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold text-slate-500 uppercase">Employees</span>
                   <p className="text-2xl font-bold text-slate-900">{run.payslip_count}</p>
-                  <DeltaBadge pct={deltas?.countPct} />
+                  {deltas?.countPct !== null && deltas?.countPct !== undefined && (
+                    <DeltaBadge pct={deltas.countPct} />
+                  )}
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-1">
+                <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold text-slate-500 uppercase">Gross Total</span>
                   <p className="text-2xl font-bold text-slate-900 font-mono">{formatBDT(run.total_gross_pay)}</p>
-                  <DeltaBadge pct={deltas?.grossPct} />
+                  {deltas?.grossPct !== null && deltas?.grossPct !== undefined && (
+                    <DeltaBadge pct={deltas.grossPct} />
+                  )}
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-rose-200 shadow-xs space-y-1">
+                <div className="bg-white p-4 rounded-xl border border-rose-200/80 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold text-rose-700 uppercase">Total Deductions</span>
                   <p className="text-2xl font-bold text-rose-700 font-mono">{formatBDT(run.total_deductions)}</p>
-                  <DeltaBadge pct={deltas?.deductionsPct} />
+                  {deltas?.deductionsPct !== null && deltas?.deductionsPct !== undefined && (
+                    <DeltaBadge pct={deltas.deductionsPct} />
+                  )}
                 </div>
-                <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs space-y-1">
+                <div className="bg-emerald-50/40 p-4 rounded-xl border border-emerald-200 shadow-2xs space-y-1">
                   <span className="text-[11px] font-semibold text-emerald-800 uppercase">Net Payable</span>
                   <p className="text-2xl font-bold text-emerald-800 font-mono">{formatBDT(run.total_net_pay)}</p>
-                  <DeltaBadge pct={deltas?.netPct} />
+                  {deltas?.netPct !== null && deltas?.netPct !== undefined && (
+                    <DeltaBadge pct={deltas.netPct} />
+                  )}
                 </div>
               </div>
 
-              {/* Generation Result Summary: Skipped Employees + Warnings Panel */}
-              <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
-                {/* Warnings Panel */}
-                <div className="bg-white rounded-xl border border-amber-200 shadow-xs overflow-hidden">
-                  <div className="px-4 py-3 bg-amber-50/70 border-b border-amber-200 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <AlertTriangle className="w-4 h-4 text-amber-600" />
-                      <h3 className="text-xs font-bold text-amber-900 uppercase">
-                        Warnings &amp; Anomaly Review ({warnings.length})
-                      </h3>
-                    </div>
-                  </div>
-                  <div className="p-4 max-h-60 overflow-y-auto space-y-2 text-xs">
-                    {warnings.length === 0 ? (
-                      <p className="text-slate-400 italic">No payroll anomalies flagged for this run.</p>
-                    ) : (
-                      warnings.map((w: any, i: number) => (
-                        <div
-                          key={i}
-                          className={`p-2.5 rounded-lg border ${
-                            w.severity === 'critical'
-                              ? 'bg-rose-50 border-rose-200 text-rose-800'
-                              : 'bg-amber-50/60 border-amber-200 text-amber-900'
-                          }`}
-                        >
-                          <div className="font-bold">
-                            {w.name} ({w.employee_code})
-                          </div>
-                          <p className="text-[11px] mt-0.5">{w.message}</p>
-                        </div>
-                      ))
-                    )}
-                  </div>
+              {/* Clean Health Strip when clean, or Expand Details only when Warnings/Skipped exist */}
+              {warnings.length === 0 && skipped.length === 0 ? (
+                <div className="px-4 py-2.5 rounded-xl bg-emerald-50/70 border border-emerald-200 text-xs text-emerald-800 flex items-center gap-2">
+                  <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                  <span>
+                    All <strong>{run.payslip_count}</strong> eligible active employees included · <strong>0</strong> anomalies or warnings flagged.
+                  </span>
                 </div>
-
-                {/* Skipped Employees Panel */}
-                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                  <div className="px-4 py-3 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <Users className="w-4 h-4 text-slate-600" />
-                      <h3 className="text-xs font-bold text-slate-700 uppercase">
-                        Run Summary: {run.payslip_count} Created, {skipped.length} Skipped
-                      </h3>
-                    </div>
-                    {skipped.length > 0 && (
-                      <a
-                        href={`/api/payroll/batches/${run._id}?export=skipped_csv`}
-                        className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:underline"
-                      >
-                        <Download className="w-3 h-3" /> Download CSV
-                      </a>
-                    )}
-                  </div>
-                  <div className="p-4 max-h-60 overflow-y-auto text-xs">
-                    {skipped.length === 0 ? (
-                      <p className="text-slate-400 italic">All active employees were included in this run.</p>
-                    ) : (
-                      <ul className="divide-y divide-slate-100">
-                        {skipped.map((sk: any, i: number) => (
-                          <li key={i} className="py-2 flex items-center justify-between gap-3">
-                            <div>
-                              <span className="font-semibold text-slate-800">{sk.name}</span>{' '}
-                              <span className="font-mono text-[11px] text-slate-400">({sk.employee_code})</span>
+              ) : (
+                <div
+                  className={`grid grid-cols-1 ${
+                    warnings.length > 0 && skipped.length > 0 ? 'xl:grid-cols-2' : ''
+                  } gap-4`}
+                >
+                  {warnings.length > 0 && (
+                    <div className="bg-white rounded-xl border border-amber-200 shadow-2xs overflow-hidden">
+                      <div className="px-4 py-2.5 bg-amber-50/70 border-b border-amber-200 flex items-center gap-2">
+                        <AlertTriangle className="w-4 h-4 text-amber-600" />
+                        <h3 className="text-xs font-bold text-amber-900 uppercase">
+                          Warnings &amp; Anomaly Review ({warnings.length})
+                        </h3>
+                      </div>
+                      <div className="p-3.5 max-h-56 overflow-y-auto space-y-2 text-xs">
+                        {warnings.map((w: any, i: number) => (
+                          <div
+                            key={i}
+                            className={`p-2.5 rounded-lg border ${
+                              w.severity === 'critical'
+                                ? 'bg-rose-50 border-rose-200 text-rose-800'
+                                : 'bg-amber-50/60 border-amber-200 text-amber-900'
+                            }`}
+                          >
+                            <div className="font-bold">
+                              {w.name} ({w.employee_code})
                             </div>
-                            <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
-                              {sk.reason}
-                            </span>
-                          </li>
+                            <p className="text-[11px] mt-0.5">{w.message}</p>
+                          </div>
                         ))}
-                      </ul>
-                    )}
-                  </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {skipped.length > 0 && (
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                      <div className="px-4 py-2.5 bg-slate-50 border-b border-slate-200 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <Users className="w-4 h-4 text-slate-600" />
+                          <h3 className="text-xs font-bold text-slate-700 uppercase">
+                            Skipped Employees ({skipped.length})
+                          </h3>
+                        </div>
+                        <a
+                          href={`/api/payroll/batches/${run._id}?export=skipped_csv`}
+                          className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:underline"
+                        >
+                          <Download className="w-3 h-3" /> Download CSV
+                        </a>
+                      </div>
+                      <div className="p-3.5 max-h-56 overflow-y-auto text-xs">
+                        <ul className="divide-y divide-slate-100">
+                          {skipped.map((sk: any, i: number) => (
+                            <li key={i} className="py-2 flex items-center justify-between gap-3">
+                              <div>
+                                <span className="font-semibold text-slate-800">{sk.name}</span>{' '}
+                                <span className="font-mono text-[11px] text-slate-400">
+                                  ({sk.employee_code})
+                                </span>
+                              </div>
+                              <span className="text-[11px] px-2 py-0.5 rounded bg-slate-100 text-slate-700">
+                                {sk.reason}
+                              </span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  )}
                 </div>
-              </div>
+              )}
 
               {/* Run Payslips Table */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-                <div className="px-5 py-3.5 border-b border-slate-200 flex items-center justify-between">
+              <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
+                <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
                   <h3 className="text-sm font-bold text-slate-900">
                     Payslips in {run.batch_code} ({runPayslips.length})
                   </h3>
                   <Link
-                    href={`/payroll/payslips`}
+                    href={`/payroll/payslips?month=${run.month}&year=${run.year}`}
                     className="text-xs font-semibold text-blue-700 hover:underline"
                   >
                     Open Full Payslips Desk →
                   </Link>
                 </div>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
-                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                      <tr>
-                        <th className="px-4 py-3">Payslip</th>
-                        <th className="px-4 py-3">Employee</th>
-                        <th className="px-4 py-3">Days / OT</th>
-                        <th className="px-4 py-3 text-right">Gross</th>
-                        <th className="px-4 py-3 text-right">Deductions</th>
-                        <th className="px-4 py-3 text-right">Net Pay</th>
-                        <th className="px-4 py-3">Method</th>
-                        <th className="px-4 py-3 text-center">Status</th>
-                        <th className="px-4 py-3 text-right">PDF</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-slate-100">
-                      {runPayslips.map((p: any) => (
-                        <tr key={p._id} className="hover:bg-slate-50/70">
-                          <td className="px-4 py-3 font-mono font-bold text-slate-900 whitespace-nowrap">
-                            {p.payslip_no}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap">
-                            <span className="font-semibold text-slate-900 block">
-                              {p.employee_id?.firstName} {p.employee_id?.lastName}
-                            </span>
-                            <span className="text-[11px] text-slate-400">
-                              {p.employee_id?.employee_id} • {p.employee_id?.department}
-                            </span>
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                            <span>
-                              {p.prorated_days || p.days_in_month}/{p.days_in_month}d
-                            </span>
-                            {p.inputs_snapshot?.overtime_hours > 0 && (
-                              <span className="ml-1.5 text-emerald-700 font-semibold">
-                                • {p.inputs_snapshot.overtime_hours}h OT
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono">{formatBDT(p.gross_pay)}</td>
-                          <td className="px-4 py-3 text-right font-mono text-rose-700">
-                            {formatBDT(p.total_deductions)}
-                          </td>
-                          <td className="px-4 py-3 text-right font-mono font-bold text-emerald-800">
-                            {formatBDT(p.net_pay)}
-                          </td>
-                          <td className="px-4 py-3 whitespace-nowrap text-slate-600">
-                            {p.payment_method || p.employee_id?.payment_method || 'Bank'}
-                          </td>
-                          <td className="px-4 py-3 text-center">{getStatusBadge(p.status)}</td>
-                          <td className="px-4 py-3 text-right">
-                            <Link
-                              href={`/payroll/payslips/${p._id}`}
-                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50"
-                            >
-                              <Eye className="w-3 h-3" /> View
-                            </Link>
-                          </td>
+
+                {runPayslips.length === 0 ? (
+                  <div className="p-8 text-center text-xs text-slate-500 space-y-2">
+                    <p>No payslips are linked to this run yet.</p>
+                    <Link
+                      href="/payroll/payslips"
+                      className="inline-flex items-center gap-1 font-semibold text-blue-700 hover:underline"
+                    >
+                      View all payslips in Payslips Desk →
+                    </Link>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs">
+                      <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                        <tr>
+                          <th className="px-4 py-2.5">Payslip</th>
+                          <th className="px-4 py-2.5">Employee</th>
+                          <th className="px-4 py-2.5">Days / OT</th>
+                          <th className="px-4 py-2.5 text-right">Gross</th>
+                          <th className="px-4 py-2.5 text-right">Deductions</th>
+                          <th className="px-4 py-2.5 text-right">Net Pay</th>
+                          <th className="px-4 py-2.5 text-center">Status</th>
+                          <th className="px-4 py-2.5 text-right">View</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {runPayslips.map((p: any) => (
+                          <tr key={p._id} className="hover:bg-slate-50/70">
+                            <td className="px-4 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
+                              {p.payslip_no}
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap">
+                              <span className="font-semibold text-slate-900 block">
+                                {p.employee_id?.firstName} {p.employee_id?.lastName}
+                              </span>
+                              <span className="text-[11px] text-slate-400">
+                                {p.employee_id?.employee_id} · {p.employee_id?.department}
+                              </span>
+                            </td>
+                            <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
+                              <span>
+                                {p.prorated_days || p.days_in_month}/{p.days_in_month}d
+                              </span>
+                              {p.inputs_snapshot?.overtime_hours > 0 && (
+                                <span className="ml-1.5 text-emerald-700 font-semibold">
+                                  · {p.inputs_snapshot.overtime_hours}h OT
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono">{formatBDT(p.gross_pay)}</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-rose-700">
+                              {formatBDT(p.total_deductions)}
+                            </td>
+                            <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-800">
+                              {formatBDT(p.net_pay)}
+                            </td>
+                            <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                            <td className="px-4 py-2.5 text-right">
+                              <Link
+                                href={`/payroll/payslips/${p._id}`}
+                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50"
+                              >
+                                <Eye className="w-3 h-3" /> PDF
+                              </Link>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -887,16 +956,14 @@ export function PayrollRunsView() {
         </form>
       </Modal>
 
-      {/* Confirm / Mark Paid / Reverse Confirmation Modal */}
+      {/* Confirm / Reverse Confirmation Modal */}
       <Modal
         isOpen={Boolean(confirmModalAction && run)}
         onClose={() => setConfirmModalAction(null)}
         title={
           confirmModalAction === 'confirm'
             ? 'Confirm Payroll Run'
-            : confirmModalAction === 'pay'
-              ? 'Mark Payroll Run as Paid'
-              : 'Reverse Confirmed Payroll Run'
+            : 'Reverse Confirmed Payroll Run'
         }
         maxWidth="md"
       >
@@ -931,55 +998,14 @@ export function PayrollRunsView() {
 
             {confirmModalAction === 'confirm' && (
               <p className="text-slate-600">
-                Confirming locks all {run.payslip_count} payslips and monthly inputs for {MONTHS[run.month - 1]} {run.year}. Confirmed payslips cannot be edited.
+                Confirming locks all {run.payslip_count} payslips and posts a Journal Voucher (Salary Expense 5210 Dr / Salary Payable 2110 Cr) in Accounts. Disbursement happens in Accounts → Salary Disbursement.
               </p>
-            )}
-
-            {confirmModalAction === 'pay' && (
-              <div className="space-y-3">
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Payment Method *</label>
-                  <select
-                    value={payForm.payment_method}
-                    onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                  >
-                    <option value="Bank">Bank Transfer</option>
-                    <option value="bKash">bKash</option>
-                    <option value="Nagad">Nagad</option>
-                    <option value="Cash">Cash</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">Payment Date *</label>
-                  <input
-                    type="date"
-                    required
-                    value={payForm.payment_date}
-                    onChange={(e) => setPayForm({ ...payForm, payment_date: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                  />
-                </div>
-                <div>
-                  <label className="block font-semibold text-slate-700 mb-1">
-                    Disbursement Reference / Advice No. *
-                  </label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. BEFTN-2026-11-0094"
-                    value={payForm.payment_reference}
-                    onChange={(e) => setPayForm({ ...payForm, payment_reference: e.target.value })}
-                    className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-                  />
-                </div>
-              </div>
             )}
 
             {confirmModalAction === 'reverse' && (
               <div className="space-y-2">
                 <p className="text-rose-700 font-medium">
-                  Reversal never deletes confirmed payslips. It marks the run Reversed and creates a full negative mirror reversal record for audit compliance.
+                  Reversal never deletes confirmed payslips. It marks the run Reversed, creates a mirror reversal record, and reverses the Accounts Salary Payable accrual voucher.
                 </p>
                 <label className="block font-semibold text-slate-700">Mandatory Reversal Reason *</label>
                 <textarea
@@ -1004,31 +1030,24 @@ export function PayrollRunsView() {
               <button
                 type="button"
                 disabled={
-                  busyAction ||
-                  (confirmModalAction === 'pay' && !payForm.payment_reference.trim()) ||
-                  (confirmModalAction === 'reverse' && reverseReason.trim().length < 3)
+                  busyAction || (confirmModalAction === 'reverse' && reverseReason.trim().length < 3)
                 }
                 onClick={() => {
                   if (confirmModalAction === 'confirm') executeRunAction('confirm');
-                  else if (confirmModalAction === 'pay') executeRunAction('pay', payForm);
                   else if (confirmModalAction === 'reverse')
                     executeRunAction('reverse', { reason: reverseReason.trim() });
                 }}
                 className={`px-4 py-2 text-xs font-semibold text-white rounded-lg disabled:opacity-50 ${
                   confirmModalAction === 'reverse'
                     ? 'bg-rose-600 hover:bg-rose-700'
-                    : confirmModalAction === 'pay'
-                      ? 'bg-emerald-600 hover:bg-emerald-700'
-                      : 'bg-blue-600 hover:bg-blue-700'
+                    : 'bg-blue-600 hover:bg-blue-700'
                 }`}
               >
                 {busyAction
                   ? 'Processing...'
                   : confirmModalAction === 'confirm'
-                    ? 'Confirm & Lock Run'
-                    : confirmModalAction === 'pay'
-                      ? 'Confirm Payment'
-                      : 'Reverse Run'}
+                    ? 'Confirm & Post Accrual'
+                    : 'Reverse Run'}
               </button>
             </div>
           </div>

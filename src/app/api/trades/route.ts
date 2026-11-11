@@ -43,9 +43,9 @@ export async function POST(req: NextRequest) {
   try {
     const { name, course_days, admission_fee, course_fee, active } = await req.json();
 
-    if (!name || course_days === undefined || admission_fee === undefined || course_fee === undefined) {
+    if (!name || course_days === undefined) {
       return NextResponse.json(
-        { success: false, message: 'Missing required trade fields' },
+        { success: false, message: 'Trade name and course_days are required' },
         { status: 400 }
       );
     }
@@ -63,8 +63,8 @@ export async function POST(req: NextRequest) {
     const trade = await Trade.create({
       name: name.trim(),
       course_days: Number(course_days),
-      admission_fee: Math.round(Number(admission_fee)),
-      course_fee: Math.round(Number(course_fee)),
+      admission_fee: Math.max(0, Math.round(Number(admission_fee || 0))),
+      course_fee: Math.max(0, Math.round(Number(course_fee || 0))),
       active: active !== undefined ? Boolean(active) : true,
     });
 

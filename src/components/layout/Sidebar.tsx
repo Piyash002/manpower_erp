@@ -20,6 +20,14 @@ import {
   UserCheck,
   Clock,
   Receipt,
+  BookOpen,
+  FileSpreadsheet,
+  BookMarked,
+  Lock,
+  Scale,
+  Layers,
+  Wallet,
+  ClockAlert,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -88,19 +96,13 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
-          title: 'Installment Collection',
-          href: '/installments',
-          icon: Banknote,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-        },
-        {
           title: 'Batches & Assessment',
           href: '/batches',
           icon: GraduationCap,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
-          title: 'Trades & Country Costs',
+          title: 'Trades & Countries',
           href: '/trades',
           icon: Globe2,
           allowed: ['Admin'],
@@ -139,6 +141,71 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           href: '/audit-logs',
           icon: FileText,
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+        },
+      ],
+    },
+    {
+      heading: 'Accounts',
+      items: [
+        {
+          title: 'Fee Templates',
+          href: '/accounts/fee-templates',
+          icon: Layers,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Student Fees',
+          href: '/accounts/student-fees',
+          icon: Users2,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Money Receipts',
+          href: '/accounts/receipts',
+          icon: Banknote,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Due & Aging',
+          href: '/accounts/dues',
+          icon: ClockAlert,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Salary Disbursement',
+          href: '/accounts/payroll',
+          icon: Wallet,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Chart of Accounts',
+          href: '/accounts/coa',
+          icon: BookOpen,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Journal Vouchers',
+          href: '/accounts/vouchers',
+          icon: FileSpreadsheet,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'General Ledger',
+          href: '/accounts/ledger',
+          icon: BookMarked,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Opening Balances',
+          href: '/accounts/opening-balances',
+          icon: Scale,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Periods & Fiscal Year',
+          href: '/accounts/periods',
+          icon: Lock,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
         },
       ],
     },

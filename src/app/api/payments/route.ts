@@ -1,160 +1,69 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, createAuditLog } from '@/lib/auth';
+import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
-import { Payment } from '@/models/Payment';
-import { Student } from '@/models/Student';
-import { Installment } from '@/models/Installment';
-import { generateReceiptNo } from '@/models/Counter';
+import { AccountsSettings } from '@/models/AccountsSettings';
+import { collectStudentReceipt } from '@/lib/accounts/fees';
+import { takaToPaisa, paisaToTaka } from '@/lib/accounts-money';
 
-// POST /api/payments - Record a payment
+// POST /api/payments - Front-desk thin bridge delegating strictly to Accounts Money Receipt posting
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
-    const { student_id, amount, method, reference, payment_date, note, next_due_date, installment_id } =
-      await req.json();
-
-    const paymentAmount = Math.round(Number(amount));
-    if (!student_id || !paymentAmount || paymentAmount <= 0 || !method) {
-      return NextResponse.json(
-        { success: false, message: 'Valid student_id, amount (> 0), and payment method are required' },
-        { status: 400 }
-      );
-    }
-
     await connectDB();
-    const student = await Student.findById(student_id);
-    if (!student) {
-      return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
+
+    if (auth.user.role === 'Counselor') {
+      const settings = await AccountsSettings.findOne({}).lean();
+      if (!settings?.allow_counselor_collection) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Forbidden. Counselors are not permitted to collect payments (enable in Accounts Settings).',
+          },
+          { status: 403 }
+        );
+      }
     }
 
-    // PRD Section 5.3: "A payment cannot exceed the total payable."
-    const maxPayable = student.fee_snapshot.total_payable - student.total_paid;
-    if (paymentAmount > maxPayable) {
+    const { student_id, amount, method, reference, payment_date, note } = await req.json();
+    const amountPaisa = takaToPaisa(amount);
+
+    if (!student_id || amountPaisa <= 0 || !method) {
       return NextResponse.json(
-        {
-          success: false,
-          message: `Payment amount (${paymentAmount}) exceeds the remaining due balance of ${maxPayable}.`,
-        },
+        { success: false, message: 'Valid student_id, amount (> 0), and payment method are required.' },
         { status: 400 }
       );
     }
 
-    const receiptNo = await generateReceiptNo();
-
-    const payment = await Payment.create({
-      receipt_no: receiptNo,
-      student_id,
-      amount: paymentAmount,
+    const { receipt, entry } = await collectStudentReceipt({
+      studentId: String(student_id),
+      amountPaisa,
       method,
-      reference: reference ? reference.trim() : '',
-      payment_date: payment_date ? new Date(payment_date) : new Date(),
-      note: note ? note.trim() : '',
-      created_by: auth.user.name,
-    });
-
-    // Update student cached financial totals
-    student.total_paid += paymentAmount;
-    student.total_due = Math.max(0, student.fee_snapshot.total_payable - student.total_paid);
-    await student.save();
-
-    // Allocate payment across installments in chronological due-date order (prioritize targeted installment_id if provided)
-    let remainingToAllocate = paymentAmount;
-    const allInstallments = await Installment.find({ student_id }).sort({ due_date: 1, installment_no: 1 });
-
-    const orderedInstallments = installment_id
-      ? [
-          ...allInstallments.filter((i) => i._id.toString() === String(installment_id)),
-          ...allInstallments.filter((i) => i._id.toString() !== String(installment_id)),
-        ]
-      : allInstallments;
-
-    for (const inst of orderedInstallments) {
-      if (remainingToAllocate <= 0) break;
-
-      const dueOnInst = (inst.amount || 0) - (inst.paid_amount || 0);
-      if (dueOnInst > 0) {
-        const allocate = Math.min(remainingToAllocate, dueOnInst);
-        inst.paid_amount = (inst.paid_amount || 0) + allocate;
-        remainingToAllocate -= allocate;
-
-        if (inst.paid_amount >= inst.amount) {
-          inst.status = 'Paid';
-          inst.paid_on = new Date();
-        } else {
-          inst.status = 'Partial';
-        }
-        await inst.save();
-      }
-    }
-
-    // Safety invariant: If student owes nothing (total_due <= 0), ensure all installments are Paid
-    if (student.total_due <= 0) {
-      await Installment.updateMany(
-        { student_id, status: { $ne: 'Paid' } },
-        { $set: { status: 'Paid', paid_on: new Date() } }
-      );
-    } else if (next_due_date) {
-      // Schedule / update next due date if specified and student still has outstanding dues
-      const nextPendingInst = await Installment.findOne({
-        student_id,
-        status: { $in: ['Pending', 'Partial', 'Overdue'] },
-      }).sort({ due_date: 1, installment_no: 1 });
-
-      if (nextPendingInst) {
-        nextPendingInst.due_date = new Date(next_due_date);
-        await nextPendingInst.save();
-      } else {
-        const lastInst = await Installment.findOne({ student_id }).sort({ installment_no: -1 });
-        await Installment.create({
-          student_id,
-          installment_no: (lastInst?.installment_no || 0) + 1,
-          due_date: new Date(next_due_date),
-          amount: student.total_due,
-          paid_amount: 0,
-          status: 'Pending',
-        });
-      }
-    }
-
-    let scheduledNextDueDate: Date | null = null;
-    if (student.total_due > 0) {
-      const earliestRemaining = await Installment.findOne({
-        student_id,
-        status: { $in: ['Pending', 'Partial', 'Overdue'] },
-      }).sort({ due_date: 1, installment_no: 1 });
-      scheduledNextDueDate = earliestRemaining?.due_date || null;
-    }
-
-    await createAuditLog({
+      reference,
+      receiptDate: payment_date || new Date(),
+      note,
       user: auth.user,
-      action: 'PAYMENT_RECORDED',
-      entity: 'Payment',
-      entityId: payment._id.toString(),
-      newValues: {
-        receipt_no: receiptNo,
-        student_no: student.student_no,
-        amount: paymentAmount,
-        method,
-        next_due_date: scheduledNextDueDate || (next_due_date ? new Date(next_due_date) : null),
-      },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Payment of ৳${paymentAmount} recorded with Receipt #${receiptNo}`,
-      payment,
-      receipt_no: receiptNo,
-      total_due: student.total_due,
-      total_paid: student.total_paid,
-      next_due_date: scheduledNextDueDate,
+      message: `Receipt ${receipt.receiptNo} (${entry.voucherNo}) posted cleanly in Accounts.`,
+      receipt: {
+        receipt_no: receipt.receiptNo,
+        amount: paisaToTaka(receipt.amountPaisa),
+        method: receipt.method,
+        journal_voucher_no: entry.voucherNo,
+      },
     });
   } catch (error: any) {
+    const isClient =
+      error.message?.includes('exceeds') ||
+      error.message?.includes('No Student Fee Plan') ||
+      error.message?.includes('Locked');
     return NextResponse.json(
-      { success: false, message: error.message || 'Failed to record payment' },
-      { status: 500 }
+      { success: false, message: error.message || 'Payment collection failed' },
+      { status: isClient ? 400 : 500 }
     );
   }
 }
-

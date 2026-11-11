@@ -1,17 +1,23 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
-import { Installment } from '@/models/Installment';
+import { StudentFeePlan } from '@/models/StudentFeePlan';
 import { Student } from '@/models/Student';
+import { paisaToTaka } from '@/lib/accounts-money';
 
 export const dynamic = 'force-dynamic';
 
+/**
+ * Read-only legacy compatibility endpoint sourced strictly from Accounts StudentFeePlan stages.
+ * Never mutates or inserts legacy Installment documents.
+ */
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
     await connectDB();
+    void Student;
 
     const { searchParams } = new URL(req.url);
     const search = searchParams.get('search')?.trim() || '';
@@ -19,7 +25,7 @@ export async function GET(req: NextRequest) {
     const timeframe = searchParams.get('timeframe')?.trim() || 'all';
     const batchFilter = searchParams.get('batch')?.trim() || 'all';
     const tradeFilter = searchParams.get('trade')?.trim() || 'all';
-    const monthFilter = searchParams.get('month')?.trim() || 'all'; // 'all' | 'this_month' | 'YYYY-MM'
+    const monthFilter = searchParams.get('month')?.trim() || 'all';
     const sortBy = searchParams.get('sort')?.trim() || 'due_asc';
 
     const now = new Date();
@@ -28,49 +34,6 @@ export async function GET(req: NextRequest) {
     const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
     const in30Days = new Date(now.getTime() + 30 * 24 * 60 * 60 * 1000);
 
-    // 0. Reconcile any student who has total_due > 0 but 0 unpaid installments (legacy/orphan fix)
-    if (!search) {
-      const studentsWithDue = await Student.find({ total_due: { $gt: 0 } })
-        .select('_id total_due admission_date')
-        .lean();
-      if (studentsWithDue.length > 0) {
-        const dueStudentIds = studentsWithDue.map((s: any) => s._id);
-        const existingInsts = await Installment.find({
-          student_id: { $in: dueStudentIds },
-        })
-          .select('student_id installment_no amount paid_amount status')
-          .lean();
-
-        const instByStudent = new Map<string, any[]>();
-        for (const inst of existingInsts) {
-          const sid = inst.student_id.toString();
-          if (!instByStudent.has(sid)) instByStudent.set(sid, []);
-          instByStudent.get(sid)!.push(inst);
-        }
-
-        for (const st of studentsWithDue as any[]) {
-          const list = instByStudent.get(st._id.toString()) || [];
-          const hasUnpaid = list.some(
-            (i) => i.status !== 'Paid' && (i.amount || 0) - (i.paid_amount || 0) > 0
-          );
-          if (!hasUnpaid) {
-            const maxNo = list.reduce((m, i) => Math.max(m, i.installment_no || 0), 0);
-            const dueDt = st.admission_date ? new Date(st.admission_date) : new Date();
-            dueDt.setDate(dueDt.getDate() + 30);
-            await Installment.create({
-              student_id: st._id,
-              installment_no: maxNo + 1,
-              due_date: dueDt,
-              amount: st.total_due,
-              paid_amount: 0,
-              status: 'Pending',
-            });
-          }
-        }
-      }
-    }
-
-    // 1. If search is provided, find matching student IDs first
     let studentIdFilter: any = null;
     if (search) {
       const searchRegex = new RegExp(search, 'i');
@@ -84,27 +47,20 @@ export async function GET(req: NextRequest) {
           { trade_name: searchRegex },
         ],
       }).select('_id');
-
-      const matchedIds = matchingStudents.map((s) => s._id);
-      studentIdFilter = { $in: matchedIds };
+      studentIdFilter = { $in: matchingStudents.map((s) => s._id) };
     }
 
-    // 2. Fetch all installments populated with student details (including batch)
-    const installmentQuery: any = {};
-    if (studentIdFilter) {
-      installmentQuery.student_id = studentIdFilter;
-    }
+    const planQuery: any = { isDeleted: { $ne: true } };
+    if (studentIdFilter) planQuery.studentId = studentIdFilter;
 
-    const rawInstallments = await Installment.find(installmentQuery)
+    const plans = await StudentFeePlan.find(planQuery)
       .populate({
-        path: 'student_id',
+        path: 'studentId',
         select:
           'name student_no mobile passport_no trade_name batch destination_country total_paid total_due fee_snapshot status',
       })
-      .sort({ due_date: 1, installment_no: 1 })
       .lean();
 
-    // 3. Filter out orphaned installments and compute metrics + filter facets
     let totalOutstandingDue = 0;
     let overdueCount = 0;
     let overdueAmount = 0;
@@ -117,41 +73,39 @@ export async function GET(req: NextRequest) {
     const tradeSet = new Set<string>();
     const monthSet = new Set<string>();
 
-    const formattedList = rawInstallments
-      .filter((inst: any) => inst.student_id)
-      .map((inst: any) => {
-        const dueDate = new Date(inst.due_date);
-        const studentTotalDue = Math.max(0, inst.student_id.total_due ?? 0);
-        const rawRemaining = Math.max(0, (inst.amount || 0) - (inst.paid_amount || 0));
-        const isPaid = inst.status === 'Paid' || rawRemaining === 0 || studentTotalDue <= 0;
+    const formattedList: any[] = [];
+    for (const plan of plans as any[]) {
+      const stDoc = plan.studentId;
+      if (!stDoc) continue;
+      if (stDoc.batch) batchSet.add(stDoc.batch);
+      if (stDoc.trade_name) tradeSet.add(stDoc.trade_name);
+
+      const netPayableTaka = paisaToTaka(plan.netPayablePaisa || 0);
+      const totalPaidTaka = paisaToTaka(Math.max(0, (plan.totalPaidPaisa || 0) - (plan.totalRefundedPaisa || 0)));
+      const totalDueTaka = paisaToTaka(plan.totalDuePaisa || 0);
+
+      for (const st of plan.stages || []) {
+        const dueDate = new Date(st.dueDate);
+        const amountTaka = paisaToTaka(st.amountPaisa || 0);
+        const paidTaka = paisaToTaka(st.paidPaisa || 0);
+        const rawRemaining = Math.max(0, amountTaka - paidTaka);
+        const isPaid = st.status === 'Paid' || rawRemaining === 0 || totalDueTaka <= 0;
         const remainingDue = isPaid ? 0 : rawRemaining;
         const isOverdue = !isPaid && dueDate < startOfToday;
         const isDueThisMonth = !isPaid && dueDate >= startOfMonth && dueDate <= endOfMonth;
 
-        // Collect filter facets
-        if (inst.student_id.batch) batchSet.add(inst.student_id.batch);
-        if (inst.student_id.trade_name) tradeSet.add(inst.student_id.trade_name);
         if (!isNaN(dueDate.getTime())) {
           const ym = `${dueDate.getFullYear()}-${String(dueDate.getMonth() + 1).padStart(2, '0')}`;
           monthSet.add(ym);
         }
 
-        // Effective status
-        let effectiveStatus: 'Paid' | 'Partial' | 'Pending' | 'Overdue' = inst.status;
-        if (isPaid) {
-          effectiveStatus = 'Paid';
-        } else if (isOverdue) {
-          effectiveStatus = 'Overdue';
-        } else if (inst.paid_amount > 0) {
-          effectiveStatus = 'Partial';
-        } else {
-          effectiveStatus = 'Pending';
-        }
+        let effectiveStatus: 'Paid' | 'Partial' | 'Pending' | 'Overdue' = st.status;
+        if (isPaid) effectiveStatus = 'Paid';
+        else if (isOverdue) effectiveStatus = 'Overdue';
+        else if (paidTaka > 0) effectiveStatus = 'Partial';
+        else effectiveStatus = 'Pending';
 
-        // Global stats aggregation
-        if (!isPaid) {
-          totalOutstandingDue += remainingDue;
-        }
+        if (!isPaid) totalOutstandingDue += remainingDue;
         if (isOverdue) {
           overdueCount++;
           overdueAmount += remainingDue;
@@ -162,38 +116,37 @@ export async function GET(req: NextRequest) {
         }
         if (isPaid) {
           paidCount++;
-          paidAmount += inst.amount;
+          paidAmount += amountTaka;
         }
 
-        return {
-          _id: inst._id.toString(),
+        formattedList.push({
+          _id: `${plan._id.toString()}-${st.stageNo}`,
           student: {
-            _id: inst.student_id._id.toString(),
-            name: inst.student_id.name,
-            student_no: inst.student_id.student_no,
-            mobile: inst.student_id.mobile,
-            passport_no: inst.student_id.passport_no,
-            trade_name: inst.student_id.trade_name,
-            batch: inst.student_id.batch || '',
-            destination_country: inst.student_id.destination_country,
-            total_payable:
-              inst.student_id.fee_snapshot?.total_payable ||
-              (inst.student_id.total_paid || 0) + (inst.student_id.total_due || 0),
-            total_paid: inst.student_id.total_paid,
-            total_due: inst.student_id.total_due,
-            status: inst.student_id.status,
+            _id: stDoc._id.toString(),
+            name: stDoc.name,
+            student_no: stDoc.student_no,
+            mobile: stDoc.mobile,
+            passport_no: stDoc.passport_no,
+            trade_name: stDoc.trade_name,
+            batch: stDoc.batch || '',
+            destination_country: stDoc.destination_country,
+            total_payable: netPayableTaka,
+            total_paid: totalPaidTaka,
+            total_due: totalDueTaka,
+            status: stDoc.status,
           },
-          installment_no: inst.installment_no,
-          due_date: inst.due_date,
-          amount: inst.amount,
-          paid_amount: inst.paid_amount || 0,
+          installment_no: st.stageNo,
+          due_date: st.dueDate,
+          amount: amountTaka,
+          paid_amount: paidTaka,
           remaining_due: remainingDue,
-          paid_on: inst.paid_on || null,
+          paid_on: st.paidAt || null,
           status: effectiveStatus,
           isOverdue,
           isDueThisMonth,
-        };
-      });
+        });
+      }
+    }
 
     // 4. Apply status, timeframe, month, batch, and trade filters
     let filteredList = formattedList;

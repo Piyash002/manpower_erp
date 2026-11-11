@@ -49,8 +49,9 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const { user } = useAuth();
 
   const [student, setStudent] = useState<any | null>(null);
-  const [installments, setInstallments] = useState<any[]>([]);
-  const [payments, setPayments] = useState<any[]>([]);
+  const [feePlan, setFeePlan] = useState<any | null>(null);
+  const [receipts, setReceipts] = useState<any[]>([]);
+  const [refunds, setRefunds] = useState<any[]>([]);
   const [documents, setDocuments] = useState<any[]>([]);
   const [assessment, setAssessment] = useState<any | null>(null);
   const [batch, setBatch] = useState<any | null>(null);
@@ -60,7 +61,6 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   // Modals state
   const [activeReceipt, setActiveReceipt] = useState<any | null>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
-  const [isPaymentModalOpen, setIsPaymentModalOpen] = useState(false);
   const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
   const [countryCosts, setCountryCosts] = useState<any[]>([]);
@@ -97,29 +97,12 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [isSubmittingAssessment, setIsSubmittingAssessment] = useState(false);
   const [assessmentError, setAssessmentError] = useState('');
 
-  const [paymentFormData, setPaymentFormData] = useState(() => {
-    const today = new Date();
-    const next = new Date();
-    next.setDate(next.getDate() + 30);
-    return {
-      amount: '',
-      method: 'Cash',
-      reference: '',
-      payment_date: today.toISOString().split('T')[0],
-      note: '',
-      next_due_date: next.toISOString().split('T')[0],
-    };
-  });
-
   const [updatingStatus, setUpdatingStatus] = useState(false);
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
-  const [isSubmittingPayment, setIsSubmittingPayment] = useState(false);
   const [editError, setEditError] = useState('');
-  const [paymentError, setPaymentError] = useState('');
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Counselor';
-  const canCollectPayment =
-    user?.role === 'Admin' || user?.role === 'Counselor' || user?.role === 'Accountant';
+  const canOpenAccounts = user?.role === 'Admin' || user?.role === 'Accountant';
 
   const loadStudentData = async () => {
     try {
@@ -140,8 +123,9 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
       const data = await res.json();
       if (data.success) {
         setStudent(data.student);
-        setInstallments(data.installments || []);
-        setPayments(data.payments || []);
+        setFeePlan(data.feePlan || null);
+        setReceipts(data.receipts || []);
+        setRefunds(data.refunds || []);
         setDocuments(data.documents || []);
         setAssessment(data.assessment || null);
         setBatch(data.batch || null);
@@ -176,12 +160,6 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
             typeof data.student.referred_by_agent === 'object' && data.student.referred_by_agent
               ? data.student.referred_by_agent._id
               : data.student.referred_by_agent || '',
-          admission_fee: data.student.fee_snapshot?.admission_fee ?? 0,
-          course_fee: data.student.fee_snapshot?.course_fee ?? 0,
-          visa_cost: data.student.fee_snapshot?.visa_cost ?? 0,
-          govt_fee: data.student.fee_snapshot?.govt_fee ?? 0,
-          discount: data.student.fee_snapshot?.discount ?? 0,
-          visa_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
         });
       }
 
@@ -512,58 +490,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
     }
   };
 
-  // Handle Record Payment
-  const handlePaymentSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    setPaymentError('');
-    setIsSubmittingPayment(true);
-
-    try {
-      const res = await fetch('/api/payments', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          student_id: studentId,
-          amount: paymentFormData.amount,
-          method: paymentFormData.method,
-          reference: paymentFormData.reference,
-          payment_date: paymentFormData.payment_date,
-          note: paymentFormData.note,
-          next_due_date: paymentFormData.next_due_date,
-        }),
-      });
-
-      const data = await res.json();
-      if (!res.ok || !data.success) {
-        throw new Error(data.message || 'Payment recording failed');
-      }
-
-      setIsPaymentModalOpen(false);
-      setPaymentFormData({
-        amount: '',
-        method: 'Cash',
-        reference: '',
-        payment_date: new Date().toISOString().split('T')[0],
-        note: '',
-        next_due_date: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString().split('T')[0],
-      });
-
-      // View Receipt
-      const receiptRes = await fetch(`/api/payments/${data.receipt_no}`);
-      const receiptData = await receiptRes.json();
-      if (receiptData.success) {
-        setActiveReceipt(receiptData.receipt);
-      }
-
-      loadStudentData();
-    } catch (err: any) {
-      setPaymentError(err.message);
-    } finally {
-      setIsSubmittingPayment(false);
-    }
-  };
-
-  // Open Receipt
+  // Open Receipt (fetches read-only formatted receipt view)
   const handleOpenReceipt = async (receiptNo: string) => {
     try {
       const res = await fetch(`/api/payments/${receiptNo}`);
@@ -618,38 +545,16 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
             <span>Download / Print Form</span>
           </Link>
 
-          {canEdit &&
-            ((student.fee_snapshot?.visa_cost || 0) === 0 ||
-              student.destination_country === 'Not decided yet') && (
-              <button
-                onClick={() => {
-                  const targetCountry = student.destination_country;
-                  if (targetCountry && targetCountry !== 'Not decided yet' && (student.fee_snapshot?.visa_cost || 0) === 0) {
-                    const studentTradeId = student?.trade_id?._id || student?.trade_id;
-                    const matchedRate =
-                      countryCosts.find(
-                        (c: any) =>
-                          c.country === targetCountry &&
-                          String(c.trade_id?._id || c.trade_id) === String(studentTradeId)
-                      ) || countryCosts.find((c: any) => c.country === targetCountry);
-                    if (matchedRate) {
-                      setEditFormData((prev: any) => ({
-                        ...prev,
-                        visa_cost: matchedRate.visa_cost,
-                        govt_fee: matchedRate.govt_fee,
-                        destination_contract_years: matchedRate.contract_years,
-                      }));
-                    }
-                  }
-                  setIsEditModalOpen(true);
-                }}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 shadow-xs transition-colors"
-                title="Add Destination Country & Visa Package Fee to this candidate"
-              >
-                <Globe2 className="w-3.5 h-3.5" />
-                <span>+ Include Visa / Country</span>
-              </button>
-            )}
+          {canEdit && student.destination_country === 'Not decided yet' && (
+            <button
+              onClick={() => setIsEditModalOpen(true)}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-emerald-700 bg-emerald-50 border border-emerald-300 rounded-lg hover:bg-emerald-100 shadow-xs transition-colors"
+              title="Set Destination Country for this candidate"
+            >
+              <Globe2 className="w-3.5 h-3.5" />
+              <span>+ Set Destination Country</span>
+            </button>
+          )}
 
           {canEdit && (
             <button
@@ -749,39 +654,82 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
               )}
             </div>
 
-            {canCollectPayment && student.total_due > 0 && (
-              <button
-                onClick={() => setIsPaymentModalOpen(true)}
+            {canOpenAccounts && feePlan && feePlan.totalDuePaisa > 0 && (
+              <Link
+                href={`/accounts/receipts?studentId=${student._id}`}
                 className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-sm transition-colors"
               >
                 <DollarSign className="w-4 h-4" />
-                <span>Collect Installment / Payment</span>
-              </button>
+                <span>Collect in Accounts →</span>
+              </Link>
             )}
           </div>
         </div>
 
-        {/* FINANCIAL TOTALS BAR (PRD Section 5.5) */}
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-6 pt-6 border-t border-slate-100">
+        {/* FINANCIAL TOTALS BAR (Read-only summary fetched from Accounts) */}
+        <div className="grid grid-cols-1 sm:grid-cols-4 gap-4 mt-6 pt-6 border-t border-slate-100">
           <div className="p-3 bg-slate-50 rounded-lg border border-slate-200">
-            <p className="text-xs text-slate-500 font-semibold uppercase">Total Package Payable</p>
+            <p className="text-xs text-slate-500 font-semibold uppercase">Net Package Payable</p>
             <p className="text-xl font-black font-mono text-slate-900 mt-1">
-              {formatBDT(student.fee_snapshot?.total_payable)}
+              {formatBDT(feePlan ? Math.round(feePlan.netPayablePaisa / 100) : student.fee_snapshot?.total_payable)}
             </p>
+            {feePlan && (
+              <p className="text-[11px] text-slate-500 mt-0.5 font-mono">Plan {feePlan.planNo}</p>
+            )}
           </div>
 
           <div className="p-3 bg-emerald-50/60 rounded-lg border border-emerald-200">
-            <p className="text-xs text-emerald-700 font-semibold uppercase">Total Paid To Date</p>
+            <p className="text-xs text-emerald-700 font-semibold uppercase">Total Collected</p>
             <p className="text-xl font-black font-mono text-emerald-700 mt-1">
-              {formatBDT(student.total_paid)}
+              {formatBDT(feePlan ? Math.round(feePlan.totalPaidPaisa / 100) : student.total_paid)}
             </p>
+            {feePlan && feePlan.totalRefundedPaisa > 0 && (
+              <p className="text-[11px] text-amber-700 mt-0.5 font-mono">
+                Refunded: {formatBDT(Math.round(feePlan.totalRefundedPaisa / 100))}
+              </p>
+            )}
           </div>
 
           <div className="p-3 bg-rose-50/60 rounded-lg border border-rose-200">
-            <p className="text-xs text-rose-700 font-semibold uppercase">Outstanding Due Balance</p>
+            <p className="text-xs text-rose-700 font-semibold uppercase">Outstanding Due</p>
             <p className="text-xl font-black font-mono text-rose-700 mt-1">
-              {formatBDT(student.total_due)}
+              {formatBDT(feePlan ? Math.round(feePlan.totalDuePaisa / 100) : student.total_due)}
             </p>
+          </div>
+
+          <div className="p-3 bg-blue-50/60 rounded-lg border border-blue-200 flex flex-col justify-between">
+            <p className="text-xs text-blue-700 font-semibold uppercase">Accounts Status</p>
+            <div className="mt-1 flex items-center justify-between">
+              <Badge
+                variant={
+                  feePlan?.status === 'Refunded'
+                    ? 'warning'
+                    : (feePlan ? feePlan.totalDuePaisa : student.total_due) <= 0
+                    ? 'success'
+                    : (feePlan ? feePlan.totalPaidPaisa : student.total_paid) > 0
+                    ? 'info'
+                    : 'danger'
+                }
+              >
+                {feePlan
+                  ? feePlan.status === 'Refunded'
+                    ? 'Refunded'
+                    : feePlan.totalDuePaisa <= 0
+                    ? 'Paid'
+                    : feePlan.totalPaidPaisa > 0
+                    ? 'Partial'
+                    : 'Due'
+                  : 'No Fee Plan'}
+              </Badge>
+              {canOpenAccounts && (
+                <Link
+                  href="/accounts/student-fees"
+                  className="text-[11px] font-semibold text-blue-700 hover:underline"
+                >
+                  Open in Accounts →
+                </Link>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -790,164 +738,217 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left 2 Columns */}
         <div className="lg:col-span-2 space-y-6">
-          {/* CARD: FEE SNAPSHOT & INSTALLMENT SCHEDULE */}
+          {/* CARD: READ-ONLY ACCOUNTS FEE PLAN & STAGE SCHEDULE */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <CreditCard className="w-5 h-5 text-blue-600" />
                 <h3 className="font-semibold text-slate-800 text-base">
-                  Fee Snapshot & Installment Schedule
+                  Fee Plan &amp; Installment Stages (Read-Only from Accounts)
                 </h3>
               </div>
-              <span className="text-xs text-slate-400 italic">Snapshot locked at admission</span>
+              <span className="text-xs text-slate-500">
+                {feePlan ? `Plan ${feePlan.planNo}` : 'Unassigned'}
+              </span>
             </div>
 
-            {/* Fee Snapshot summary */}
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-slate-50 rounded-lg text-xs">
-              <div>
-                <p className="text-slate-500">Admission Fee</p>
-                <p className="font-bold text-slate-800 mt-0.5">
-                  {formatBDT(student.fee_snapshot?.admission_fee)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Course Fee</p>
-                <p className="font-bold text-slate-800 mt-0.5">
-                  {formatBDT(student.fee_snapshot?.course_fee)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Visa Processing</p>
-                <p className="font-bold text-slate-800 mt-0.5">
-                  {formatBDT(student.fee_snapshot?.visa_cost)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Govt Fee</p>
-                <p className="font-bold text-slate-800 mt-0.5">
-                  {formatBDT(student.fee_snapshot?.govt_fee)}
-                </p>
-              </div>
-              <div>
-                <p className="text-slate-500">Discount</p>
-                <p className="font-bold text-emerald-600 mt-0.5">
-                  -{formatBDT(student.fee_snapshot?.discount)}
-                </p>
-              </div>
-            </div>
+            {feePlan ? (
+              <>
+                <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 p-3 bg-slate-50 rounded-lg text-xs">
+                  <div>
+                    <p className="text-slate-500">Gross Billed</p>
+                    <p className="font-bold text-slate-800 mt-0.5 font-mono">
+                      {formatBDT(Math.round(feePlan.totalBilledPaisa / 100))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Approved Discount</p>
+                    <p className="font-bold text-emerald-700 mt-0.5 font-mono">
+                      -{formatBDT(Math.round((feePlan.discountPaisa || 0) / 100))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Credit Notes</p>
+                    <p className="font-bold text-amber-700 mt-0.5 font-mono">
+                      -{formatBDT(Math.round((feePlan.creditNotePaisa || 0) / 100))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Net Payable</p>
+                    <p className="font-bold text-slate-900 mt-0.5 font-mono">
+                      {formatBDT(Math.round(feePlan.netPayablePaisa / 100))}
+                    </p>
+                  </div>
+                  <div>
+                    <p className="text-slate-500">Voucher</p>
+                    <p className="font-bold text-blue-700 mt-0.5 font-mono">
+                      {feePlan.invoiceJournalEntryId?.voucherNo || '—'}
+                    </p>
+                  </div>
+                </div>
 
-            {/* Installments Table */}
-            <div>
-              <h4 className="text-xs font-bold uppercase text-slate-600 tracking-wider mb-2">
-                Monthly Installments List
-              </h4>
-              <div className="border border-slate-200 rounded-lg overflow-hidden">
-                <table className="w-full text-xs text-left">
-                  <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
-                    <tr>
-                      <th className="px-3 py-2">#</th>
-                      <th className="px-3 py-2">Due Date</th>
-                      <th className="px-3 py-2 text-right">Amount</th>
-                      <th className="px-3 py-2 text-right">Paid</th>
-                      <th className="px-3 py-2 text-center">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {installments.length === 0 ? (
-                      <tr>
-                        <td colSpan={5} className="px-3 py-4 text-center text-slate-400">
-                          No installments scheduled (Package paid in full at admission)
-                        </td>
-                      </tr>
-                    ) : (
-                      installments.map((inst) => {
-                        const isLate =
-                          inst.status !== 'Paid' &&
-                          new Date(inst.due_date) < new Date(new Date().setHours(0, 0, 0, 0));
+                {feePlan.discountStatus === 'Pending' && feePlan.pendingDiscountPaisa > 0 && (
+                  <div className="p-2.5 bg-amber-50 border border-amber-200 rounded-lg text-xs text-amber-800">
+                    Pending Discount Request: <strong>{formatBDT(Math.round(feePlan.pendingDiscountPaisa / 100))}</strong> ({feePlan.pendingDiscountReason}) — awaiting Admin approval in Accounts.
+                  </div>
+                )}
 
-                        return (
-                          <tr key={inst._id} className="hover:bg-slate-50 font-mono">
-                            <td className="px-3 py-2.5 font-bold text-slate-700">
-                              Inst #{inst.installment_no}
-                            </td>
-                            <td className="px-3 py-2.5 font-sans">{formatDate(inst.due_date)}</td>
-                            <td className="px-3 py-2.5 text-right font-bold text-slate-800">
-                              {formatBDT(inst.amount)}
-                            </td>
-                            <td className="px-3 py-2.5 text-right text-emerald-700 font-semibold">
-                              {formatBDT(inst.paid_amount)}
-                            </td>
-                            <td className="px-3 py-2.5 text-center font-sans">
-                              {isLate ? (
-                                <Badge variant="danger" size="sm">
-                                  Overdue
-                                </Badge>
-                              ) : (
-                                <StatusBadge status={inst.status} />
-                              )}
+                <div>
+                  <h4 className="text-xs font-bold uppercase text-slate-600 tracking-wider mb-2">
+                    Stage Schedule
+                  </h4>
+                  <div className="border border-slate-200 rounded-lg overflow-hidden">
+                    <table className="w-full text-xs text-left">
+                      <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
+                        <tr>
+                          <th className="px-3 py-2">#</th>
+                          <th className="px-3 py-2">Stage</th>
+                          <th className="px-3 py-2">Due Date</th>
+                          <th className="px-3 py-2 text-right">Amount</th>
+                          <th className="px-3 py-2 text-right">Paid</th>
+                          <th className="px-3 py-2 text-center">Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100">
+                        {(feePlan.stages || []).length === 0 ? (
+                          <tr>
+                            <td colSpan={6} className="px-3 py-4 text-center text-slate-400">
+                              No fee stages configured.
                             </td>
                           </tr>
-                        );
-                      })
-                    )}
-                  </tbody>
-                </table>
+                        ) : (
+                          (feePlan.stages || []).map((st: any) => {
+                            const isLate =
+                              st.status !== 'Paid' &&
+                              new Date(st.dueDate) < new Date(new Date().setHours(0, 0, 0, 0));
+
+                            return (
+                              <tr key={st.stageNo} className="hover:bg-slate-50 font-mono">
+                                <td className="px-3 py-2.5 font-bold text-slate-700">#{st.stageNo}</td>
+                                <td className="px-3 py-2.5 font-sans text-slate-800">{st.label}</td>
+                                <td className="px-3 py-2.5 font-sans">{formatDate(st.dueDate)}</td>
+                                <td className="px-3 py-2.5 text-right font-bold text-slate-800">
+                                  {formatBDT(Math.round(st.amountPaisa / 100))}
+                                </td>
+                                <td className="px-3 py-2.5 text-right text-emerald-700 font-semibold">
+                                  {formatBDT(Math.round(st.paidPaisa / 100))}
+                                </td>
+                                <td className="px-3 py-2.5 text-center font-sans">
+                                  {isLate ? (
+                                    <Badge variant="danger" size="sm">
+                                      Overdue
+                                    </Badge>
+                                  ) : (
+                                    <StatusBadge status={st.status} />
+                                  )}
+                                </td>
+                              </tr>
+                            );
+                          })
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <div className="p-4 bg-slate-50 border border-slate-200 rounded-lg text-xs text-slate-600 flex items-center justify-between">
+                <span>No Fee Plan assigned in Accounts yet.</span>
+                {canOpenAccounts && (
+                  <Link
+                    href="/accounts/student-fees"
+                    className="px-3 py-1.5 bg-blue-600 text-white rounded-md font-semibold"
+                  >
+                    Assign Plan in Accounts →
+                  </Link>
+                )}
               </div>
-            </div>
+            )}
           </div>
 
-          {/* CARD: PAYMENTS HISTORY */}
+          {/* CARD: MONEY RECEIPTS & REFUNDS HISTORY (Read-Only from Accounts) */}
           <div className="bg-white rounded-xl border border-slate-200 shadow-xs p-6 space-y-4">
             <div className="flex items-center justify-between pb-3 border-b border-slate-100">
               <div className="flex items-center gap-2">
                 <FileCheck2 className="w-5 h-5 text-emerald-600" />
-                <h3 className="font-semibold text-slate-800 text-base">Recorded Money Receipts</h3>
+                <h3 className="font-semibold text-slate-800 text-base">
+                  Official Accounts Money Receipts
+                </h3>
               </div>
-              <span className="text-xs text-slate-400">Payments are immutable</span>
+              <span className="text-xs text-slate-400">Read-only ledger view</span>
             </div>
 
             <div className="border border-slate-200 rounded-lg overflow-hidden">
               <table className="w-full text-xs text-left">
                 <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
                   <tr>
-                    <th className="px-3 py-2">Receipt No</th>
-                    <th className="px-3 py-2">Payment Date</th>
-                    <th className="px-3 py-2">Method & Ref</th>
+                    <th className="px-3 py-2">Receipt / Voucher</th>
+                    <th className="px-3 py-2">Date</th>
+                    <th className="px-3 py-2">Method &amp; Ref</th>
                     <th className="px-3 py-2 text-right">Amount</th>
                     <th className="px-3 py-2 text-right">Action</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {payments.length === 0 ? (
+                  {receipts.length === 0 ? (
                     <tr>
                       <td colSpan={5} className="px-3 py-4 text-center text-slate-400 font-sans">
-                        No payments recorded yet
+                        No money receipts posted in Accounts yet
                       </td>
                     </tr>
                   ) : (
-                    payments.map((pmt) => (
-                      <tr key={pmt._id} className="hover:bg-slate-50 font-mono">
-                        <td className="px-3 py-2.5 font-bold text-blue-700">{pmt.receipt_no}</td>
-                        <td className="px-3 py-2.5 font-sans">{formatDate(pmt.payment_date)}</td>
+                    receipts.map((rcpt) => (
+                      <tr key={rcpt._id} className="hover:bg-slate-50 font-mono">
+                        <td className="px-3 py-2.5">
+                          <span className="font-bold text-blue-700">{rcpt.receiptNo}</span>
+                          {rcpt.journalEntryId?.voucherNo && (
+                            <span className="block text-[10px] text-slate-500">
+                              {rcpt.journalEntryId.voucherNo}
+                            </span>
+                          )}
+                          {rcpt.status === 'Reversed' && (
+                            <Badge variant="danger" size="sm">
+                              Reversed
+                            </Badge>
+                          )}
+                        </td>
+                        <td className="px-3 py-2.5 font-sans">{formatDate(rcpt.receiptDate)}</td>
                         <td className="px-3 py-2.5 font-sans">
-                          <span className="font-medium text-slate-800">{pmt.method}</span>
-                          {pmt.reference && (
+                          <span className="font-medium text-slate-800">{rcpt.method}</span>
+                          {rcpt.reference && (
                             <span className="block text-[11px] font-mono text-slate-400">
-                              Ref: {pmt.reference}
+                              Ref: {rcpt.reference}
                             </span>
                           )}
                         </td>
-                        <td className="px-3 py-2.5 text-right font-black text-emerald-700 text-sm">
-                          {formatBDT(pmt.amount)}
+                        <td
+                          className={`px-3 py-2.5 text-right font-black text-sm ${
+                            rcpt.status === 'Reversed'
+                              ? 'text-slate-400 line-through'
+                              : 'text-emerald-700'
+                          }`}
+                        >
+                          {formatBDT(Math.round(rcpt.amountPaisa / 100))}
                         </td>
                         <td className="px-3 py-2.5 text-right font-sans">
-                          <button
-                            onClick={() => handleOpenReceipt(pmt.receipt_no)}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded transition-colors"
-                          >
-                            <Printer className="w-3 h-3" />
-                            <span>Print Voucher</span>
-                          </button>
+                          <div className="inline-flex items-center gap-1.5">
+                            <button
+                              onClick={() => handleOpenReceipt(rcpt.receiptNo)}
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded transition-colors"
+                            >
+                              <Printer className="w-3 h-3" />
+                              <span>Print</span>
+                            </button>
+                            <a
+                              href={`/api/accounts/receipts/${rcpt._id}?format=pdf`}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-slate-700 hover:bg-slate-200 bg-slate-100 rounded transition-colors"
+                            >
+                              <Download className="w-3 h-3" />
+                              <span>PDF</span>
+                            </a>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -955,6 +956,33 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 </tbody>
               </table>
             </div>
+
+            {refunds.length > 0 && (
+              <div className="pt-2 space-y-1.5">
+                <h4 className="text-xs font-bold uppercase text-slate-600 tracking-wider">
+                  Refunds &amp; Credit Notes
+                </h4>
+                {refunds.map((rf) => (
+                  <div
+                    key={rf._id}
+                    className="flex items-center justify-between text-xs p-2.5 bg-slate-50 border border-slate-200 rounded-lg"
+                  >
+                    <div>
+                      <span className="font-mono font-bold text-slate-800">{rf.refundNo}</span>
+                      <span className="ml-2 text-slate-600">
+                        {rf.kind} ({rf.refundRule}) — {rf.reason}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 font-mono">
+                      <span className="font-bold text-slate-900">
+                        {formatBDT(Math.round(rf.amountPaisa / 100))}
+                      </span>
+                      <StatusBadge status={rf.status} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* CARD: PERSONAL & CONTACT INFO */}
@@ -1856,8 +1884,6 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                         ...editFormData,
                         destination_country: 'Not decided yet',
                         destination_contract_years: 0,
-                        visa_cost: 0,
-                        govt_fee: 0,
                       });
                     } else {
                       const studentTradeId = student?.trade_id?._id || student?.trade_id;
@@ -1871,8 +1897,6 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                       setEditFormData({
                         ...editFormData,
                         destination_country: selectedCountry,
-                        visa_cost: match ? match.visa_cost : editFormData.visa_cost,
-                        govt_fee: match ? match.govt_fee : editFormData.govt_fee,
                         destination_contract_years: match
                           ? match.contract_years
                           : editFormData.destination_contract_years || 2,
@@ -1894,22 +1918,11 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                     ])
                   )
                     .filter((c) => c && c !== 'Not decided yet')
-                    .map((c) => {
-                      const studentTradeId = student?.trade_id?._id || student?.trade_id;
-                      const rate =
-                        countryCosts.find(
-                          (item: any) =>
-                            item.country === c &&
-                            String(item.trade_id?._id || item.trade_id) === String(studentTradeId)
-                        ) || countryCosts.find((item: any) => item.country === c);
-
-                      return (
-                        <option key={c} value={c}>
-                          {c}
-                          {rate ? ` (Visa + Govt: ${formatBDT(rate.visa_cost + rate.govt_fee)})` : ''}
-                        </option>
-                      );
-                    })}
+                    .map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
                 </select>
               </div>
             </div>
@@ -1974,156 +1987,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
             </div>
           </div>
 
-          {/* Section 5: Visa Inclusion & Package Fee Update */}
-          <div className="border border-emerald-200 rounded-xl p-4 space-y-3 bg-emerald-50/30">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <h4 className="text-xs font-bold text-emerald-900 uppercase tracking-wider flex items-center gap-1.5">
-                <Globe2 className="w-3.5 h-3.5 text-emerald-600" />
-                <span>Include Visa / Update Package Fees (BDT)</span>
-              </h4>
-              {(() => {
-                const targetCountry = editFormData.destination_country;
-                if (!targetCountry || targetCountry === 'Not decided yet') {
-                  return (
-                    <span className="text-[11px] text-emerald-700 font-medium">
-                      Select Target Country above to load Visa &amp; Govt fees
-                    </span>
-                  );
-                }
-                const studentTradeId = student?.trade_id?._id || student?.trade_id;
-                const matchedRate =
-                  countryCosts.find(
-                    (c: any) =>
-                      c.country === targetCountry &&
-                      String(c.trade_id?._id || c.trade_id) === String(studentTradeId)
-                  ) || countryCosts.find((c: any) => c.country === targetCountry);
-
-                if (!matchedRate) return null;
-                return (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setEditFormData({
-                        ...editFormData,
-                        visa_cost: matchedRate.visa_cost,
-                        govt_fee: matchedRate.govt_fee,
-                        destination_contract_years: matchedRate.contract_years,
-                      })
-                    }
-                    className="px-2.5 py-1 bg-emerald-600 hover:bg-emerald-700 text-white rounded-md text-[11px] font-bold shadow-xs transition-colors"
-                  >
-                    Apply {targetCountry} Rate ({formatBDT(matchedRate.visa_cost + matchedRate.govt_fee)})
-                  </button>
-                );
-              })()}
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5 text-xs">
-              <div>
-                <label className="block font-bold text-slate-600 mb-1">Admission</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editFormData.admission_fee ?? 0}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, admission_fee: Number(e.target.value) })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-600 mb-1">Course Fee</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editFormData.course_fee ?? 0}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, course_fee: Number(e.target.value) })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-emerald-800 mb-1">Visa Cost</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editFormData.visa_cost ?? 0}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, visa_cost: Number(e.target.value) })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg font-mono font-bold text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-emerald-800 mb-1">Govt Fee</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editFormData.govt_fee ?? 0}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, govt_fee: Number(e.target.value) })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-white border border-emerald-300 rounded-lg font-mono font-bold text-slate-900"
-                />
-              </div>
-              <div>
-                <label className="block font-bold text-slate-600 mb-1">Discount</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={editFormData.discount ?? 0}
-                  onChange={(e) =>
-                    setEditFormData({ ...editFormData, discount: Number(e.target.value) })
-                  }
-                  className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg font-mono text-slate-900"
-                />
-              </div>
-            </div>
-
-            {(() => {
-              const newPayable = Math.max(
-                0,
-                Number(editFormData.admission_fee || 0) +
-                Number(editFormData.course_fee || 0) +
-                Number(editFormData.visa_cost || 0) +
-                Number(editFormData.govt_fee || 0) -
-                Number(editFormData.discount || 0)
-              );
-              const newDue = Math.max(0, newPayable - (student?.total_paid || 0));
-              const oldDue = student?.total_due || 0;
-              return (
-                <div className="p-2.5 bg-white border border-emerald-200 rounded-lg flex flex-wrap items-center justify-between gap-2 text-xs">
-                  <div className="flex flex-wrap gap-3 font-mono">
-                    <span>
-                      New Total: <strong>{formatBDT(newPayable)}</strong>
-                    </span>
-                    <span className="text-emerald-700">
-                      Paid: <strong>{formatBDT(student?.total_paid || 0)}</strong>
-                    </span>
-                    <span className="text-rose-700">
-                      New Due: <strong>{formatBDT(newDue)}</strong>
-                    </span>
-                  </div>
-
-                  {newDue > oldDue && (
-                    <div className="flex items-center gap-2">
-                      <span className="text-[11px] font-semibold text-amber-800">
-                        New Visa Due Date:
-                      </span>
-                      <input
-                        type="date"
-                        value={editFormData.visa_due_date || ''}
-                        onChange={(e) =>
-                          setEditFormData({ ...editFormData, visa_due_date: e.target.value })
-                        }
-                        className="px-2 py-1 border border-amber-300 rounded text-[11px] font-mono text-slate-900"
-                      />
-                    </div>
-                  )}
-                </div>
-              );
-            })()}
+          {/* Fees Ownership Notice */}
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-xs text-blue-800">
+            Fee packages, discounts, installments, and refunds are managed in{' '}
+            <strong>Accounts → Student Fees</strong> to maintain strict accounting controls.
           </div>
 
           <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
@@ -2500,151 +2367,6 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
               className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-semibold shadow-xs"
             >
               {isSubmittingAssessment ? 'Saving Evaluation...' : 'Save Exam Result & Certificate'}
-            </button>
-          </div>
-        </form>
-      </Modal>
-
-      {/* RECORD PAYMENT MODAL */}
-      <Modal
-        isOpen={isPaymentModalOpen}
-        onClose={() => setIsPaymentModalOpen(false)}
-        title="Record Payment / Installment"
-        description={`Record incoming installment for ${student.name} (${student.student_no})`}
-        maxWidth="md"
-      >
-        <form onSubmit={handlePaymentSubmit} className="space-y-4">
-          {paymentError && (
-            <div className="p-3 text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg">
-              {paymentError}
-            </div>
-          )}
-
-          <div>
-            <div className="flex justify-between items-center mb-1 text-xs">
-              <span className="font-semibold text-slate-700 uppercase">Payment Amount (BDT) *</span>
-              <span className="text-slate-500">
-                Max Due: <strong className="text-rose-600">{formatBDT(student.total_due)}</strong>
-              </span>
-            </div>
-            <input
-              type="number"
-              required
-              min={1}
-              max={student.total_due}
-              value={paymentFormData.amount}
-              onChange={(e) =>
-                setPaymentFormData({ ...paymentFormData, amount: e.target.value })
-              }
-              placeholder="e.g. 25000"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-base font-bold text-slate-900 font-mono"
-            />
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 text-xs">
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Payment Method *
-              </label>
-              <select
-                value={paymentFormData.method}
-                onChange={(e) =>
-                  setPaymentFormData({ ...paymentFormData, method: e.target.value })
-                }
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
-              >
-                <option value="Cash">Cash</option>
-                <option value="bKash">bKash</option>
-                <option value="Nagad">Nagad</option>
-                <option value="Rocket">Rocket</option>
-                <option value="Bank transfer">Bank transfer</option>
-                <option value="Cheque">Cheque</option>
-                <option value="Card">Card</option>
-              </select>
-            </div>
-
-            <div>
-              <label className="block font-semibold text-slate-700 uppercase mb-1">
-                Reference / Trx No
-              </label>
-              <input
-                type="text"
-                value={paymentFormData.reference}
-                onChange={(e) =>
-                  setPaymentFormData({ ...paymentFormData, reference: e.target.value })
-                }
-                placeholder="Trx or Cheque #"
-                className="w-full px-3 py-2 border border-slate-300 rounded-lg font-mono text-slate-800"
-              />
-            </div>
-          </div>
-
-          <div className="text-xs">
-            <label className="block font-semibold text-slate-700 uppercase mb-1">
-              Payment Date *
-            </label>
-            <input
-              type="date"
-              required
-              value={paymentFormData.payment_date}
-              onChange={(e) =>
-                setPaymentFormData({ ...paymentFormData, payment_date: e.target.value })
-              }
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
-            />
-          </div>
-
-          <div className="text-xs">
-            <label className="block font-semibold text-slate-700 uppercase mb-1">Note</label>
-            <input
-              type="text"
-              value={paymentFormData.note}
-              onChange={(e) => setPaymentFormData({ ...paymentFormData, note: e.target.value })}
-              placeholder="e.g. 2nd Installment payment"
-              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-slate-800"
-            />
-          </div>
-
-          {/* Next Due Date Section (বকেয়া থাকলে পরবর্তী কিস্তির তারিখ নির্ধারণ) */}
-          {Number(paymentFormData.amount) < student.total_due && (
-            <div className="p-3 bg-amber-50/70 border border-amber-200 rounded-xl space-y-1.5 text-xs">
-              <div className="flex items-center justify-between">
-                <label className="font-bold text-amber-900 flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-amber-700" />
-                  <span>Next Due Date (পরবর্তী কিস্তির তারিখ)</span>
-                </label>
-                <span className="text-[11px] text-amber-700 font-mono font-bold">
-                  Remaining Due: {formatBDT(student.total_due - (Number(paymentFormData.amount) || 0))}
-                </span>
-              </div>
-              <input
-                type="date"
-                value={paymentFormData.next_due_date}
-                onChange={(e) =>
-                  setPaymentFormData({ ...paymentFormData, next_due_date: e.target.value })
-                }
-                className="w-full px-3 py-2 bg-white border border-amber-300 rounded-lg text-slate-900 font-bold focus:ring-2 focus:ring-amber-500"
-              />
-              <p className="text-[10px] text-amber-800">
-                এই পেমেন্টের পর প্রার্থীর অবশিষ্ট বকেয়া পরিশোধের নির্ধারিত তারিখ সেট করুন।
-              </p>
-            </div>
-          )}
-
-          <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
-            <button
-              type="button"
-              onClick={() => setIsPaymentModalOpen(false)}
-              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmittingPayment}
-              className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-xs font-bold shadow-sm"
-            >
-              {isSubmittingPayment ? 'Recording...' : 'Confirm & Generate Receipt'}
             </button>
           </div>
         </form>

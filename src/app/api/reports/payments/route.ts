@@ -1,9 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
-import { Payment } from '@/models/Payment';
+import { MoneyReceipt } from '@/models/MoneyReceipt';
+import { StudentFeePlan } from '@/models/StudentFeePlan';
 import { Student } from '@/models/Student';
-import { formatDate } from '@/lib/formatters';
+import { paisaToTaka } from '@/lib/accounts-money';
 
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
@@ -38,21 +39,22 @@ export async function GET(req: NextRequest) {
       studentIds.push(st._id);
     });
 
-    // 2. Build Payment Filter
-    const paymentFilter: any = {
-      student_id: { $in: studentIds },
+    // 2. Build Receipt Filter (sourced authoritatively from Accounts MoneyReceipt)
+    const receiptFilter: any = {
+      studentId: { $in: studentIds },
+      status: 'Posted',
+      isDeleted: { $ne: true },
     };
 
     if (startDate || endDate) {
-      paymentFilter.payment_date = {};
-      if (startDate) paymentFilter.payment_date.$gte = new Date(startDate);
+      receiptFilter.receiptDate = {};
+      if (startDate) receiptFilter.receiptDate.$gte = new Date(startDate);
       if (endDate) {
         const eDate = new Date(endDate);
         eDate.setHours(23, 59, 59, 999);
-        paymentFilter.payment_date.$lte = eDate;
+        receiptFilter.receiptDate.$lte = eDate;
       }
     } else if (month && month !== 'all') {
-      // Month could be '1' to '12' or '2026-05'
       let mNum = parseInt(month, 10);
       let yNum = parseInt(year, 10);
       if (month.includes('-')) {
@@ -62,28 +64,28 @@ export async function GET(req: NextRequest) {
       }
       const mStart = new Date(yNum, mNum - 1, 1);
       const mEnd = new Date(yNum, mNum, 0, 23, 59, 59, 999);
-      paymentFilter.payment_date = { $gte: mStart, $lte: mEnd };
+      receiptFilter.receiptDate = { $gte: mStart, $lte: mEnd };
     } else if (year && year !== 'all') {
       const yNum = parseInt(year, 10);
-      paymentFilter.payment_date = {
+      receiptFilter.receiptDate = {
         $gte: new Date(yNum, 0, 1),
         $lte: new Date(yNum, 11, 31, 23, 59, 59, 999),
       };
     }
 
     if (reportType === 'transactions') {
-      // Monthly / Periodic Payment Transactions
-      const payments = await Payment.find(paymentFilter)
-        .sort({ payment_date: -1 })
+      // Monthly / Periodic Official Accounts Money Receipts
+      const receipts = await MoneyReceipt.find(receiptFilter)
+        .sort({ receiptDate: -1 })
         .lean();
 
-      const rows = payments.map((pmt: any) => {
-        const st = studentMap.get(pmt.student_id?.toString()) || {};
-        const pDate = new Date(pmt.payment_date);
+      const rows = receipts.map((rcpt: any) => {
+        const st = studentMap.get(rcpt.studentId?.toString()) || {};
+        const pDate = new Date(rcpt.receiptDate);
         const monthYear = pDate.toLocaleDateString('en-GB', { month: 'short', year: 'numeric' });
 
         return {
-          receipt_no: pmt.receipt_no,
+          receipt_no: rcpt.receiptNo,
           payment_date: pDate.toISOString().split('T')[0],
           month_year: monthYear,
           student_no: st.student_no || 'N/A',
@@ -91,11 +93,11 @@ export async function GET(req: NextRequest) {
           mobile: st.mobile || 'N/A',
           trade: st.trade_name || 'N/A',
           batch: st.batch || 'N/A',
-          amount: pmt.amount || 0,
-          method: pmt.method || 'Cash',
-          reference: pmt.reference || '',
-          received_by: pmt.created_by || 'System',
-          note: pmt.note || '',
+          amount: paisaToTaka(rcpt.amountPaisa || 0),
+          method: rcpt.method || 'Cash',
+          reference: rcpt.reference || '',
+          received_by: rcpt.createdBy || 'System',
+          note: rcpt.note || '',
         };
       });
 
@@ -153,7 +155,13 @@ export async function GET(req: NextRequest) {
     }
 
     if (reportType === 'trade_batch_summary') {
-      // Group by Trade and Batch
+      // Group by Trade and Batch (sourced authoritatively from Accounts StudentFeePlan)
+      const plans = await StudentFeePlan.find({
+        studentId: { $in: studentIds },
+        isDeleted: { $ne: true },
+      }).lean();
+      const planMap = new Map(plans.map((p: any) => [p.studentId.toString(), p]));
+
       const summaryMap: Record<
         string,
         {
@@ -167,6 +175,7 @@ export async function GET(req: NextRequest) {
       > = {};
 
       matchingStudents.forEach((st: any) => {
+        const plan = planMap.get(st._id.toString());
         const key = `${st.trade_name || 'General'}___${st.batch || 'Unassigned'}`;
         if (!summaryMap[key]) {
           summaryMap[key] = {
@@ -178,11 +187,17 @@ export async function GET(req: NextRequest) {
             totalDue: 0,
           };
         }
-        const studentFee = st.fee_snapshot?.total_payable || ((st.total_paid || 0) + (st.total_due || 0));
+        const studentFee = plan
+          ? paisaToTaka(plan.netPayablePaisa)
+          : st.fee_snapshot?.total_payable || ((st.total_paid || 0) + (st.total_due || 0));
+        const studentPaid = plan
+          ? paisaToTaka(Math.max(0, plan.totalPaidPaisa - (plan.totalRefundedPaisa || 0)))
+          : st.total_paid || 0;
+        const studentDue = plan ? paisaToTaka(plan.totalDuePaisa) : st.total_due || 0;
         summaryMap[key].candidates += 1;
         summaryMap[key].totalFee += studentFee;
-        summaryMap[key].totalPaid += st.total_paid || 0;
-        summaryMap[key].totalDue += st.total_due || 0;
+        summaryMap[key].totalPaid += studentPaid;
+        summaryMap[key].totalDue += studentDue;
       });
 
       const summaryList = Object.values(summaryMap).sort((a, b) => b.totalPaid - a.totalPaid);

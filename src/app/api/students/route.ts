@@ -2,15 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Student } from '@/models/Student';
-import { Installment } from '@/models/Installment';
-import { Payment } from '@/models/Payment';
 import { StudentDocument } from '@/models/StudentDocument';
 import { Batch } from '@/models/Batch';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Employee } from '@/models/Employee';
-import { generateStudentId, generateReceiptNo } from '@/models/Counter';
-import { calculateInstallments } from '@/lib/formatters';
+import { StudentFeePlan } from '@/models/StudentFeePlan';
+import { generateStudentId } from '@/models/Counter';
 import { DEFAULT_DOCUMENT_CHECKLIST } from '@/lib/seed';
+import { createStudentFeePlanOnAdmission } from '@/lib/accounts/fees';
+import { paisaToTaka } from '@/lib/accounts-money';
 
 // GET /api/students - List students with search, filters & overdue check
 export async function GET(req: NextRequest) {
@@ -66,26 +66,33 @@ export async function GET(req: NextRequest) {
       Student.countDocuments(filter),
     ]);
 
-    // Check overdue installments & fetch assessments for returned students
+    // Check overdue stages from Accounts StudentFeePlan & fetch assessments for returned students
     const studentIds = rawStudents.map((s) => s._id);
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
-    const [overdueInstallments, assessments] = await Promise.all([
-      Installment.find({
-        student_id: { $in: studentIds },
-        due_date: { $lt: startOfToday },
-        status: { $ne: 'Paid' },
-        $expr: { $lt: ['$paid_amount', '$amount'] },
-      }).select('student_id'),
+    const [feePlans, assessments] = await Promise.all([
+      StudentFeePlan.find({
+        studentId: { $in: studentIds },
+        isDeleted: { $ne: true },
+      })
+        .select('studentId netPayablePaisa totalPaidPaisa totalRefundedPaisa totalDuePaisa status stages')
+        .lean(),
       BatchAssessment.find({
         student_id: { $in: studentIds },
       }).lean(),
     ]);
 
-    const overdueStudentIdSet = new Set(
-      overdueInstallments.map((i) => i.student_id.toString())
-    );
+    const planByStudentMap = new Map<string, any>();
+    const overdueStudentIdSet = new Set<string>();
+    for (const p of feePlans) {
+      planByStudentMap.set(p.studentId.toString(), p);
+      const hasLateStage = (p.stages || []).some(
+        (st: any) =>
+          (st.amountPaisa || 0) - (st.paidPaisa || 0) > 0 && new Date(st.dueDate) < startOfToday
+      );
+      if (hasLateStage) overdueStudentIdSet.add(p.studentId.toString());
+    }
 
     const assessmentMap = new Map<string, any>();
     for (const a of assessments) {
@@ -95,11 +102,26 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    const students = rawStudents.map((s: any) => ({
-      ...s,
-      is_overdue: (s.total_due || 0) > 0 && overdueStudentIdSet.has(s._id.toString()),
-      assessment: assessmentMap.get(s._id.toString()) || null,
-    }));
+    const students = rawStudents.map((s: any) => {
+      const plan = planByStudentMap.get(s._id.toString());
+      const netPayable = plan ? paisaToTaka(plan.netPayablePaisa) : (s.fee_snapshot?.total_payable || 0);
+      const totalPaid = plan
+        ? paisaToTaka(Math.max(0, plan.totalPaidPaisa - (plan.totalRefundedPaisa || 0)))
+        : (s.total_paid || 0);
+      const totalDue = plan ? paisaToTaka(plan.totalDuePaisa) : (s.total_due || 0);
+      return {
+        ...s,
+        fee_snapshot: {
+          ...(s.fee_snapshot || {}),
+          total_payable: netPayable,
+        },
+        total_paid: totalPaid,
+        total_due: totalDue,
+        accounts_plan_status: plan?.status || null,
+        is_overdue: totalDue > 0 && overdueStudentIdSet.has(s._id.toString()),
+        assessment: assessmentMap.get(s._id.toString()) || null,
+      };
+    });
 
     return NextResponse.json({
       success: true,
@@ -179,21 +201,14 @@ export async function POST(req: NextRequest) {
       destination_country,
       destination_contract_years,
 
-      // Fees
+      // Accounts Fee Package Selection (no direct fee collection in Admission)
+      fee_template_id,
       admission_fee,
       course_fee,
       visa_cost,
       govt_fee,
       discount,
-
-      // First Payment
-      paid_now,
-      payment_method,
-      payment_reference,
-      payment_note,
-
-      // Installments
-      installment_count,
+      discount_reason,
 
       // HRM Agent Referral
       referred_by_agent,
@@ -254,16 +269,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Fee Calculation (PRD Section 7)
-    const admFee = Math.round(Number(admission_fee || 0));
-    const crsFee = Math.round(Number(course_fee || 0));
-    const vCost = Math.round(Number(visa_cost || 0));
-    const gFee = Math.round(Number(govt_fee || 0));
-    const disc = Math.round(Number(discount || 0));
-
-    const totalPayable = Math.max(0, admFee + crsFee + vCost + gFee - disc);
-    const paidNowAmount = Math.min(Math.max(0, Math.round(Number(paid_now || 0))), totalPayable);
-    const remainingDue = totalPayable - paidNowAmount;
+    // 2. Fee totals are owned by Accounts (createStudentFeePlanOnAdmission below).
+    // Admission never collects money or writes payments directly.
+    const admFee = Math.max(0, Math.round(Number(admission_fee || 0)));
+    const crsFee = Math.max(0, Math.round(Number(course_fee || 0)));
+    const vCost = Math.max(0, Math.round(Number(visa_cost || 0)));
+    const gFee = Math.max(0, Math.round(Number(govt_fee || 0)));
+    const requestedDiscount = Math.max(0, Math.round(Number(discount || 0)));
 
     // 3. Generate Auto Student ID (ST-YYYY-0001)
     const studentNo = await generateStudentId();
@@ -333,18 +345,18 @@ export async function POST(req: NextRequest) {
       destination_contract_years: Number(destination_contract_years || 0),
       status: 'Active',
 
-      // Fee Snapshot
+      // Read-only Fee Summary Cache (populated cleanly from Accounts below)
       fee_snapshot: {
-        admission_fee: admFee,
-        course_fee: crsFee,
-        visa_cost: vCost,
-        govt_fee: gFee,
-        discount: disc,
-        total_payable: totalPayable,
+        admission_fee: 0,
+        course_fee: 0,
+        visa_cost: 0,
+        govt_fee: 0,
+        discount: 0,
+        total_payable: 0,
       },
 
-      total_paid: paidNowAmount,
-      total_due: remainingDue,
+      total_paid: 0,
+      total_due: 0,
       referred_by_agent: referred_by_agent && referred_by_agent !== '' ? referred_by_agent : null,
       created_by: auth.user.name,
     });
@@ -399,58 +411,51 @@ export async function POST(req: NextRequest) {
     });
     await StudentDocument.insertMany(documentRecords);
 
-    // 6. Record First Payment & Receipt (if paid_now > 0)
-    let receiptRecord = null;
-    if (paidNowAmount > 0) {
-      const receiptNo = await generateReceiptNo();
-      receiptRecord = await Payment.create({
-        receipt_no: receiptNo,
-        student_id: newStudent._id,
-        amount: paidNowAmount,
-        method: payment_method || 'Cash',
-        reference: payment_reference || '',
-        payment_date: admission_date ? new Date(admission_date) : new Date(),
-        note: payment_note || 'Admission First Payment',
-        created_by: auth.user.name,
-      });
-
-      await createAuditLog({
-        user: auth.user,
-        action: 'PAYMENT_RECORDED',
-        entity: 'Payment',
-        entityId: receiptRecord._id.toString(),
-        newValues: {
-          receipt_no: receiptNo,
-          student_no: newStudent.student_no,
-          amount: paidNowAmount,
-          method: payment_method,
-        },
-      });
+    // 6. Emit Admission event to Accounts to create StudentFeePlan & post Receivable Journal Entry
+    let feePlanResult: Awaited<ReturnType<typeof createStudentFeePlanOnAdmission>> = {
+      plan: null,
+      entry: null,
+      duplicate: false,
+      skipped: true,
+    };
+    if (fee_template_id || admFee + crsFee + vCost + gFee > 0) {
+      try {
+        feePlanResult = await createStudentFeePlanOnAdmission({
+          studentId: newStudent._id.toString(),
+          templateId: fee_template_id || null,
+          tradeName: trade_name.trim(),
+          destinationCountry: destination_country || 'Not decided yet',
+          admissionDate: admission_date,
+          fallbackFeeTotals: !fee_template_id
+            ? {
+                admissionFeeTaka: admFee,
+                courseFeeTaka: crsFee,
+                visaCostTaka: vCost,
+                govtFeeTaka: gFee,
+              }
+            : undefined,
+          discountTaka: requestedDiscount,
+          discountReason: discount_reason || 'Requested on admission',
+          user: auth.user,
+        });
+      } catch (acctErr: any) {
+        await Promise.all([
+          StudentDocument.deleteMany({ student_id: newStudent._id }),
+          Student.findByIdAndDelete(newStudent._id),
+        ]);
+        return NextResponse.json(
+          {
+            success: false,
+            message: acctErr?.message || 'Accounts rejected fee plan creation (check open period / template).',
+          },
+          { status: 400 }
+        );
+      }
     }
 
-    // 7. Generate Installments (always create at least 1 installment if remainingDue > 0)
-    const installCount = Math.max(1, parseInt(installment_count || '1', 10) || 1);
-    let installmentRecords: any[] = [];
-    if (remainingDue > 0) {
-      const calculated = calculateInstallments(
-        remainingDue,
-        installCount,
-        admission_date ? new Date(admission_date) : new Date()
-      );
+    const totalBilledTaka = feePlanResult.plan ? paisaToTaka(feePlanResult.plan.totalBilledPaisa) : 0;
 
-      const toInsert = calculated.map((item) => ({
-        student_id: newStudent._id,
-        installment_no: item.number,
-        due_date: new Date(item.dueDate),
-        amount: item.amount,
-        paid_amount: 0,
-        status: 'Pending',
-      }));
-
-      installmentRecords = await Installment.insertMany(toInsert);
-    }
-
-    // 8. Auto-link to Batch Assessment if matching Batch exists
+    // 7. Auto-link to Batch Assessment if matching Batch exists
     if (batch && batch.trim()) {
       try {
         const matchedBatch = await Batch.findOne({
@@ -468,7 +473,7 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // 9. Audit Log for Admission
+    // 8. Audit Log for Admission
     await createAuditLog({
       user: auth.user,
       action: 'ADMISSION_CREATED',
@@ -478,18 +483,18 @@ export async function POST(req: NextRequest) {
         student_no: newStudent.student_no,
         name: newStudent.name,
         trade: newStudent.trade_name,
-        total_payable: totalPayable,
-        paid_now: paidNowAmount,
-        installments: installCount,
+        accounts_plan_no: feePlanResult.plan?.planNo || null,
+        total_billed: totalBilledTaka,
       },
     });
+
+    const refreshedStudent = await Student.findById(newStudent._id).lean();
 
     return NextResponse.json({
       success: true,
       message: `Student admitted successfully with ID: ${studentNo}`,
-      student: newStudent,
-      receipt: receiptRecord,
-      installments: installmentRecords,
+      student: refreshedStudent || newStudent,
+      feePlan: feePlanResult.plan,
     });
   } catch (error: any) {
     console.error('Admission error:', error);

@@ -43,15 +43,15 @@ export async function POST(req: NextRequest) {
     const { country, trade_id, visa_days, visa_cost, govt_fee, contract_years } =
       await req.json();
 
-    if (!country || !trade_id || visa_days === undefined || visa_cost === undefined) {
+    if (!country || !trade_id || visa_days === undefined) {
       return NextResponse.json(
-        { success: false, message: 'Missing required country cost fields' },
+        { success: false, message: 'Country, trade_id, and visa_days are required' },
         { status: 400 }
       );
     }
 
-    const vCost = Math.round(Number(visa_cost));
-    const gFee = Math.round(Number(govt_fee || 0));
+    const vCost = Math.max(0, Math.round(Number(visa_cost || 0)));
+    const gFee = Math.max(0, Math.round(Number(govt_fee || 0)));
     const total = vCost + gFee;
 
     await connectDB();

@@ -7,8 +7,11 @@ import { Payment } from '@/models/Payment';
 import { StudentDocument } from '@/models/StudentDocument';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Batch } from '@/models/Batch';
-import { CountryCost } from '@/models/CountryCost';
 import { Employee } from '@/models/Employee';
+import { StudentFeePlan } from '@/models/StudentFeePlan';
+import { MoneyReceipt } from '@/models/MoneyReceipt';
+import { FeeRefund } from '@/models/FeeRefund';
+import { JournalEntry } from '@/models/JournalEntry';
 import { isWithin6Months } from '@/lib/formatters';
 
 // GET /api/students/[id] - Full profile
@@ -30,14 +33,25 @@ export async function GET(
       return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
     }
 
-    const [installments, payments, documents, assessment, batch] = await Promise.all([
-      Installment.find({ student_id: id }).sort({ installment_no: 1 }),
-      Payment.find({ student_id: id }).sort({ payment_date: -1 }),
+    void JournalEntry;
+
+    const [documents, assessment, batch, feePlan, receipts, refunds] = await Promise.all([
       StudentDocument.find({ student_id: id }).sort({ createdAt: 1 }),
       BatchAssessment.findOne({ student_id: id }).lean(),
       Batch.findOne({
         $or: [{ batch_code: student.batch }, { name: student.batch }],
       }).lean(),
+      StudentFeePlan.findOne({ studentId: id, isDeleted: { $ne: true } })
+        .populate('invoiceJournalEntryId', 'voucherNo entryDate')
+        .lean(),
+      MoneyReceipt.find({ studentId: id, isDeleted: { $ne: true } })
+        .populate('journalEntryId', 'voucherNo entryDate')
+        .sort({ receiptDate: -1 })
+        .lean(),
+      FeeRefund.find({ studentId: id, isDeleted: { $ne: true } })
+        .populate('journalEntryId', 'voucherNo entryDate')
+        .sort({ refundDate: -1 })
+        .lean(),
     ]);
 
     // Check passport 6-month expiry alert (PRD Section 5.7)
@@ -46,20 +60,21 @@ export async function GET(
     return NextResponse.json({
       success: true,
       student,
-      installments,
-      payments,
+      feePlan,
+      receipts,
+      refunds,
       documents,
       assessment: assessment
         ? {
-            ...assessment,
-            _id: assessment._id.toString(),
-          }
+          ...assessment,
+          _id: assessment._id.toString(),
+        }
         : null,
       batch: batch
         ? {
-            ...batch,
-            _id: batch._id.toString(),
-          }
+          ...batch,
+          _id: batch._id.toString(),
+        }
         : null,
       passportExpiringSoon,
     });
@@ -165,110 +180,9 @@ export async function PUT(
         body.referred_by_agent && body.referred_by_agent !== '' ? body.referred_by_agent : null;
     }
 
-    // Server-side auto-lookup if destination_country changed/set to a real country and visa_cost was 0 and not manually overridden
-    let autoVisaCost = body.visa_cost;
-    let autoGovtFee = body.govt_fee;
-    if (
-      body.destination_country &&
-      body.destination_country !== 'Not decided yet' &&
-      body.destination_country !== prevCountry &&
-      body.visa_cost === undefined &&
-      (student.fee_snapshot?.visa_cost || 0) === 0
-    ) {
-      const rate =
-        (await CountryCost.findOne({
-          country: body.destination_country.trim(),
-          trade_id: student.trade_id,
-        }).lean()) ||
-        (await CountryCost.findOne({ country: body.destination_country.trim() }).lean());
-
-      if (rate) {
-        autoVisaCost = rate.visa_cost;
-        autoGovtFee = rate.govt_fee;
-        if (body.destination_contract_years === undefined) {
-          student.destination_contract_years = rate.contract_years;
-        }
-      }
-    }
-
-    // Optional Visa / Country / Fee Package update (e.g. course-only student later includes Visa & Country)
-    const hasFeeUpdate =
-      body.admission_fee !== undefined ||
-      body.course_fee !== undefined ||
-      autoVisaCost !== undefined ||
-      autoGovtFee !== undefined ||
-      body.discount !== undefined;
-
-    if (hasFeeUpdate) {
-      const adm = Math.max(0, Math.round(Number(body.admission_fee ?? student.fee_snapshot.admission_fee)));
-      const crs = Math.max(0, Math.round(Number(body.course_fee ?? student.fee_snapshot.course_fee)));
-      const visa = Math.max(0, Math.round(Number(autoVisaCost ?? student.fee_snapshot.visa_cost)));
-      const govt = Math.max(0, Math.round(Number(autoGovtFee ?? student.fee_snapshot.govt_fee)));
-      const disc = Math.max(0, Math.round(Number(body.discount ?? student.fee_snapshot.discount)));
-      const newPayable = Math.max(0, adm + crs + visa + govt - disc);
-
-      if (newPayable < student.total_paid) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: `New total payable (৳${newPayable}) cannot be less than already paid amount (৳${student.total_paid}).`,
-          },
-          { status: 400 }
-        );
-      }
-
-      const oldDue = student.total_due;
-      const newDue = newPayable - student.total_paid;
-      const deltaDue = newDue - oldDue;
-
-      student.fee_snapshot = {
-        admission_fee: adm,
-        course_fee: crs,
-        visa_cost: visa,
-        govt_fee: govt,
-        discount: disc,
-        total_payable: newPayable,
-      };
-      student.total_due = newDue;
-
-      // Keep Installments synchronized with new total_due
-      if (deltaDue > 0) {
-        const lastInst = await Installment.findOne({ student_id: id }).sort({ installment_no: -1 });
-        const dueDate = body.visa_due_date
-          ? new Date(body.visa_due_date)
-          : new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
-
-        await Installment.create({
-          student_id: student._id,
-          installment_no: (lastInst?.installment_no || 0) + 1,
-          due_date: dueDate,
-          amount: deltaDue,
-          paid_amount: 0,
-          status: 'Pending',
-        });
-      } else if (deltaDue < 0) {
-        let toReduce = Math.abs(deltaDue);
-        const unpaidInsts = await Installment.find({
-          student_id: id,
-          status: { $ne: 'Paid' },
-        }).sort({ installment_no: -1 });
-
-        for (const inst of unpaidInsts) {
-          if (toReduce <= 0) break;
-          const rem = Math.max(0, inst.amount - (inst.paid_amount || 0));
-          const cut = Math.min(rem, toReduce);
-          if (cut > 0) {
-            inst.amount -= cut;
-            toReduce -= cut;
-            if (inst.amount <= (inst.paid_amount || 0)) {
-              inst.status = 'Paid';
-              inst.paid_on = inst.paid_on || new Date();
-            }
-            await inst.save();
-          }
-        }
-      }
-    }
+    // Ownership boundary: fee packages, discounts, installments, and payments are owned by Accounts.
+    // Admission profile edits update descriptive fields only (never money totals).
+    void prevCountry;
 
     await student.save();
 
@@ -283,8 +197,6 @@ export async function PUT(
         passport_no: student.passport_no,
         passport_expiry_date: student.passport_expiry_date,
         destination_country: student.destination_country,
-        fee_snapshot: student.fee_snapshot,
-        total_due: student.total_due,
         batch: student.batch,
       },
     });
@@ -317,6 +229,23 @@ export async function DELETE(
     const student = await Student.findById(id);
     if (!student) {
       return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
+    }
+
+    const [hasPlan, hasReceipts, hasRefunds] = await Promise.all([
+      StudentFeePlan.countDocuments({ studentId: id, isDeleted: { $ne: true } }),
+      MoneyReceipt.countDocuments({ studentId: id, isDeleted: { $ne: true } }),
+      FeeRefund.countDocuments({ studentId: id, isDeleted: { $ne: true } }),
+    ]);
+
+    if (hasPlan > 0 || hasReceipts > 0 || hasRefunds > 0) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Financial records exist in Accounts for this student. Hard deletion is forbidden; mark status Cancelled/Dropped and process a Credit Note or Refund in Accounts.',
+        },
+        { status: 409 }
+      );
     }
 
     await Promise.all([

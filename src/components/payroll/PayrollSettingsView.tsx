@@ -24,7 +24,7 @@ const MONTHS = [
   'July', 'August', 'September', 'October', 'November', 'December',
 ];
 
-const LEAVE_TYPES = ['Casual', 'Sick', 'Earned', 'Emergency', 'Unpaid'] as const;
+const LEAVE_TYPES = ['Casual', 'Sick', 'Earned', 'Emergency'] as const;
 
 export function PayrollSettingsView() {
   const { user } = useAuth();
@@ -86,7 +86,9 @@ export function PayrollSettingsView() {
       late_count_per_absent: s.late_count_per_absent || 3,
       extra_late_fixed_fine: s.extra_late_fixed_fine || 0,
       sandwich_rule_enabled: Boolean(s.sandwich_rule_enabled),
-      paid_leave_types: s.paid_leave_types || ['Casual', 'Sick', 'Earned', 'Emergency'],
+      paid_leave_types: (s.paid_leave_types || ['Casual', 'Sick', 'Earned', 'Emergency']).filter(
+        (t: string) => t !== 'Unpaid'
+      ),
       overtime_basis: s.overtime_basis || 'basic',
       overtime_multiplier: s.overtime_multiplier || 2,
       overtime_hours_per_day: s.overtime_hours_per_day || 8,
@@ -680,7 +682,7 @@ export function PayrollSettingsView() {
                 ))}
               </div>
               <p className="text-[11px] text-slate-400 mt-1">
-                Leave types left unchecked are treated as unpaid and deducted like absence.
+                Checked leave types carry 0 deduction. Unchecked types &amp; &quot;Unpaid&quot; leave are deducted like absence.
               </p>
             </div>
 

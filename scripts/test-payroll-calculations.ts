@@ -326,6 +326,39 @@ function runUnitTests() {
     'evaluatePayrollFormula and computePercentChange pass'
   );
 
+  // 13. exact_paisa rounding note & 1-paisa proration reconciliation
+  const exactHalfRes = calculatePayslipPure({
+    month: 11,
+    year: 2026,
+    settings: makeSettings({ absence_deduction_basis: 'gross', days_basis: 'calendar', rounding_mode: 'exact_paisa' }),
+    contractBasic: 20000,
+    rules: [
+      { name: 'Basic Salary', code: 'BASIC', category: 'BASIC', type: 'fixed', amount_or_percentage: 20000, sequence: 10, active: true },
+      { name: 'Allowance', code: 'ALLOW', category: 'ALLOWANCE', type: 'fixed', amount_or_percentage: 6000, sequence: 20, active: true },
+    ],
+    contractStart: new Date('2026-01-01T00:00:00Z'),
+    attendance: { ...zeroAtt, halfDays: 1 },
+    monthlyInput: {},
+  });
+  const exactProrateRes = calculatePayslipPure({
+    month: 11,
+    year: 2026,
+    settings: makeSettings({ days_basis: 'calendar', prorate_mid_month: true, rounding_mode: 'exact_paisa' }),
+    contractBasic: 20000,
+    rules: TEST_RULES_30K,
+    contractStart: new Date('2026-11-11T00:00:00Z'),
+    joiningDate: new Date('2026-11-11T00:00:00Z'),
+    attendance: zeroAtt,
+    monthlyInput: {},
+  });
+  assert(
+    exactHalfRes.lines.find((l) => l.code === 'HALFDED')?.amount === 433.33 &&
+      Boolean(exactHalfRes.lines.find((l) => l.code === 'HALFDED')?.calculation_note?.includes('433.33')) &&
+      exactProrateRes.gross_pay === 20000,
+    'exact_paisa formats 2 decimals in calculation_note (433.33) and reconciles prorated gross to exact 20,000',
+    `halfAmt=${exactHalfRes.lines.find((l) => l.code === 'HALFDED')?.amount}, note=${exactHalfRes.lines.find((l) => l.code === 'HALFDED')?.calculation_note}, prorateGross=${exactProrateRes.gross_pay}`
+  );
+
   console.log('\n====================================================');
   console.log(`UNIT TEST SUMMARY: ${passCount} passed, ${failCount} failed`);
   console.log('====================================================');

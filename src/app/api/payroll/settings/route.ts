@@ -83,7 +83,7 @@ export async function POST(req: NextRequest) {
     const lateCount = Number(body.late_count_per_absent);
     const extraLateFine = Number(body.extra_late_fixed_fine || 0);
     const sandwichEnabled = Boolean(body.sandwich_rule_enabled);
-    const validLeaveSet = new Set<LeaveType>(['Casual', 'Sick', 'Earned', 'Emergency', 'Unpaid']);
+    const validLeaveSet = new Set<LeaveType>(['Casual', 'Sick', 'Earned', 'Emergency']);
     const paidLeaveTypes: LeaveType[] = Array.isArray(body.paid_leave_types)
       ? body.paid_leave_types
           .map((l: any) => String(l).trim() as LeaveType)

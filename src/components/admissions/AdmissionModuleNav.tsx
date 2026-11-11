@@ -6,7 +6,6 @@ import { usePathname } from 'next/navigation';
 import {
   UserPlus,
   Users2,
-  Banknote,
   GraduationCap,
   Globe2,
 } from 'lucide-react';
@@ -17,9 +16,8 @@ export function AdmissionModuleNav() {
   const tabs = [
     { label: 'New Admission', href: '/admissions/new', icon: UserPlus },
     { label: 'Students Directory', href: '/students', icon: Users2 },
-    { label: 'Installment Collection', href: '/installments', icon: Banknote },
     { label: 'Batches & Assessment', href: '/batches', icon: GraduationCap },
-    { label: 'Trades & Visa Costs', href: '/trades', icon: Globe2 },
+    { label: 'Trades & Countries', href: '/trades', icon: Globe2 },
   ];
 
   return (
@@ -49,4 +47,3 @@ export function AdmissionModuleNav() {
     </div>
   );
 }
-

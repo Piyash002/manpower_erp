@@ -2,12 +2,13 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Student } from '@/models/Student';
+import { StudentFeePlan } from '@/models/StudentFeePlan';
 import { Installment } from '@/models/Installment';
-import { Payment } from '@/models/Payment';
 import { AuditLog } from '@/models/AuditLog';
 import { Trade } from '@/models/Trade';
 import { Batch } from '@/models/Batch';
 import { seedDatabase } from '@/lib/seed';
+import { paisaToTaka } from '@/lib/accounts-money';
 
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
@@ -95,30 +96,48 @@ export async function GET(req: NextRequest) {
 
     const studentIds = filteredStudents.map((s) => s._id);
 
-    // Fetch installments for these students to get upcoming due & overdue status
-    const installments = await Installment.find({
-      student_id: { $in: studentIds },
-    }).sort({ due_date: 1 });
+    // Fetch authoritative Accounts Fee Plans (fallback to legacy Installments only if a student has no plan)
+    const [feePlans, legacyInstallments] = await Promise.all([
+      StudentFeePlan.find({
+        studentId: { $in: studentIds },
+        isDeleted: { $ne: true },
+      }).lean(),
+      Installment.find({
+        student_id: { $in: studentIds },
+      }).sort({ due_date: 1 }).lean(),
+    ]);
 
-    // Map next pending installment and overdue counts per student
+    const planByStudent = new Map<string, any>();
+    for (const p of feePlans) {
+      planByStudent.set(p.studentId.toString(), p);
+    }
+
     const installmentsByStudent: Record<string, any[]> = {};
     let overdueInstallmentsCount = 0;
 
-    installments.forEach((inst) => {
+    legacyInstallments.forEach((inst) => {
       const sid = inst.student_id.toString();
-      if (!installmentsByStudent[sid]) {
-        installmentsByStudent[sid] = [];
-      }
+      if (!installmentsByStudent[sid]) installmentsByStudent[sid] = [];
       installmentsByStudent[sid].push(inst);
     });
 
-    // Build enhanced candidates list with installment summary
+    // Build enhanced candidates list sourced from Accounts StudentFeePlan
     const candidateDuesSummary = filteredStudents.map((st) => {
-      const studentTotalFee = st.fee_snapshot?.total_payable || ((st.total_paid || 0) + (st.total_due || 0));
-      const studentHasDue = (st.total_due || 0) > 0;
+      const sid = st._id.toString();
+      const plan = planByStudent.get(sid);
+
+      const studentTotalFee = plan
+        ? paisaToTaka(plan.netPayablePaisa)
+        : st.fee_snapshot?.total_payable || ((st.total_paid || 0) + (st.total_due || 0));
+      const studentPaid = plan
+        ? paisaToTaka(Math.max(0, plan.totalPaidPaisa - (plan.totalRefundedPaisa || 0)))
+        : (st.total_paid || 0);
+      const studentDue = plan ? paisaToTaka(plan.totalDuePaisa) : (st.total_due || 0);
+
+      const studentHasDue = studentDue > 0;
       totalPayable += studentTotalFee;
-      totalCollected += st.total_paid || 0;
-      totalDue += st.total_due || 0;
+      totalCollected += studentPaid;
+      totalDue += studentDue;
 
       if (
         st.passport_expiry_date &&
@@ -128,23 +147,62 @@ export async function GET(req: NextRequest) {
         passportsExpiringSoonCount++;
       }
 
-      const stInstallments = installmentsByStudent[st._id.toString()] || [];
-      const pendingInst = studentHasDue
-        ? stInstallments.find(
-            (i) => i.status !== 'Paid' && (i.amount - (i.paid_amount || 0)) > 0
-          )
-        : null;
-
+      let pendingInst: any = null;
       let hasOverdue = false;
-      if (studentHasDue) {
-        for (const inst of stInstallments) {
-          if (
-            inst.status !== 'Paid' &&
-            new Date(inst.due_date) < startOfToday &&
-            (inst.amount - (inst.paid_amount || 0)) > 0
-          ) {
-            hasOverdue = true;
-            overdueInstallmentsCount++;
+
+      if (plan) {
+        const stages = [...(plan.stages || [])].sort((a, b) => a.stageNo - b.stageNo);
+        const nextStage = studentHasDue
+          ? stages.find((s) => (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0)
+          : null;
+        if (nextStage) {
+          pendingInst = {
+            installment_no: nextStage.stageNo,
+            due_date: nextStage.dueDate,
+            amount: paisaToTaka(nextStage.amountPaisa),
+            paid_amount: paisaToTaka(nextStage.paidPaisa),
+            remaining: paisaToTaka((nextStage.amountPaisa || 0) - (nextStage.paidPaisa || 0)),
+            isOverdue: new Date(nextStage.dueDate) < startOfToday,
+          };
+        }
+        if (studentHasDue) {
+          for (const s of stages) {
+            if (
+              (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0 &&
+              new Date(s.dueDate) < startOfToday
+            ) {
+              hasOverdue = true;
+              overdueInstallmentsCount++;
+            }
+          }
+        }
+      } else {
+        const stInstallments = installmentsByStudent[sid] || [];
+        const rawPending = studentHasDue
+          ? stInstallments.find(
+              (i) => i.status !== 'Paid' && (i.amount - (i.paid_amount || 0)) > 0
+            )
+          : null;
+        if (rawPending) {
+          pendingInst = {
+            installment_no: rawPending.installment_no,
+            due_date: rawPending.due_date,
+            amount: rawPending.amount,
+            paid_amount: rawPending.paid_amount,
+            remaining: rawPending.amount - (rawPending.paid_amount || 0),
+            isOverdue: new Date(rawPending.due_date) < startOfToday,
+          };
+        }
+        if (studentHasDue) {
+          for (const inst of stInstallments) {
+            if (
+              inst.status !== 'Paid' &&
+              new Date(inst.due_date) < startOfToday &&
+              (inst.amount - (inst.paid_amount || 0)) > 0
+            ) {
+              hasOverdue = true;
+              overdueInstallmentsCount++;
+            }
           }
         }
       }
@@ -159,21 +217,12 @@ export async function GET(req: NextRequest) {
         batch: st.batch,
         destination_country: st.destination_country,
         total_fee: studentTotalFee,
-        total_paid: st.total_paid,
-        total_due: st.total_due,
+        total_paid: studentPaid,
+        total_due: studentDue,
         admission_date: st.admission_date,
         status: st.status,
         hasOverdue,
-        nextInstallment: pendingInst
-          ? {
-              installment_no: pendingInst.installment_no,
-              due_date: pendingInst.due_date,
-              amount: pendingInst.amount,
-              paid_amount: pendingInst.paid_amount,
-              remaining: pendingInst.amount - (pendingInst.paid_amount || 0),
-              isOverdue: new Date(pendingInst.due_date) < startOfToday,
-            }
-          : null,
+        nextInstallment: pendingInst,
       };
     });
 

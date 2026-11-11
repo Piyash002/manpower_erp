@@ -157,7 +157,8 @@ export async function computeEmployeePayslipData({
         (d.worked_hours > 0 &&
           d.worked_hours < halfDayThreshold &&
           d.status !== 'Leave' &&
-          d.status !== 'Holiday')
+          d.status !== 'Holiday' &&
+          d.status !== 'Weekend')
       ) {
         halfDays++;
       } else if (d.status === 'Present') {
@@ -219,7 +220,7 @@ export async function computeEmployeePayslipData({
   let unpaidLeaveDays = 0;
   for (const lv of leaveDocs) {
     const days = countOverlapDays(new Date(lv.start_date), new Date(lv.end_date), monthStart, monthEnd);
-    const isPaidType = paidLeaveTypeSet.has(lv.leave_type as LeaveType);
+    const isPaidType = lv.leave_type !== 'Unpaid' && paidLeaveTypeSet.has(lv.leave_type as LeaveType);
     if (!isPaidType) unpaidLeaveDays += days;
     else paidLeaveDays += days;
   }
@@ -371,14 +372,19 @@ export function detectRunWarnings(
   return warnings;
 }
 
-export async function onPayrollRunConfirmed(_context: {
+export async function onPayrollRunConfirmed(context: {
   runId: string;
   month: number;
   year: number;
   branch: string;
   totalNetPay: number;
+  user?: { userId?: string; name?: string; username?: string; role?: string };
 }): Promise<void> {
-  void _context;
+  const { postPayrollConfirmAccrual } = await import('@/lib/accounts/payroll');
+  await postPayrollConfirmAccrual({
+    runId: context.runId,
+    user: context.user || { userId: 'system', name: 'Payroll System', role: 'Admin' },
+  });
 }
 
 export async function assertNoDuplicatePayslip(employeeId: string, month: number, year: number) {

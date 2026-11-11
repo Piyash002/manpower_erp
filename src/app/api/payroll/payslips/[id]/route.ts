@@ -253,8 +253,15 @@ export async function PUT(
       if (nextStatus === 'Confirmed' && role !== 'Admin') {
         return NextResponse.json({ success: false, message: 'Only Admin can confirm.' }, { status: 403 });
       }
-      if (nextStatus === 'Paid' && !['Admin', 'Accountant'].includes(role)) {
-        return NextResponse.json({ success: false, message: 'Only Accountant or Admin can mark Paid.' }, { status: 403 });
+      if (nextStatus === 'Paid') {
+        return NextResponse.json(
+          {
+            success: false,
+            message:
+              'Salary disbursement belongs to Accounts. Use Accounts → Salary Disbursement (/accounts/payroll) to pay Confirmed payroll.',
+          },
+          { status: 400 }
+        );
       }
 
       const allowedTransitions: Record<PayslipStatus, PayslipStatus[]> = {
@@ -283,12 +290,6 @@ export async function PUT(
       } else if (nextStatus === 'Confirmed') {
         payslip.confirmed_by = auth.user.name;
         payslip.confirmed_at = new Date();
-      } else if (nextStatus === 'Paid') {
-        payslip.payment_method = (body.payment_method || payslip.payment_method || 'Bank') as PaymentMethodType;
-        payslip.payment_date = body.payment_date ? new Date(body.payment_date) : new Date();
-        payslip.payment_reference = String(body.payment_reference || 'DISBURSED').trim();
-        payslip.paid_by = auth.user.name;
-        payslip.paid_at = new Date();
       }
     }
 

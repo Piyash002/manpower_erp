@@ -3,9 +3,11 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { PayslipBatch } from '@/models/PayslipBatch';
 import { Payslip } from '@/models/Payslip';
-import { Employee, PaymentMethodType } from '@/models/Employee';
+import { Employee } from '@/models/Employee';
 import { EmployeeContract } from '@/models/EmployeeContract';
 import { SalaryStructure } from '@/models/SalaryStructure';
+import { JournalEntry } from '@/models/JournalEntry';
+import { reversePayrollConfirmAccrual } from '@/lib/accounts/payroll';
 import {
   computeEmployeePayslipData,
   computePercentChange,
@@ -157,9 +159,17 @@ export async function GET(
         }
       : null;
 
+    const accountsVouchers = await JournalEntry.find({
+      sourceModule: { $in: ['PAYROLL_CONFIRM', 'PAYROLL_PAY'] },
+      sourceId: id,
+      isDeleted: { $ne: true },
+    })
+      .select('voucherNo sourceModule status entryDate totalDebitPaisa')
+      .lean();
+
     return NextResponse.json({
       success: true,
-      data: { batch, payslips, previousRun, deltas },
+      data: { batch, payslips, previousRun, deltas, accountsVouchers },
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -351,6 +361,17 @@ export async function PUT(
           { status: 400 }
         );
       }
+
+      // Post Salary Expense Dr / Salary Payable Cr in Accounts BEFORE locking HRM state
+      await onPayrollRunConfirmed({
+        runId: batch._id.toString(),
+        month: batch.month,
+        year: batch.year,
+        branch: batch.branch || 'Main',
+        totalNetPay: batch.total_net_pay || 0,
+        user: auth.user,
+      });
+
       const res = await Payslip.updateMany(
         { batch_id: id, status: { $in: ['Draft', 'Verified'] } },
         { $set: { status: 'Confirmed', confirmed_by: auth.user.name, confirmed_at: new Date() } }
@@ -359,59 +380,15 @@ export async function PUT(
       batch.status = 'Confirmed';
       batch.confirmed_by = auth.user.name;
       batch.confirmed_at = new Date();
-
-      // Future extensibility hook (accounting journal, TDS, PF)
-      await onPayrollRunConfirmed({
-        runId: batch._id.toString(),
-        month: batch.month,
-        year: batch.year,
-        branch: batch.branch || 'Main',
-        totalNetPay: batch.total_net_pay || 0,
-      });
     } else if (action === 'pay') {
-      if (batch.status !== 'Confirmed') {
-        return NextResponse.json(
-          { success: false, message: `Payroll run must be Confirmed before marking Paid.` },
-          { status: 400 }
-        );
-      }
-
-      const paymentMethod = (body.payment_method || 'Bank') as PaymentMethodType;
-      if (!['Bank', 'bKash', 'Nagad', 'Cash'].includes(paymentMethod)) {
-        return NextResponse.json(
-          { success: false, message: 'Valid payment_method (Bank, bKash, Nagad, Cash) is required.' },
-          { status: 400 }
-        );
-      }
-      const paymentDate = body.payment_date ? new Date(body.payment_date) : new Date();
-      const paymentReference = String(body.payment_reference || '').trim();
-      if (!paymentReference) {
-        return NextResponse.json(
-          { success: false, message: 'Payment reference (bank advice / transaction ID) is required.' },
-          { status: 400 }
-        );
-      }
-
-      const res = await Payslip.updateMany(
-        { batch_id: id, status: 'Confirmed' },
+      return NextResponse.json(
         {
-          $set: {
-            status: 'Paid',
-            payment_method: paymentMethod,
-            payment_date: paymentDate,
-            payment_reference: paymentReference,
-            paid_by: auth.user.name,
-            paid_at: new Date(),
-          },
-        }
+          success: false,
+          message:
+            'Salary disbursement belongs to Accounts. Use Accounts → Salary Disbursement (/accounts/payroll) to pay Confirmed payroll runs and post Payment Vouchers.',
+        },
+        { status: 400 }
       );
-      updatedPayslips = res.modifiedCount;
-      batch.status = 'Paid';
-      batch.payment_method = paymentMethod;
-      batch.payment_date = paymentDate;
-      batch.payment_reference = paymentReference;
-      batch.paid_by = auth.user.name;
-      batch.paid_at = new Date();
     } else if (action === 'reverse') {
       if (batch.status !== 'Confirmed') {
         return NextResponse.json(
@@ -429,6 +406,13 @@ export async function PUT(
           { status: 400 }
         );
       }
+
+      // Reverse linked Accounts accrual voucher first so open-period checks apply atomically
+      await reversePayrollConfirmAccrual({
+        runId: batch._id.toString(),
+        reason,
+        user: auth.user,
+      });
 
       const origSlips = await Payslip.find({ batch_id: id, status: 'Confirmed' });
       const revTime = new Date();

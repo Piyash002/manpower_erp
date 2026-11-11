@@ -426,35 +426,30 @@ export async function PUT(req: NextRequest) {
     if (action === 'confirm' && role !== 'Admin') {
       return NextResponse.json({ success: false, message: 'Only Admin can confirm payslips.' }, { status: 403 });
     }
-    if (action === 'pay' && !['Admin', 'Accountant'].includes(role)) {
-      return NextResponse.json({ success: false, message: 'Only Accountant or Admin can mark paid.' }, { status: 403 });
+    if (action === 'pay') {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            'Salary disbursement belongs to Accounts. Use Accounts → Salary Disbursement (/accounts/payroll) to pay Confirmed payroll runs.',
+        },
+        { status: 400 }
+      );
     }
 
     await connectDB();
     const slips = await Payslip.find({ _id: { $in: ids } });
-    const requiredCurrent: Record<typeof action, PayslipStatus> = {
+    const requiredCurrent: Record<'verify' | 'confirm', PayslipStatus> = {
       verify: 'Draft',
       confirm: 'Verified',
-      pay: 'Confirmed',
     };
-    const nextStatus: Record<typeof action, PayslipStatus> = {
+    const nextStatus: Record<'verify' | 'confirm', PayslipStatus> = {
       verify: 'Verified',
       confirm: 'Confirmed',
-      pay: 'Paid',
     };
 
     let updatedCount = 0;
     let skippedCount = 0;
-    const paymentMethod = (body.payment_method || 'Bank') as PaymentMethodType;
-    const paymentDate = body.payment_date ? new Date(body.payment_date) : new Date();
-    const paymentRef = String(body.payment_reference || '').trim();
-
-    if (action === 'pay' && !paymentRef) {
-      return NextResponse.json(
-        { success: false, message: 'Payment reference is required when marking payslips paid.' },
-        { status: 400 }
-      );
-    }
 
     for (const s of slips) {
       if (s.status !== requiredCurrent[action]) {
@@ -469,12 +464,6 @@ export async function PUT(req: NextRequest) {
       } else if (action === 'confirm') {
         s.confirmed_by = auth.user.name;
         s.confirmed_at = new Date();
-      } else if (action === 'pay') {
-        s.payment_method = paymentMethod;
-        s.payment_date = paymentDate;
-        s.payment_reference = paymentRef;
-        s.paid_by = auth.user.name;
-        s.paid_at = new Date();
       }
       await s.save();
       updatedCount++;
@@ -485,7 +474,7 @@ export async function PUT(req: NextRequest) {
         entity: 'Payslip',
         entityId: s._id.toString(),
         oldValues: { status: oldStatus },
-        newValues: { status: s.status, ...(paymentRef ? { payment_reference: paymentRef } : {}) },
+        newValues: { status: s.status },
       });
     }
 

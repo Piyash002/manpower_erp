@@ -148,15 +148,10 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
             </>
           )}
 
-          {isAdmin && payslip.status === 'Confirmed' && (
-            <button
-              type="button"
-              disabled={busy}
-              onClick={() => handleAction({ status: 'Paid' })}
-              className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
-            >
-              <Banknote className="w-3.5 h-3.5" /> Mark Paid
-            </button>
+          {payslip.status === 'Confirmed' && (
+            <span className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-lg">
+              <Banknote className="w-3.5 h-3.5" /> Awaiting Accounts Disbursement
+            </span>
           )}
 
           <a

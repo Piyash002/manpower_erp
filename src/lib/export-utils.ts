@@ -515,3 +515,134 @@ export function buildPayslipPdfBuffer(payslip: any, companyName = 'Dreams ERP â€
   return Buffer.from(pdf, 'latin1');
 }
 
+/**
+ * Generates a print-ready A4 PDF Money Receipt buffer for Accounts Fee Collections.
+ */
+export function buildMoneyReceiptPdfBuffer(receipt: {
+  receiptNo: string;
+  voucherNo?: string;
+  receiptDate: string | Date;
+  amountTaka: number;
+  method: string;
+  reference?: string;
+  note?: string;
+  createdBy: string;
+  studentName: string;
+  studentNo: string;
+  mobile?: string;
+  tradeName?: string;
+  country?: string;
+  netPayableTaka: number;
+  totalPaidTaka: number;
+  totalDueTaka: number;
+  allocations?: Array<{ label: string; amountTaka: number }>;
+}): Buffer {
+  const cmds: string[] = [];
+  const text = (x: number, y: number, str: string, size = 10, bold = false) => {
+    const safe = String(str || '')
+      .replace(/\u09F3/g, 'BDT ')
+      .replace(/[^\x20-\x7E]/g, ' ')
+      .replace(/\\/g, '\\\\')
+      .replace(/\(/g, '\\(')
+      .replace(/\)/g, '\\)');
+    cmds.push(`BT /${bold ? 'F2' : 'F1'} ${size} Tf ${x} ${y} Td (${safe}) Tj ET`);
+  };
+  const rect = (x: number, y: number, w: number, h: number, fillRgb?: string) => {
+    if (fillRgb) {
+      cmds.push(`${fillRgb} rg ${x} ${y} ${w} ${h} re f 0 0 0 rg`);
+    } else {
+      cmds.push(`0.82 0.85 0.9 RG 0.7 w ${x} ${y} ${w} ${h} re S`);
+    }
+  };
+  const line = (x1: number, y1: number, x2: number, y2: number) => {
+    cmds.push(`0.82 0.85 0.9 RG 0.6 w ${x1} ${y1} m ${x2} ${y2} l S`);
+  };
+
+  const formatNum = (n: number) => {
+    const rounded = Math.round(Number(n || 0) * 100) / 100;
+    return `BDT ${rounded.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  };
+
+  // Header
+  rect(40, 748, 515, 58, '0.07 0.11 0.18');
+  cmds.push('1 1 1 rg');
+  text(54, 782, 'DREAMS MANPOWER & TRAINING ACADEMY', 14, true);
+  text(54, 764, 'Accounts Department - Official Money Receipt', 9, false);
+  text(415, 782, receipt.receiptNo, 12, true);
+  text(415, 764, receipt.voucherNo ? `JV/RV: ${receipt.voucherNo}` : 'Posted Receipt', 8.5, false);
+  cmds.push('0 0 0 rg');
+
+  // Receipt Meta & Candidate Card
+  rect(40, 628, 515, 105);
+  text(52, 714, `Candidate: ${receipt.studentName} (${receipt.studentNo})`, 10, true);
+  text(360, 714, `Receipt Date: ${formatDateDMY(receipt.receiptDate)}`, 9.5, true);
+  text(52, 695, `Trade: ${receipt.tradeName || '-'}  |  Destination: ${receipt.country || '-'}`, 9, false);
+  text(360, 695, `Mobile: ${receipt.mobile || '-'}`, 9, false);
+  line(40, 682, 555, 682);
+  text(52, 664, `Payment Method: ${receipt.method}`, 9.5, true);
+  text(250, 664, `Reference / TrxID: ${receipt.reference || '-'}`, 9, false);
+  text(52, 644, `Note: ${String(receipt.note || '-').slice(0, 82)}`, 8.5, false);
+
+  // Stage Allocations
+  let y = 595;
+  rect(40, y - 4, 515, 20, '0.94 0.96 0.98');
+  text(52, y + 2, 'STAGE / INSTALLMENT ALLOCATION', 9, true);
+  text(450, y + 2, 'APPLIED AMOUNT', 9, true);
+
+  y -= 20;
+  const allocs =
+    receipt.allocations && receipt.allocations.length > 0
+      ? receipt.allocations
+      : [{ label: 'Candidate Receivable Settlement (1210)', amountTaka: receipt.amountTaka }];
+
+  for (const a of allocs.slice(0, 8)) {
+    text(52, y, String(a.label).slice(0, 56), 9, false);
+    text(450, y, formatNum(a.amountTaka), 9, true);
+    line(40, y - 6, 555, y - 6);
+    y -= 20;
+  }
+
+  // Highlight Box: Received Amount
+  y -= 22;
+  rect(40, y, 515, 42, '0.92 0.98 0.95');
+  text(52, y + 23, `AMOUNT RECEIVED: ${formatNum(receipt.amountTaka)}`, 12, true);
+  text(52, y + 8, `In Words: ${amountInWords(receipt.amountTaka)}`, 9, false);
+
+  // Account Balance Summary
+  y -= 48;
+  rect(40, y, 515, 34);
+  text(52, y + 13, `Total Net Payable: ${formatNum(receipt.netPayableTaka)}`, 9, false);
+  text(230, y + 13, `Total Paid To Date: ${formatNum(receipt.totalPaidTaka)}`, 9, true);
+  text(405, y + 13, `Balance Due: ${formatNum(receipt.totalDueTaka)}`, 9, true);
+
+  // Footer
+  text(40, 58, `Received By: ${receipt.createdBy}  |  Printed: ${formatDateDMY(new Date())}`, 8, false);
+  text(425, 58, 'Accounts Officer Signature', 8.5, true);
+  line(415, 72, 545, 72);
+
+  const streamContent = cmds.join('\n');
+  const objects = [
+    '1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj',
+    '2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj',
+    '3 0 obj << /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R /F2 6 0 R >> >> >> endobj',
+    `4 0 obj << /Length ${Buffer.byteLength(streamContent, 'latin1')} >> stream\n${streamContent}\nendstream endobj`,
+    '5 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica >> endobj',
+    '6 0 obj << /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold >> endobj',
+  ];
+
+  let pdf = '%PDF-1.4\n';
+  const offsets: number[] = [0];
+  for (const obj of objects) {
+    offsets.push(Buffer.byteLength(pdf, 'latin1'));
+    pdf += obj + '\n';
+  }
+  const xrefPos = Buffer.byteLength(pdf, 'latin1');
+  pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (let i = 1; i <= objects.length; i++) {
+    pdf += `${String(offsets[i]).padStart(10, '0')} 00000 n \n`;
+  }
+  pdf += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xrefPos}\n%%EOF\n`;
+
+  return Buffer.from(pdf, 'latin1');
+}
+

@@ -46,7 +46,18 @@ export function fromPaisa(paisa: number, roundingMode: RoundingMode = 'nearest_t
   return Math.round(paisa / 100);
 }
 
-function formatNumComma(n: number): string {
+function formatNumComma(n: number, roundingMode: RoundingMode = 'nearest_taka'): string {
+  if (roundingMode === 'exact_paisa') {
+    const fixed = Math.round(n * 100) / 100;
+    const isNeg = fixed < 0;
+    const absStr = Math.abs(fixed).toFixed(2);
+    const [intPart, decPart] = absStr.split('.');
+    let last3 = intPart.slice(-3);
+    const rest = intPart.slice(0, -3);
+    if (rest) last3 = ',' + last3;
+    const formattedInt = `${rest.replace(/\B(?=(\d{2})+(?!\d))/g, ',')}${last3}`;
+    return `${isNeg ? '-' : ''}${decPart === '00' ? formattedInt : `${formattedInt}.${decPart}`}`;
+  }
   const rounded = Math.round(n);
   const abs = Math.abs(rounded).toString();
   let last3 = abs.slice(-3);
@@ -689,12 +700,13 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
   let totalAllowancesBdt = 0;
 
   const earningAmountsBdt = earningRuleItems.map((item) => fromPaisa(item.proratedPaisa, roundingMode));
-  if (isProrated && roundingMode === 'nearest_taka' && earningAmountsBdt.length > 1) {
-    const targetContractTotal = fromPaisa(scaleProrated(fullContractGrossPaisa), 'nearest_taka');
-    const sumRounded = earningAmountsBdt.reduce((s, a) => s + a, 0);
-    const diff = targetContractTotal - sumRounded;
+  if (isProrated && earningAmountsBdt.length > 1) {
+    const targetContractTotal = fromPaisa(scaleProrated(fullContractGrossPaisa), roundingMode);
+    const sumRounded = Math.round(earningAmountsBdt.reduce((s, a) => s + a, 0) * 100) / 100;
+    const diff = Math.round((targetContractTotal - sumRounded) * 100) / 100;
     if (diff !== 0) {
-      earningAmountsBdt[earningAmountsBdt.length - 1] += diff;
+      earningAmountsBdt[earningAmountsBdt.length - 1] =
+        Math.round((earningAmountsBdt[earningAmountsBdt.length - 1] + diff) * 100) / 100;
     }
   }
 
@@ -730,8 +742,8 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
       source: attendanceOtHours > 0 && inputOtHours === 0 ? 'attendance' : 'monthly_input',
       calculation_note:
         explicitHourlyRatePaisa > 0
-          ? `Overtime ${totalOtHours}h: ${formatNumComma(explicitHourlyRatePaisa / 100)} × ${overtimeMultiplier}x × ${totalOtHours} = ${formatNumComma(otBdt)}`
-          : `Overtime ${totalOtHours}h: ${formatNumComma(fromPaisa(otBasisPaisa, roundingMode))} (${otBasisLabel}) / ${daysBasisCount} / ${hoursPerDay}h × ${overtimeMultiplier}x × ${totalOtHours} = ${formatNumComma(otBdt)}`,
+          ? `Overtime ${totalOtHours}h: ${formatNumComma(explicitHourlyRatePaisa / 100, roundingMode)} × ${overtimeMultiplier}x × ${totalOtHours} = ${formatNumComma(otBdt, roundingMode)}`
+          : `Overtime ${totalOtHours}h: ${formatNumComma(fromPaisa(otBasisPaisa, roundingMode), roundingMode)} (${otBasisLabel}) / ${daysBasisCount} / ${hoursPerDay}h × ${overtimeMultiplier}x × ${totalOtHours} = ${formatNumComma(otBdt, roundingMode)}`,
     });
   }
 
@@ -812,8 +824,9 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
       source: 'attendance',
       calculation_note: `Absent ${absentTotalDays} day${absentTotalDays === 1 ? '' : 's'}${
         sandwichAbsent > 0 ? ` (incl. ${sandwichAbsent} sandwich)` : ''
-      }: ${formatNumComma(basisBdt)} / ${daysBasisCount} × ${absentTotalDays} = ${formatNumComma(
-        absBdt
+      }: ${formatNumComma(basisBdt, roundingMode)} / ${daysBasisCount} × ${absentTotalDays} = ${formatNumComma(
+        absBdt,
+        roundingMode
       )} (${basisLabel}, ${daysLabel})`,
     });
   }
@@ -829,9 +842,11 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
       amount: halfBdt,
       source: 'attendance',
       calculation_note: `Half day ${halfDaysCount} day${halfDaysCount === 1 ? '' : 's'}: ${formatNumComma(
-        basisBdt
+        basisBdt,
+        roundingMode
       )} / ${daysBasisCount} × 0.5 × ${halfDaysCount} = ${formatNumComma(
-        halfBdt
+        halfBdt,
+        roundingMode
       )} (${basisLabel}, ${daysLabel})`,
     });
   }
@@ -849,10 +864,11 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
       calculation_note: `Late ${qualifyingLateDays} day${
         qualifyingLateDays === 1 ? '' : 's'
       } (${lateCountReq} = 1 day → ${latePenaltyDays}d): ${formatNumComma(
-        basisBdt
+        basisBdt,
+        roundingMode
       )} / ${daysBasisCount} × ${latePenaltyDays}${
-        extraLateFinePaisa > 0 ? ` + ${formatNumComma(fromPaisa(extraLateFinePaisa, roundingMode))} fine` : ''
-      } = ${formatNumComma(lateBdt)} (${basisLabel}, ${daysLabel})`,
+        extraLateFinePaisa > 0 ? ` + ${formatNumComma(fromPaisa(extraLateFinePaisa, roundingMode), roundingMode)} fine` : ''
+      } = ${formatNumComma(lateBdt, roundingMode)} (${basisLabel}, ${daysLabel})`,
     });
   }
 
@@ -868,8 +884,9 @@ export function calculatePayslipPure(input: PureCalculationInput): PureCalculati
       source: 'leave',
       calculation_note: `Unpaid leave ${attendance.unpaidLeaveDays} day${
         attendance.unpaidLeaveDays === 1 ? '' : 's'
-      }: ${formatNumComma(basisBdt)} / ${daysBasisCount} × ${attendance.unpaidLeaveDays} = ${formatNumComma(
-        ulBdt
+      }: ${formatNumComma(basisBdt, roundingMode)} / ${daysBasisCount} × ${attendance.unpaidLeaveDays} = ${formatNumComma(
+        ulBdt,
+        roundingMode
       )} (${basisLabel}, ${daysLabel}; ${attendance.paidLeaveDays} paid leave exempt)`,
     });
   }
