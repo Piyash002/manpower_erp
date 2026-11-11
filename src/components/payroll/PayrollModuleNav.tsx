@@ -10,6 +10,7 @@ import {
   FileSignature,
   Layers,
   BarChart3,
+  Settings,
 } from 'lucide-react';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
@@ -58,6 +59,12 @@ export function PayrollModuleNav() {
       href: '/payroll/reports',
       icon: BarChart3,
       allowed: STAFF_ROLES,
+    },
+    {
+      label: 'Payroll Settings',
+      href: '/payroll/settings',
+      icon: Settings,
+      allowed: ['Admin', 'HR'],
     },
   ].filter((t) => t.allowed.includes(role));
 

@@ -23,36 +23,67 @@ import { connectDB } from '../src/lib/db';
 import { Employee } from '../src/models/Employee';
 import { EmployeeContract } from '../src/models/EmployeeContract';
 import { SalaryStructure } from '../src/models/SalaryStructure';
+import { SalaryRule } from '../src/models/SalaryRule';
 import { DailyAttendance } from '../src/models/DailyAttendance';
 import { Leave } from '../src/models/Leave';
 import { PayrollInput } from '../src/models/PayrollInput';
 import { Payslip } from '../src/models/Payslip';
 import { PayslipBatch } from '../src/models/PayslipBatch';
-import { ensurePayrollSeeded } from '../src/lib/payroll-seed';
+import {
+  DEFAULT_PAYROLL_SETTINGS_VALUES,
+  PayrollSettings,
+} from '../src/models/PayrollSettings';
 import { ensureDepartmentsAndDesignationsSeeded } from '../src/lib/hrm-seed';
 
 async function seedDemo() {
-  console.log('Seeding 5-employee Payroll Run demo dataset...');
+  console.log('Seeding 5-employee Payroll Settings verification dataset (Basic 20,000 / Gross 30,000)...');
   await connectDB();
   await ensureDepartmentsAndDesignationsSeeded();
-  await ensurePayrollSeeded();
 
-  const structure =
-    (await SalaryStructure.findOne({ code: 'REG-EMP', active: true })) ||
-    (await SalaryStructure.findOne({ active: true }));
-  if (!structure) {
-    throw new Error('No active SalaryStructure found.');
+  // Ensure default PayrollSettings v1 exists (Gross basis, Fixed 30, Grace 10m, 3 lates = 1d, Paid leaves exempt)
+  const settingsCount = await PayrollSettings.countDocuments();
+  if (settingsCount === 0) {
+    await PayrollSettings.create({
+      ...DEFAULT_PAYROLL_SETTINGS_VALUES,
+      notes: 'Seeded default payroll settings v1',
+      updated_by: 'Demo Seed',
+    });
+  }
+
+  // Create/reuse clean DEMO-30K structure: Basic 20,000 + HRA 40% (8,000) + Medical 2,000 = Gross 30,000
+  const structure = await SalaryStructure.findOneAndUpdate(
+    { code: 'DEMO-30K' },
+    {
+      $set: {
+        name: 'Standard 30K Package (Demo)',
+        description: 'Basic 20,000 + HRA 40% (8,000) + Medical Fixed (2,000) = Gross 30,000',
+        active: true,
+      },
+    },
+    { upsert: true, returnDocument: 'after' }
+  );
+
+  const demoRules = [
+    { name: 'Basic Salary', code: 'BASIC', category: 'BASIC', type: 'percentage_of_basic', amount_or_percentage: 100, sequence: 10, active: true },
+    { name: 'House Rent Allowance', code: 'HRA', category: 'ALLOWANCE', type: 'percentage_of_basic', amount_or_percentage: 40, sequence: 20, active: true },
+    { name: 'Medical Allowance', code: 'MED', category: 'ALLOWANCE', type: 'fixed', amount_or_percentage: 2000, sequence: 30, active: true },
+  ];
+  for (const r of demoRules) {
+    await SalaryRule.updateOne(
+      { structure_id: structure._id, code: r.code },
+      { $set: { ...r, formula: '' } },
+      { upsert: true }
+    );
   }
 
   const now = new Date();
   const year = now.getUTCFullYear();
   const month = now.getUTCMonth() + 1;
   const monthStart = new Date(Date.UTC(year, month - 1, 1, 0, 0, 0, 0));
-  const midMonthDate = new Date(Date.UTC(year, month - 1, 16, 0, 0, 0, 0));
-  const prevMonth = month === 1 ? 12 : month - 1;
-  const prevYear = month === 1 ? year - 1 : year;
+  const monthEnd = new Date(Date.UTC(year, month, 0, 23, 59, 59, 999));
+  const day11Date = new Date(Date.UTC(year, month - 1, 11, 0, 0, 0, 0));
 
-  // Remove any active Draft/Verified run for current month so user can test fresh Generate!
+  // Clear existing Draft/Verified run for current month so fresh generation works cleanly
   await PayslipBatch.deleteMany({
     month,
     year,
@@ -64,22 +95,22 @@ async function seedDemo() {
     {
       employee_id: 'DEMO-101',
       firstName: 'Tariqul',
-      lastName: 'Islam',
+      lastName: 'Islam (1 Absent)',
       phone: '01811000101',
       department: 'Visa',
       designation: 'Visa Officer',
-      basic_salary: 25000,
+      basic_salary: 20000,
       payment_method: 'Bank' as const,
       bank_name: 'Dutch-Bangla Bank',
       bank_branch: 'Banani',
       bank_account_no: '115.101.004422',
       joining_date: new Date(Date.UTC(year - 1, 0, 1)),
-      hasContract: true,
+      caseKind: 'absent' as const,
     },
     {
       employee_id: 'DEMO-102',
       firstName: 'Farhana',
-      lastName: 'Akter',
+      lastName: 'Akter (1 Half-Day)',
       phone: '01811000102',
       department: 'Counseling',
       designation: 'Counselor',
@@ -88,57 +119,56 @@ async function seedDemo() {
       bank_name: 'bKash',
       bank_branch: '',
       bank_account_no: '01711223344',
-      joining_date: midMonthDate, // Mid-month joiner (prorated!)
-      hasContract: true,
+      joining_date: new Date(Date.UTC(year - 1, 0, 1)),
+      caseKind: 'half_day' as const,
     },
     {
       employee_id: 'DEMO-103',
       firstName: 'Rakibul',
-      lastName: 'Hasan',
+      lastName: 'Hasan (3 Late Days)',
       phone: '01811000103',
       department: 'Training',
       designation: 'Technical Instructor',
-      basic_salary: 22000,
+      basic_salary: 20000,
       payment_method: 'Nagad' as const,
       bank_name: 'Nagad',
       bank_branch: '',
-      bank_account_no: '', // Triggers MISSING_PAYMENT_DETAILS + HIGH_OVERTIME (>40h)
-      joining_date: new Date(Date.UTC(year - 1, 2, 1)),
-      hasContract: true,
+      bank_account_no: '01911556677',
+      joining_date: new Date(Date.UTC(year - 1, 0, 1)),
+      caseKind: 'three_late' as const,
     },
     {
       employee_id: 'DEMO-104',
       firstName: 'Mizanur',
-      lastName: 'Rahman',
+      lastName: 'Rahman (Paid Leave)',
       phone: '01811000104',
       department: 'Accounts',
       designation: 'Accounts Executive',
-      basic_salary: 12000,
+      basic_salary: 20000,
       payment_method: 'Cash' as const,
       bank_name: '',
       bank_branch: '',
-      bank_account_no: '', // Net goes negative with advance+absent -> triggers NET_ZERO_OR_NEGATIVE
-      joining_date: new Date(Date.UTC(year - 1, 5, 1)),
-      hasContract: true,
+      bank_account_no: '',
+      joining_date: new Date(Date.UTC(year - 1, 0, 1)),
+      caseKind: 'paid_leave' as const,
     },
     {
       employee_id: 'DEMO-105',
       firstName: 'Nabila',
-      lastName: 'Sultana',
+      lastName: 'Sultana (Day-11 Joiner)',
       phone: '01811000105',
       department: 'Administration',
       designation: 'HR Coordinator',
-      basic_salary: 18000,
+      basic_salary: 20000,
       payment_method: 'Bank' as const,
       bank_name: 'BRAC Bank',
       bank_branch: 'Gulshan',
       bank_account_no: '1501204455001',
-      joining_date: new Date(Date.UTC(year, 0, 1)),
-      hasContract: false, // Intentionally skipped ("no_contract")
+      joining_date: day11Date, // Prorated to 20 days on Fixed 30!
+      caseKind: 'day11_joiner' as const,
     },
   ];
 
-  const createdEmps: any[] = [];
   for (const spec of demoSpecs) {
     const emp = await Employee.findOneAndUpdate(
       { employee_id: spec.employee_id },
@@ -162,187 +192,76 @@ async function seedDemo() {
       },
       { upsert: true, returnDocument: 'after' }
     );
-    createdEmps.push({ spec, emp });
 
-    // Clean current-month Payslip for demo employee so Generate Payroll Run always succeeds fresh
     await Payslip.deleteMany({ employee_id: emp._id, month, year });
-
-    if (spec.hasContract) {
-      await EmployeeContract.updateOne(
-        { employee_id: emp._id, status: 'Active' },
-        {
-          $set: {
-            structure_id: structure._id,
-            basic_salary: spec.basic_salary,
-            start_date: spec.joining_date,
-            status: 'Active',
-            bank_name: spec.bank_name,
-            bank_account_no: spec.bank_account_no,
-          },
-        },
-        { upsert: true }
-      );
-    } else {
-      await EmployeeContract.deleteMany({ employee_id: emp._id });
-    }
-  }
-
-  // Attendance & Leave & Inputs for the 4 contracted employees
-  for (const { spec, emp } of createdEmps) {
-    if (!spec.hasContract) continue;
-
+    await PayrollInput.deleteMany({ employee_id: emp._id, month, year });
+    await Leave.deleteMany({
+      employee_id: emp._id,
+      start_date: { $gte: monthStart, $lte: monthEnd },
+    });
     await DailyAttendance.deleteMany({
       employee_id: emp._id,
-      date: { $gte: monthStart, $lte: new Date(Date.UTC(year, month, 0, 23, 59, 59, 999)) },
+      date: { $gte: monthStart, $lte: monthEnd },
     });
 
-    const attRecords: any[] = [];
-    if (spec.employee_id === 'DEMO-101') {
-      for (let d = 1; d <= 5; d++) {
-        attRecords.push({
-          employee_id: emp._id,
-          date: new Date(Date.UTC(year, month - 1, d)),
-          status: 'Present',
-          source: 'Manual',
-          worked_hours: 8,
-          overtime_hours: 0,
-        });
-      }
-    } else if (spec.employee_id === 'DEMO-102') {
-      // Mid-month joiner + 2 Paid Casual Leave days (not deducted!)
-      attRecords.push(
-        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 16)), status: 'Present', source: 'Manual', worked_hours: 8 },
-        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 17)), status: 'Leave', leave_is_paid: true, source: 'Manual', worked_hours: 0 },
-        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 18)), status: 'Leave', leave_is_paid: true, source: 'Manual', worked_hours: 0 }
-      );
-      await Leave.updateOne(
-        { employee_id: emp._id, start_date: new Date(Date.UTC(year, month - 1, 17)) },
-        {
-          $set: {
-            leave_type: 'Casual',
-            is_paid: true,
-            end_date: new Date(Date.UTC(year, month - 1, 18)),
-            reason: 'Demo paid casual leave',
-            status: 'Approved',
-          },
-        },
-        { upsert: true }
-      );
-    } else if (spec.employee_id === 'DEMO-103') {
-      for (let d = 1; d <= 5; d++) {
-        attRecords.push({
-          employee_id: emp._id,
-          date: new Date(Date.UTC(year, month - 1, d)),
-          status: 'Present',
-          source: 'Biometric',
-          worked_hours: 8,
-        });
-      }
-    } else if (spec.employee_id === 'DEMO-104') {
-      // 8 Absent days + 25,000 advance -> negative/zero net!
-      for (let d = 1; d <= 8; d++) {
-        attRecords.push({
-          employee_id: emp._id,
-          date: new Date(Date.UTC(year, month - 1, d)),
-          status: 'Absent',
-          source: 'Manual',
-          worked_hours: 0,
-        });
-      }
-    }
-    if (attRecords.length > 0) {
-      await DailyAttendance.insertMany(attRecords);
-    }
-  }
-
-  const emp101 = createdEmps[0].emp;
-  const emp103 = createdEmps[2].emp;
-  const emp104 = createdEmps[3].emp;
-
-  // Monthly inputs for warnings & calculations
-  await PayrollInput.updateOne(
-    { employee_id: emp101._id, month, year },
-    {
-      $set: {
-        bonus_type: 'festival',
-        bonus_festival: 18000, // pushes net >30% over prior month 25,000!
-        bonus: 18000,
-        overtime_hours: 8,
-        overtime_rate: 0,
-        advance_deduction: 0,
-        fine: 0,
-        other_adjustment: 0,
-        notes: 'Demo festival bonus + 8h OT',
-      },
-    },
-    { upsert: true }
-  );
-
-  await PayrollInput.updateOne(
-    { employee_id: emp103._id, month, year },
-    {
-      $set: {
-        bonus_type: 'performance',
-        bonus_performance: 2000,
-        bonus: 2000,
-        overtime_hours: 45, // triggers HIGH_OVERTIME (>40h)
-        overtime_rate: 120,
-        advance_deduction: 0,
-        fine: 500,
-        other_adjustment: 0,
-        notes: 'Demo 45h OT (triggers high overtime warning)',
-      },
-    },
-    { upsert: true }
-  );
-
-  await PayrollInput.updateOne(
-    { employee_id: emp104._id, month, year },
-    {
-      $set: {
-        bonus_type: 'other',
-        bonus_other: 0,
-        bonus: 0,
-        overtime_hours: 0,
-        advance_deduction: 25000, // triggers NET_ZERO_OR_NEGATIVE
-        loan_installment: 25000,
-        fine: 1000,
-        manual_deduction: 1000,
-        other_adjustment: 0,
-        notes: 'Demo heavy advance recovery',
-      },
-    },
-    { upsert: true }
-  );
-
-  // Seed a prior-month Paid Payslip for DEMO-101 (net 28,000) to exercise >30% swing + % delta cards
-  const contract101 = await EmployeeContract.findOne({ employee_id: emp101._id, status: 'Active' }).lean();
-  if (contract101) {
-    await Payslip.updateOne(
-      { payslip_no: `PAY-${prevYear}${String(prevMonth).padStart(2, '0')}-9101` },
+    await EmployeeContract.updateOne(
+      { employee_id: emp._id, status: 'Active' },
       {
         $set: {
-          employee_id: emp101._id,
-          contract_id: contract101._id,
           structure_id: structure._id,
-          month: prevMonth,
-          year: prevYear,
-          branch: 'Main',
-          basic_pay: 25000,
-          total_allowances: 3000,
-          gross_pay: 28000,
-          total_deductions: 0,
-          net_pay: 28000,
-          status: 'Paid',
-          payment_method: 'Bank',
-          paid_at: new Date(),
+          basic_salary: spec.basic_salary,
+          start_date: spec.joining_date,
+          status: 'Active',
+          bank_name: spec.bank_name,
+          bank_account_no: spec.bank_account_no,
         },
       },
       { upsert: true }
     );
+
+    if (spec.caseKind === 'absent') {
+      await DailyAttendance.insertMany([
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 1)), status: 'Absent', source: 'Manual', worked_hours: 0 },
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 2)), status: 'Present', source: 'Manual', worked_hours: 8 },
+      ]);
+    } else if (spec.caseKind === 'half_day') {
+      await DailyAttendance.insertMany([
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 1)), status: 'Half-day', source: 'Manual', worked_hours: 3 },
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 2)), status: 'Present', source: 'Manual', worked_hours: 8 },
+      ]);
+    } else if (spec.caseKind === 'three_late') {
+      await DailyAttendance.insertMany([
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 1)), status: 'Late', late_minutes: 20, source: 'Biometric', worked_hours: 8 },
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 2)), status: 'Late', late_minutes: 25, source: 'Biometric', worked_hours: 8 },
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 3)), status: 'Late', late_minutes: 30, source: 'Biometric', worked_hours: 8 },
+      ]);
+    } else if (spec.caseKind === 'paid_leave') {
+      const lv = await Leave.create({
+        employee_id: emp._id,
+        leave_type: 'Casual',
+        is_paid: true,
+        start_date: new Date(Date.UTC(year, month - 1, 2)),
+        end_date: new Date(Date.UTC(year, month - 1, 2)),
+        reason: 'Paid casual leave verification case',
+        status: 'Approved',
+      });
+      await DailyAttendance.insertMany([
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 1)), status: 'Present', source: 'Manual', worked_hours: 8 },
+        { employee_id: emp._id, date: new Date(Date.UTC(year, month - 1, 2)), status: 'Leave', leave_id: lv._id, leave_is_paid: true, source: 'Manual', worked_hours: 0 },
+      ]);
+    } else if (spec.caseKind === 'day11_joiner') {
+      await DailyAttendance.insertMany([
+        { employee_id: emp._id, date: day11Date, status: 'Present', source: 'Manual', worked_hours: 8 },
+      ]);
+    }
   }
 
-  console.log(`Seeded 5 demo employees (DEMO-101..DEMO-105) for ${month}/${year} (Main branch).`);
+  console.log(`Seeded 5 hand-verifiable cases for ${month}/${year} (Main):`);
+  console.log('  - DEMO-101: 1 Absent day      -> Net = 29,000 (Cut: 1,000)');
+  console.log('  - DEMO-102: 1 Half day        -> Net = 29,500 (Cut: 500)');
+  console.log('  - DEMO-103: 3 Late days       -> Net = 29,000 (Cut: 1,000)');
+  console.log('  - DEMO-104: 1 Paid Leave day  -> Net = 30,000 (Cut: 0)');
+  console.log('  - DEMO-105: Joiner Day 11     -> Net = 20,000 (Prorated 20/30)');
   await mongoose.disconnect();
 }
 
@@ -350,4 +269,3 @@ seedDemo().catch((err) => {
   console.error('Demo seed failed:', err);
   process.exit(1);
 });
-

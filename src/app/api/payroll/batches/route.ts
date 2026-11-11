@@ -14,6 +14,7 @@ import {
   computePercentChange,
   detectRunWarnings,
   generateNextPayslipNo,
+  resolveEffectivePayrollSettings,
 } from '@/lib/payroll-engine';
 
 interface CreateRunBody {
@@ -101,8 +102,6 @@ export async function POST(req: NextRequest) {
     const year = Number(body.year);
     const branch = body.branch?.trim() || 'Main';
     const department = body.department?.trim() || 'all';
-    const daysBasis: DaysBasis = body.days_basis === '30' ? '30' : 'calendar';
-    const overtimeMultiplier = Number(body.overtime_multiplier) > 0 ? Number(body.overtime_multiplier) : 2;
     const includeNoAttendance = Boolean(body.include_no_attendance);
     const previewOnly = Boolean(body.previewOnly);
 
@@ -115,6 +114,8 @@ export async function POST(req: NextRequest) {
 
     await connectDB();
     await ensurePayrollSeeded();
+
+    const { settings, settingsDocId } = await resolveEffectivePayrollSettings(month, year);
 
     // Check uniqueness: one active run per (month, year, branch)
     const existingRun = await PayslipBatch.findOne({
@@ -265,6 +266,11 @@ export async function POST(req: NextRequest) {
           eligibleCount: eligibleEmployees.length,
           skippedCount: skippedEmployees.length,
           totalScanned: employees.length,
+          settingsVersion: settings.version,
+          isDefaultSettings: Boolean(settings.is_default_seeded),
+          daysBasis: settings.days_basis,
+          absenceBasis: settings.absence_deduction_basis,
+          overtimeMultiplier: settings.overtime_multiplier,
           existingRun: existingRun
             ? { _id: existingRun._id, batch_code: existingRun.batch_code, status: existingRun.status }
             : null,
@@ -303,9 +309,12 @@ export async function POST(req: NextRequest) {
       branch,
       department,
       status: 'Draft',
-      days_basis: daysBasis,
-      overtime_multiplier: overtimeMultiplier,
+      days_basis: settings.days_basis,
+      overtime_multiplier: settings.overtime_multiplier,
       include_no_attendance: includeNoAttendance,
+      settings_version_id: settingsDocId as any,
+      settings_version: settings.version,
+      settings_snapshot: settings as any,
       skipped_count: skippedEmployees.length,
       skipped_employees: skippedEmployees,
       created_by: auth.user.name,
@@ -335,8 +344,7 @@ export async function POST(req: NextRequest) {
         employeeId: empId,
         month,
         year,
-        daysBasis,
-        overtimeMultiplier,
+        settingsOverride: settings,
       });
 
       const payslipNo = await generateNextPayslipNo(month, year);
@@ -355,6 +363,8 @@ export async function POST(req: NextRequest) {
         prorated_days: computed.prorated_days,
         per_day_rate: computed.per_day_rate,
         overtime_multiplier: computed.overtime_multiplier,
+        settings_version: settings.version,
+        settings_snapshot: settings as any,
         attendance_summary: computed.attendance_summary,
         inputs_snapshot: computed.inputs_snapshot,
         lines: computed.lines,
@@ -396,7 +406,8 @@ export async function POST(req: NextRequest) {
         month,
         year,
         branch,
-        days_basis: daysBasis,
+        settings_version: settings.version,
+        days_basis: settings.days_basis,
         createdCount,
         skippedCount: skippedEmployees.length,
         warningCount: warnings.length,

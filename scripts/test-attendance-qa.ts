@@ -48,8 +48,8 @@ import { AttendanceLog } from '../src/models/AttendanceLog';
 import { DailyAttendance } from '../src/models/DailyAttendance';
 import { Leave } from '../src/models/Leave';
 import { SalaryStructure } from '../src/models/SalaryStructure';
-import { SalaryRule } from '../src/models/SalaryRule';
 import { EmployeeContract } from '../src/models/EmployeeContract';
+import { DEFAULT_PAYROLL_SETTINGS_VALUES } from '../src/models/PayrollSettings';
 
 let passCount = 0;
 let failCount = 0;
@@ -522,14 +522,18 @@ try {
     leaveIsPaid: false,
   });
 
-  // Test live DailyAttendance late + leave sync into integer-paisa computeEmployeePayslipData
+  // Test live DailyAttendance late + leave sync into settings-driven integer-paisa computeEmployeePayslipData
   const payslipData = await computeEmployeePayslipData({
     employeeId: testEmp._id.toString(),
     month: 2,
     year: 2099,
-    daysBasis: '30',
+    settingsOverride: {
+      ...DEFAULT_PAYROLL_SETTINGS_VALUES,
+      days_basis: 'fixed_30',
+      absence_deduction_basis: 'gross',
+    },
   });
-  const absDedLine = payslipData.lines.find((l) => l.code === 'ABSDED');
+  const lateDedLine = payslipData.lines.find((l) => l.code === 'LATEDED');
   const ulDedLine = payslipData.lines.find((l) => l.code === 'UNPAIDLEAVE');
   const expectedOneDay = payslipData.per_day_rate;
   assert(
@@ -537,12 +541,12 @@ try {
       payslipData.attendance_summary.latePenaltyDays === 1 &&
       payslipData.attendance_summary.paidLeaveDays === 1 &&
       payslipData.attendance_summary.unpaidLeaveDays === 1 &&
-      absDedLine?.amount === expectedOneDay &&
-      absDedLine?.source === 'attendance' &&
+      lateDedLine?.amount === expectedOneDay &&
+      lateDedLine?.source === 'attendance' &&
       ulDedLine?.amount === expectedOneDay &&
       ulDedLine?.source === 'leave',
-    '3 Late days (1d cut, attendance) + 1 Unpaid leave (1d cut, leave) + 1 Paid Casual leave (0 cut)',
-    `Got late=${payslipData.attendance_summary.lateDays}, latePenalty=${payslipData.attendance_summary.latePenaltyDays}, paidLv=${payslipData.attendance_summary.paidLeaveDays}, unpaidLv=${payslipData.attendance_summary.unpaidLeaveDays}, ABSDED=${absDedLine?.amount}, UNPAIDLEAVE=${ulDedLine?.amount}, perDay=${expectedOneDay}`
+    '3 Late days (1d cut, attendance LATEDED) + 1 Unpaid leave (1d cut, leave UNPAIDLEAVE) + 1 Paid Casual leave (0 cut)',
+    `Got late=${payslipData.attendance_summary.lateDays}, latePenalty=${payslipData.attendance_summary.latePenaltyDays}, paidLv=${payslipData.attendance_summary.paidLeaveDays}, unpaidLv=${payslipData.attendance_summary.unpaidLeaveDays}, LATEDED=${lateDedLine?.amount}, UNPAIDLEAVE=${ulDedLine?.amount}, perDay=${expectedOneDay}`
   );
 } finally {
   // Strict cleanup of temporary QA test data

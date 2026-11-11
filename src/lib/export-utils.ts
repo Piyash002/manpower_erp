@@ -436,19 +436,25 @@ export function buildPayslipPdfBuffer(payslip: any, companyName = 'Dreams ERP â€
   const maxRows = Math.max(earnings.length, deductions.length, 1);
 
   y -= 20;
-  for (let i = 0; i < Math.min(maxRows, 14); i++) {
+  for (let i = 0; i < Math.min(maxRows, 10); i++) {
     const er = earnings[i];
     const ded = deductions[i];
     if (er) {
-      text(48, y, String(er.name || '').slice(0, 28), 9, false);
+      text(48, y, String(er.name || '').slice(0, 28), 9, true);
       text(220, y, formatPdfMoney(er.amount), 9, false);
+      if (er.calculation_note) {
+        text(48, y - 9, String(er.calculation_note).slice(0, 48), 7, false);
+      }
     }
     if (ded) {
-      text(313, y, String(ded.name || '').slice(0, 28), 9, false);
+      text(313, y, String(ded.name || '').slice(0, 28), 9, true);
       text(485, y, formatPdfMoney(ded.amount), 9, false);
+      if (ded.calculation_note) {
+        text(313, y - 9, String(ded.calculation_note).slice(0, 48), 7, false);
+      }
     }
-    line(40, y - 5, 555, y - 5);
-    y -= 18;
+    line(40, y - 13, 555, y - 13);
+    y -= 24;
   }
 
   // Totals

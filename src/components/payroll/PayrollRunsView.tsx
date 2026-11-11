@@ -74,8 +74,6 @@ export function PayrollRunsView() {
     year: now.getFullYear(),
     branch: 'Main',
     department: 'all',
-    days_basis: 'calendar' as 'calendar' | '30',
-    overtime_multiplier: 2,
     include_no_attendance: false,
     name: '',
   });
@@ -395,8 +393,21 @@ export function PayrollRunsView() {
                       </span>
                       {getStatusBadge(run.status)}
                       <span className="text-[11px] font-medium text-slate-500">
-                        Branch: {run.branch || 'Main'} • Basis: {run.days_basis === '30' ? '30 days' : 'Calendar days'} • OT: {run.overtime_multiplier || 2}x
+                        Branch: {run.branch || 'Main'} • Basis:{' '}
+                        {run.days_basis === 'fixed_30' || run.days_basis === '30'
+                          ? 'Fixed 30 days'
+                          : run.days_basis === 'working_days'
+                            ? `Working ${run.settings_snapshot?.working_days_per_month || 26} days`
+                            : 'Calendar days'}{' '}
+                        • OT: {run.overtime_multiplier || 2}x
                       </span>
+                      <Link
+                        href={`/payroll/settings?version=${run.settings_version || 1}`}
+                        className="text-[11px] font-semibold px-2 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100"
+                        title="View exact Payroll Settings version snapshot used for this run"
+                      >
+                        Settings v{run.settings_version || 1} ↗
+                      </Link>
                     </div>
                     <h2 className="text-lg font-bold text-slate-900 mt-1">{run.name}</h2>
                   </div>
@@ -799,36 +810,6 @@ export function PayrollRunsView() {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Days Basis</label>
-              <select
-                value={genForm.days_basis}
-                onChange={(e) =>
-                  setGenForm({ ...genForm, days_basis: e.target.value as 'calendar' | '30' })
-                }
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              >
-                <option value="calendar">Calendar Days (28–31)</option>
-                <option value="30">Fixed 30 Days</option>
-              </select>
-            </div>
-            <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">OT Multiplier</label>
-              <input
-                type="number"
-                step="0.5"
-                min="1"
-                max="5"
-                value={genForm.overtime_multiplier}
-                onChange={(e) =>
-                  setGenForm({ ...genForm, overtime_multiplier: Number(e.target.value) || 2 })
-                }
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
-              />
-            </div>
-          </div>
-
           <label className="flex items-center gap-2 text-xs text-slate-700 cursor-pointer pt-1">
             <input
               type="checkbox"
@@ -841,10 +822,10 @@ export function PayrollRunsView() {
             <span>Include employees with no attendance records this month</span>
           </label>
 
-          {/* Live Preview Count Box */}
+          {/* Live Preview Count Box + Effective Settings Version */}
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200 text-xs space-y-1.5">
             {previewLoading ? (
-              <span className="text-slate-500">Checking eligible employees...</span>
+              <span className="text-slate-500">Checking eligible employees &amp; effective rules...</span>
             ) : previewData ? (
               previewData.existingRun ? (
                 <div className="text-rose-700 font-semibold">
@@ -860,9 +841,20 @@ export function PayrollRunsView() {
                       <span className="text-amber-700">{previewData.skippedCount} skipped</span>
                     </span>
                   </div>
-                  {previewData.skippedCount > 0 && (
-                    <p className="text-[11px] text-slate-500">
-                      Skipped reasons include missing active contract, no attendance, or existing run.
+                  <div className="flex items-center justify-between text-[11px] text-slate-600 pt-1 border-t border-slate-200">
+                    <span>
+                      Rules: <strong>Settings v{previewData.settingsVersion || 1}</strong> ({previewData.absenceBasis} basis · {previewData.daysBasis} · {previewData.overtimeMultiplier}x OT)
+                    </span>
+                    <Link
+                      href="/payroll/settings"
+                      className="text-blue-700 font-semibold hover:underline"
+                    >
+                      Configure ↗
+                    </Link>
+                  </div>
+                  {previewData.isDefaultSettings && (
+                    <p className="text-[11px] text-amber-700 font-medium">
+                      Default payroll settings are in use. Review them in Payroll Settings.
                     </p>
                   )}
                 </>

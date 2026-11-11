@@ -12,6 +12,7 @@ import {
   assertNoDuplicatePayslip,
   computeEmployeePayslipData,
   generateNextPayslipNo,
+  resolveEffectivePayrollSettings,
 } from '@/lib/payroll-engine';
 import {
   buildCsvString,
@@ -285,6 +286,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const { settings, settingsDocId } = await resolveEffectivePayrollSettings(month, year);
+
     if (!run) {
       const ym = `${year}${String(month).padStart(2, '0')}`;
       const seq = await getNextSequence(`payslip_batch_${ym}_${branch}`);
@@ -301,19 +304,23 @@ export async function POST(req: NextRequest) {
         branch,
         department: 'all',
         status: 'Draft',
-        days_basis: 'calendar',
-        overtime_multiplier: 2,
+        days_basis: settings.days_basis,
+        overtime_multiplier: settings.overtime_multiplier,
         include_no_attendance: false,
+        settings_version_id: settingsDocId as any,
+        settings_version: settings.version,
+        settings_snapshot: settings as any,
         created_by: auth.user.name,
       });
     }
+
+    const effectiveSettings = (run.settings_snapshot as any) || settings;
 
     const computed = await computeEmployeePayslipData({
       employeeId: body.employee_id,
       month,
       year,
-      daysBasis: run.days_basis || 'calendar',
-      overtimeMultiplier: run.overtime_multiplier || 2,
+      settingsOverride: effectiveSettings,
     });
 
     const payslipNo = await generateNextPayslipNo(month, year);
@@ -332,6 +339,8 @@ export async function POST(req: NextRequest) {
       prorated_days: computed.prorated_days,
       per_day_rate: computed.per_day_rate,
       overtime_multiplier: computed.overtime_multiplier,
+      settings_version: computed.settings_version,
+      settings_snapshot: effectiveSettings,
       attendance_summary: computed.attendance_summary,
       inputs_snapshot: computed.inputs_snapshot,
       lines: computed.lines,

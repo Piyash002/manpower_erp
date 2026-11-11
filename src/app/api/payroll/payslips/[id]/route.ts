@@ -6,7 +6,10 @@ import { PayslipBatch } from '@/models/PayslipBatch';
 import { Employee, PaymentMethodType } from '@/models/Employee';
 import { EmployeeContract } from '@/models/EmployeeContract';
 import { SalaryStructure } from '@/models/SalaryStructure';
-import { computeEmployeePayslipData } from '@/lib/payroll-engine';
+import {
+  computeEmployeePayslipData,
+  resolveEffectivePayrollSettings,
+} from '@/lib/payroll-engine';
 import { amountInWords } from '@/lib/formatters';
 import { buildPayslipPdfBuffer } from '@/lib/export-utils';
 
@@ -149,12 +152,15 @@ export async function PUT(
       }
 
       if (body.recompute) {
+        const { settings } = await resolveEffectivePayrollSettings(
+          payslip.month,
+          payslip.year
+        );
         const computed = await computeEmployeePayslipData({
           employeeId: payslip.employee_id.toString(),
           month: payslip.month,
           year: payslip.year,
-          daysBasis: payslip.days_basis || 'calendar',
-          overtimeMultiplier: payslip.overtime_multiplier || 2,
+          settingsOverride: settings,
         });
         payslip.contract_id = computed.contract._id as any;
         payslip.structure_id = computed.structure._id as any;
@@ -163,6 +169,8 @@ export async function PUT(
         payslip.prorated_days = computed.prorated_days;
         payslip.per_day_rate = computed.per_day_rate;
         payslip.overtime_multiplier = computed.overtime_multiplier;
+        payslip.settings_version = settings.version;
+        payslip.settings_snapshot = settings as any;
         payslip.attendance_summary = computed.attendance_summary;
         payslip.inputs_snapshot = computed.inputs_snapshot;
         payslip.lines = computed.lines as any;

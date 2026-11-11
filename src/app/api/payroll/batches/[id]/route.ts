@@ -12,6 +12,7 @@ import {
   detectRunWarnings,
   generateNextPayslipNo,
   onPayrollRunConfirmed,
+  resolveEffectivePayrollSettings,
 } from '@/lib/payroll-engine';
 import { buildCsvString, buildXlsxBuffer } from '@/lib/export-utils';
 
@@ -236,6 +237,11 @@ export async function PUT(
         );
       }
 
+      const { settings, settingsDocId } = await resolveEffectivePayrollSettings(
+        batch.month,
+        batch.year
+      );
+
       const slips = await Payslip.find({ batch_id: id, status: 'Draft' });
       const { prevMonth, prevYear } = getPreviousMonthYear(batch.month, batch.year);
       const prevSlips = await Payslip.find({
@@ -258,8 +264,7 @@ export async function PUT(
           employeeId: slip.employee_id.toString(),
           month: batch.month,
           year: batch.year,
-          daysBasis: batch.days_basis || 'calendar',
-          overtimeMultiplier: batch.overtime_multiplier || 2,
+          settingsOverride: settings,
         });
 
         slip.contract_id = computed.contract._id as any;
@@ -278,6 +283,8 @@ export async function PUT(
         slip.total_deductions = computed.total_deductions;
         slip.net_pay = computed.net_pay;
         slip.amount_in_words = computed.amount_in_words;
+        slip.settings_version = settings.version;
+        slip.settings_snapshot = settings as any;
         await slip.save();
 
         totalGross += computed.gross_pay;
@@ -287,6 +294,11 @@ export async function PUT(
         updatedPayslips++;
       }
 
+      batch.days_basis = settings.days_basis;
+      batch.overtime_multiplier = settings.overtime_multiplier;
+      batch.settings_version_id = settingsDocId as any;
+      batch.settings_version = settings.version;
+      batch.settings_snapshot = settings as any;
       batch.payslip_count = updatedPayslips;
       batch.total_gross_pay = totalGross;
       batch.total_deductions = totalDeductions;
@@ -300,7 +312,13 @@ export async function PUT(
         entity: 'PayslipBatch',
         entityId: batch._id.toString(),
         oldValues: { status: oldStatus },
-        newValues: { updatedPayslips, totalGross, totalDeductions, totalNet },
+        newValues: {
+          updatedPayslips,
+          settings_version: settings.version,
+          totalGross,
+          totalDeductions,
+          totalNet,
+        },
       });
 
       return NextResponse.json({

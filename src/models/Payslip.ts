@@ -77,6 +77,8 @@ export interface IPayslip extends Document {
   reversed_at?: Date | null;
   reversal_of_id?: mongoose.Types.ObjectId | null;
   is_reversal?: boolean;
+  settings_version?: number;
+  settings_snapshot?: Record<string, any>;
   created_by: string;
   createdAt: Date;
   updatedAt: Date;
@@ -100,7 +102,11 @@ const PayslipSchema = new Schema<IPayslip>(
     month: { type: Number, required: true, min: 1, max: 12 },
     year: { type: Number, required: true, min: 2020, max: 2100 },
     branch: { type: String, default: 'Main', trim: true },
-    days_basis: { type: String, enum: ['calendar', '30'], default: 'calendar' },
+    days_basis: {
+      type: String,
+      enum: ['fixed_30', 'calendar', 'working_days', '30'],
+      default: 'fixed_30',
+    },
     days_in_month: { type: Number, default: 30 },
     prorated_days: { type: Number, default: 30 },
     per_day_rate: { type: Number, default: 0 },
@@ -182,6 +188,8 @@ const PayslipSchema = new Schema<IPayslip>(
     reversed_at: { type: Date, default: null },
     reversal_of_id: { type: Schema.Types.ObjectId, ref: 'Payslip', default: null },
     is_reversal: { type: Boolean, default: false, index: true },
+    settings_version: { type: Number, default: 1 },
+    settings_snapshot: { type: Schema.Types.Mixed, default: null },
     created_by: { type: String, default: 'System' },
   },
   { timestamps: true }

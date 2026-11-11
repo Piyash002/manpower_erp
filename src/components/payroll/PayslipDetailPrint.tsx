@@ -293,10 +293,15 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
                 {earningLines.map((line: any, i: number) => (
                   <tr key={line.code + i}>
                     <td className="px-3.5 py-2 text-slate-700">
-                      {line.name}{' '}
-                      <span className="text-[10px] font-mono text-slate-400">({line.code})</span>
+                      <div>
+                        {line.name}{' '}
+                        <span className="text-[10px] font-mono text-slate-400">({line.code})</span>
+                      </div>
+                      {line.calculation_note && (
+                        <div className="text-[10px] text-slate-400 mt-0.5">{line.calculation_note}</div>
+                      )}
                     </td>
-                    <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-900">
+                    <td className="px-3.5 py-2 text-right font-mono font-semibold text-slate-900 align-top">
                       {formatBDT(line.amount)}
                     </td>
                   </tr>
@@ -324,10 +329,15 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
                   {deductionLines.map((line: any, i: number) => (
                     <tr key={line.code + i}>
                       <td className="px-3.5 py-2 text-slate-700">
-                        {line.name}{' '}
-                        <span className="text-[10px] font-mono text-slate-400">({line.code})</span>
+                        <div>
+                          {line.name}{' '}
+                          <span className="text-[10px] font-mono text-slate-400">({line.code})</span>
+                        </div>
+                        {line.calculation_note && (
+                          <div className="text-[10px] text-rose-700/80 mt-0.5">{line.calculation_note}</div>
+                        )}
                       </td>
-                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-rose-700">
+                      <td className="px-3.5 py-2 text-right font-mono font-semibold text-rose-700 align-top">
                         {formatBDT(line.amount)}
                       </td>
                     </tr>

@@ -1,5 +1,6 @@
 import mongoose, { Schema, Document, Model } from 'mongoose';
 import type { PaymentMethodType } from './Employee';
+import type { PayrollDaysBasis } from './PayrollSettings';
 
 export type PayslipBatchStatus =
   | 'Draft'
@@ -9,7 +10,7 @@ export type PayslipBatchStatus =
   | 'Reversed'
   | 'Cancelled';
 
-export type DaysBasis = 'calendar' | '30';
+export type DaysBasis = PayrollDaysBasis;
 
 export interface ISkippedEmployeeEntry {
   employee_id?: mongoose.Types.ObjectId | null;
@@ -24,7 +25,12 @@ export interface IPayrollRunWarning {
   employee_id?: mongoose.Types.ObjectId | null;
   employee_code: string;
   name: string;
-  code: 'NET_SWING_30_PCT' | 'NET_ZERO_OR_NEGATIVE' | 'MISSING_PAYMENT_DETAILS' | 'HIGH_OVERTIME';
+  code:
+    | 'NET_SWING_30_PCT'
+    | 'NET_ZERO_OR_NEGATIVE'
+    | 'MISSING_PAYMENT_DETAILS'
+    | 'HIGH_OVERTIME'
+    | 'DEDUCTIONS_OVER_30_PCT';
   severity: 'warning' | 'critical';
   message: string;
   prev_net?: number;
@@ -42,6 +48,9 @@ export interface IPayslipBatch extends Document {
   days_basis: DaysBasis;
   overtime_multiplier: number;
   include_no_attendance: boolean;
+  settings_version_id?: mongoose.Types.ObjectId | null;
+  settings_version?: number;
+  settings_snapshot?: Record<string, any>;
   payslip_count: number;
   skipped_count: number;
   total_gross_pay: number;
@@ -84,11 +93,14 @@ const PayslipBatchSchema = new Schema<IPayslipBatch>(
     },
     days_basis: {
       type: String,
-      enum: ['calendar', '30'],
-      default: 'calendar',
+      enum: ['fixed_30', 'calendar', 'working_days', '30'],
+      default: 'fixed_30',
     },
-    overtime_multiplier: { type: Number, default: 2, min: 1, max: 5 },
+    overtime_multiplier: { type: Number, default: 2, min: 0.1, max: 10 },
     include_no_attendance: { type: Boolean, default: false },
+    settings_version_id: { type: Schema.Types.ObjectId, ref: 'PayrollSettings', default: null },
+    settings_version: { type: Number, default: 1 },
+    settings_snapshot: { type: Schema.Types.Mixed, default: null },
     payslip_count: { type: Number, default: 0, min: 0 },
     skipped_count: { type: Number, default: 0, min: 0 },
     total_gross_pay: { type: Number, default: 0 },
@@ -119,7 +131,13 @@ const PayslipBatchSchema = new Schema<IPayslipBatch>(
           name: { type: String, default: '' },
           code: {
             type: String,
-            enum: ['NET_SWING_30_PCT', 'NET_ZERO_OR_NEGATIVE', 'MISSING_PAYMENT_DETAILS', 'HIGH_OVERTIME'],
+            enum: [
+              'NET_SWING_30_PCT',
+              'NET_ZERO_OR_NEGATIVE',
+              'MISSING_PAYMENT_DETAILS',
+              'HIGH_OVERTIME',
+              'DEDUCTIONS_OVER_30_PCT',
+            ],
             default: 'NET_SWING_30_PCT',
           },
           severity: { type: String, enum: ['warning', 'critical'], default: 'warning' },
