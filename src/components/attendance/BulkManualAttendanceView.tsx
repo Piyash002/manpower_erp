@@ -78,6 +78,11 @@ export function BulkManualAttendanceView() {
   const [reason, setReason] = useState('');
   const [overwriteExisting, setOverwriteExisting] = useState(false);
 
+  const [holidayInfo, setHolidayInfo] = useState<{
+    title: string;
+    type: string;
+    description?: string;
+  } | null>(null);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   const loadRoster = async () => {
@@ -90,6 +95,8 @@ export function BulkManualAttendanceView() {
       if (!res.ok || !json.success) {
         throw new Error(json.message || 'Failed to load employees');
       }
+
+      setHolidayInfo(json.data?.holiday || null);
 
       const mapped: BulkRowState[] = (json.data?.rows || []).map((r: any) => {
         const defaultIn = r.schedule?.start_time || '09:00';
@@ -285,6 +292,18 @@ export function BulkManualAttendanceView() {
         </div>
       </div>
 
+      {holidayInfo && (
+        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 font-medium">
+          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          <span>
+            <strong>Holiday Blocked ({date}):</strong> {holidayInfo.title} ({holidayInfo.type}{' '}
+            Holiday)
+            {holidayInfo.description ? ` — ${holidayInfo.description}` : ''}. Present / Late /
+            Half-day attendance cannot be marked on a holiday.
+          </span>
+        </div>
+      )}
+
       {banner && (
         <div
           className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 border ${
@@ -349,8 +368,14 @@ export function BulkManualAttendanceView() {
             </div>
             <button
               type="button"
+              disabled={Boolean(
+                holidayInfo &&
+                  (batchStatus === 'Present' ||
+                    batchStatus === 'Late' ||
+                    batchStatus === 'Half-day')
+              )}
               onClick={handleApplyToSelected}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg disabled:opacity-45"
             >
               <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
               Apply to Selected ({selectedCount})
@@ -382,7 +407,18 @@ export function BulkManualAttendanceView() {
             </label>
             <button
               type="submit"
-              disabled={saving || selectedCount === 0}
+              disabled={
+                saving ||
+                selectedCount === 0 ||
+                Boolean(
+                  holidayInfo &&
+                    rows.some(
+                      (r) =>
+                        r.selected &&
+                        (r.status === 'Present' || r.status === 'Late' || r.status === 'Half-day')
+                    )
+                )
+              }
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               {saving ? (

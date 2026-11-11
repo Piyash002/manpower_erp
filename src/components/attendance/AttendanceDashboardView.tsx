@@ -540,8 +540,13 @@ export function AttendanceDashboardView() {
 
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || Boolean(myData?.todayHoliday)}
               onClick={() => handleSelfPunch('IN')}
+              title={
+                myData?.todayHoliday
+                  ? `Blocked: ${myData.todayHoliday.title} (${myData.todayHoliday.type} Holiday)`
+                  : 'Check In'
+              }
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               <LogIn className="w-4 h-4" />
@@ -550,8 +555,13 @@ export function AttendanceDashboardView() {
 
             <button
               type="button"
-              disabled={busy}
+              disabled={busy || Boolean(myData?.todayHoliday)}
               onClick={() => handleSelfPunch('OUT')}
+              title={
+                myData?.todayHoliday
+                  ? `Blocked: ${myData.todayHoliday.title} (${myData.todayHoliday.type} Holiday)`
+                  : 'Check Out'
+              }
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               <LogOut className="w-4 h-4" />
@@ -560,6 +570,18 @@ export function AttendanceDashboardView() {
           </div>
         )}
       </div>
+
+      {myData?.todayHoliday && (
+        <div className="p-3.5 rounded-xl bg-blue-50 border border-blue-200 text-blue-900 text-xs flex items-center gap-2">
+          <AlertTriangle className="w-4 h-4 text-blue-700 shrink-0" />
+          <span>
+            <strong>Holiday Today ({todayDhaka}):</strong> {myData.todayHoliday.title} (
+            {myData.todayHoliday.type} Holiday)
+            {myData.todayHoliday.description ? ` — ${myData.todayHoliday.description}` : ''}. Self
+            Check-In / Check-Out is blocked.
+          </span>
+        </div>
+      )}
 
       {banner && (
         <div
@@ -690,8 +712,13 @@ export function AttendanceDashboardView() {
               </Link>
               <button
                 type="button"
-                disabled={busy}
+                disabled={busy || Boolean(rosterData?.holiday)}
                 onClick={handleBulkMarkUnmarkedPresent}
+                title={
+                  rosterData?.holiday
+                    ? `Blocked: ${rosterData.holiday.title} (${rosterData.holiday.type} Holiday)`
+                    : 'Mark Unmarked Present'
+                }
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
               >
                 <CheckCheck className="w-3.5 h-3.5" />
@@ -708,6 +735,18 @@ export function AttendanceDashboardView() {
               </button>
             </div>
           </div>
+
+          {rosterData?.holiday && (
+            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 font-medium">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              <span>
+                <strong>Holiday Blocked ({rosterDate}):</strong> {rosterData.holiday.title} (
+                {rosterData.holiday.type} Holiday)
+                {rosterData.holiday.description ? ` — ${rosterData.holiday.description}` : ''}.
+                Present / Late / Half-day marking is disabled on this holiday.
+              </span>
+            </div>
+          )}
 
           {/* Live Summary Cards */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
@@ -813,22 +852,30 @@ export function AttendanceDashboardView() {
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
                         <div className="inline-flex items-center gap-1">
-                          {(['Present', 'Late', 'Half-day', 'Absent'] as const).map((st) => (
-                            <button
-                              key={st}
-                              type="button"
-                              disabled={busy}
-                              onClick={() => handleQuickManualMark(row.employee._id, st)}
-                              title={`Mark ${st}`}
-                              className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors ${
-                                d?.status === st
-                                  ? 'bg-slate-900 text-white border-slate-900'
-                                  : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                              }`}
-                            >
-                              {st === 'Half-day' ? 'Half' : st}
-                            </button>
-                          ))}
+                          {(['Present', 'Late', 'Half-day', 'Absent'] as const).map((st) => {
+                            const blockedOnHoliday =
+                              Boolean(rosterData?.holiday) && st !== 'Absent';
+                            return (
+                              <button
+                                key={st}
+                                type="button"
+                                disabled={busy || blockedOnHoliday}
+                                onClick={() => handleQuickManualMark(row.employee._id, st)}
+                                title={
+                                  blockedOnHoliday
+                                    ? `Blocked: ${rosterData.holiday.title} (${rosterData.holiday.type} Holiday)`
+                                    : `Mark ${st}`
+                                }
+                                className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
+                                  d?.status === st
+                                    ? 'bg-slate-900 text-white border-slate-900'
+                                    : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                                }`}
+                              >
+                                {st === 'Half-day' ? 'Half' : st}
+                              </button>
+                            );
+                          })}
                           <button
                             type="button"
                             onClick={() => {
@@ -1315,22 +1362,46 @@ export function AttendanceDashboardView() {
             />
           </div>
 
-          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
-            <button
-              type="button"
-              onClick={() => setIsManualModalOpen(false)}
-              className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={busy}
-              className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
-            >
-              {busy ? 'Saving...' : 'Save Attendance'}
-            </button>
-          </div>
+          {(() => {
+            const modalHoliday = (rosterData?.activeHolidays || []).find(
+              (h: { date: string; title: string; type: string; description?: string }) =>
+                new Date(h.date).toISOString().split('T')[0] === manualForm.date
+            );
+            const isBlocked =
+              Boolean(modalHoliday) && manualForm.status_override !== 'Absent';
+            return (
+              <>
+                {modalHoliday && (
+                  <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-800 text-xs flex items-center gap-2">
+                    <AlertTriangle className="w-4 h-4 shrink-0 text-rose-600" />
+                    <span>
+                      <strong>Holiday ({manualForm.date}):</strong> {modalHoliday.title} (
+                      {modalHoliday.type} Holiday)
+                      {modalHoliday.description ? ` — ${modalHoliday.description}` : ''}.
+                      Marking Present/Late/Half-day is blocked on holidays.
+                    </span>
+                  </div>
+                )}
+
+                <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+                  <button
+                    type="button"
+                    onClick={() => setIsManualModalOpen(false)}
+                    className="px-4 py-2 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={busy || isBlocked}
+                    className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+                  >
+                    {busy ? 'Saving...' : isBlocked ? 'Blocked (Holiday)' : 'Save Attendance'}
+                  </button>
+                </div>
+              </>
+            );
+          })()}
         </form>
       </Modal>
 

@@ -73,6 +73,18 @@ export async function POST(req: NextRequest) {
         );
       }
 
+      const todayHoliday = await Holiday.findOne({ date: dateObj, active: true }).lean();
+      if (todayHoliday) {
+        const desc = todayHoliday.description ? ` — ${todayHoliday.description}` : '';
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Blocked: ${todayStr} is ${todayHoliday.title} (${todayHoliday.type} Holiday)${desc}. Check-in is not allowed on holidays.`,
+          },
+          { status: 400 }
+        );
+      }
+
       const punchType: PunchType = body.punch_type === 'OUT' ? 'OUT' : 'IN';
       const now = new Date();
 
@@ -210,6 +222,23 @@ export async function POST(req: NextRequest) {
         { success: false, message: `Attendance for ${dateString} is locked. Unlock the month first.` },
         { status: 400 }
       );
+    }
+
+    const targetStatus = body.quick_status || body.status_override || 'Present';
+    const isAttendanceMark =
+      targetStatus === 'Present' || targetStatus === 'Late' || targetStatus === 'Half-day';
+    if (isAttendanceMark) {
+      const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
+      if (holiday) {
+        const desc = holiday.description ? ` — ${holiday.description}` : '';
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Blocked: ${dateString} is ${holiday.title} (${holiday.type} Holiday)${desc}. Cannot mark ${targetStatus} on a holiday.`,
+          },
+          { status: 400 }
+        );
+      }
     }
 
     // Quick status marking from roster row (Present, Late, Half-day, Absent)

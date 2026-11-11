@@ -3,6 +3,7 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Employee } from '@/models/Employee';
 import { DailyAttendance, DailyAttendanceStatus } from '@/models/DailyAttendance';
+import { Holiday } from '@/models/Holiday';
 import {
   getDhakaDateString,
   normalizeDhakaDate,
@@ -48,7 +49,11 @@ export async function GET(req: NextRequest) {
       .sort({ department: 1, firstName: 1 })
       .lean();
 
-    const dailyDocs = await DailyAttendance.find({ date: dateObj }).lean();
+    const [dailyDocs, holiday, activeHolidays] = await Promise.all([
+      DailyAttendance.find({ date: dateObj }).lean(),
+      Holiday.findOne({ date: dateObj, active: true }).lean(),
+      Holiday.find({ active: true }).sort({ date: 1 }).lean(),
+    ]);
     const dailyMap = new Map<string, any>();
     for (const d of dailyDocs) {
       dailyMap.set(d.employee_id.toString(), d);
@@ -82,7 +87,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { date: dateString, rows },
+      data: { date: dateString, holiday, activeHolidays, rows },
     });
   } catch (error: any) {
     return NextResponse.json(
@@ -121,6 +126,20 @@ export async function POST(req: NextRequest) {
 
     for (const item of body.entries) {
       const { dateObj, dateString } = normalizeDhakaDate(item.date);
+      if (item.status === 'Present' || item.status === 'Late' || item.status === 'Half-day') {
+        const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
+        if (holiday) {
+          const desc = holiday.description ? ` — ${holiday.description}` : '';
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Blocked: ${dateString} is ${holiday.title} (${holiday.type} Holiday)${desc}. Present/Late/Half-day cannot be marked on a holiday.`,
+            },
+            { status: 400 }
+          );
+        }
+      }
+
       const existing = await DailyAttendance.findOne({
         employee_id: item.employee_id,
         date: dateObj,

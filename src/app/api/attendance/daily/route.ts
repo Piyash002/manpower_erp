@@ -108,6 +108,11 @@ export async function GET(req: NextRequest) {
         }
       );
 
+      const todayHoliday =
+        holidays.find(
+          (h: any) => new Date(h.date).toISOString().split('T')[0] === todayStr
+        ) || null;
+
       return NextResponse.json({
         success: true,
         data: {
@@ -115,6 +120,7 @@ export async function GET(req: NextRequest) {
           todayStr,
           todayRecord,
           todayLogs,
+          todayHoliday,
           days,
           holidays,
           schedule,
@@ -172,9 +178,13 @@ export async function GET(req: NextRequest) {
 
     // Single day Live Roster
     const { dateObj, dateString } = normalizeDhakaDate(dateParam);
-    const dailyDocs = await DailyAttendance.find({ date: dateObj })
-      .populate('schedule_id', 'name start_time end_time')
-      .lean();
+    const [dailyDocs, holiday, activeHolidays] = await Promise.all([
+      DailyAttendance.find({ date: dateObj })
+        .populate('schedule_id', 'name start_time end_time')
+        .lean(),
+      Holiday.findOne({ date: dateObj, active: true }).lean(),
+      Holiday.find({ active: true }).sort({ date: 1 }).lean(),
+    ]);
 
     const docMap = new Map<string, any>();
     for (const d of dailyDocs) {
@@ -220,6 +230,8 @@ export async function GET(req: NextRequest) {
         mode: 'roster',
         date: dateString,
         todayStr,
+        holiday,
+        activeHolidays,
         roster,
         summary: {
           total: employees.length,
