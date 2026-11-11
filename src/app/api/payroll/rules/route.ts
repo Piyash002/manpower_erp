@@ -18,7 +18,7 @@ interface CreateRuleBody {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR', 'Accountant', 'Viewer']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -44,7 +44,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -81,6 +81,7 @@ export async function POST(req: NextRequest) {
         PRESENT_DAYS: 26,
         ABSENT_DAYS: 0,
         LATE_DAYS: 0,
+        LATE_PENALTY_DAYS: 0,
         HALF_DAYS: 0,
         PAID_LEAVE_DAYS: 0,
         UNPAID_LEAVE_DAYS: 0,

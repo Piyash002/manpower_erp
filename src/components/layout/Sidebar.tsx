@@ -123,10 +123,10 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
-          title: 'Payroll & Payslips',
+          title: 'Payroll Runs & Payslips',
           href: '/payroll',
           icon: Receipt,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR', 'Manager', 'Employee', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
           title: 'Users & Staff',

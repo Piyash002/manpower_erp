@@ -199,12 +199,12 @@ export function BulkManualAttendanceView() {
       prev.map((row) =>
         row.selected
           ? {
-              ...row,
-              status: batchStatus,
-              leave_type: batchStatus === 'Leave' ? batchLeaveType : row.leave_type,
-              check_in_time: needsTimes ? batchInTime : row.check_in_time,
-              check_out_time: needsTimes ? batchOutTime : row.check_out_time,
-            }
+            ...row,
+            status: batchStatus,
+            leave_type: batchStatus === 'Leave' ? batchLeaveType : row.leave_type,
+            check_in_time: needsTimes ? batchInTime : row.check_in_time,
+            check_out_time: needsTimes ? batchOutTime : row.check_out_time,
+          }
           : row
       )
     );
@@ -316,364 +316,361 @@ export function BulkManualAttendanceView() {
         </div>
       </div>
 
-      {isDayBlocked && (
-        <div
-          className={`p-4 rounded-xl border text-xs flex items-start gap-2.5 font-medium ${
-            holidayInfo
-              ? 'bg-rose-50 border-rose-200 text-rose-900'
-              : 'bg-amber-50 border-amber-200 text-amber-900'
-          }`}
-        >
-          <AlertTriangle
-            className={`w-4 h-4 shrink-0 mt-0.5 ${
-              holidayInfo ? 'text-rose-600' : 'text-amber-600'
-            }`}
-          />
-          <div>
-            <div className="font-bold">
-              {holidayInfo
-                ? `Holiday (${date}) — ${holidayInfo.title} (${holidayInfo.type})`
-                : `Weekly Off Day (${date}) — ${weeklyOffInfo?.dayName}`}
-            </div>
-            <p className="mt-0.5 text-[11px] opacity-90">
-              {blockReason} The Present / Late / Half-day attendance section is hidden on this date. Select a working date above to enter attendance.
-            </p>
-          </div>
-        </div>
-      )}
-
-      {banner && (
-        <div
-          className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 border ${
-            banner.type === 'ok'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}
-        >
-          {banner.type === 'ok' ? (
-            <CheckCircle2 className="w-4 h-4 shrink-0" />
-          ) : (
-            <AlertTriangle className="w-4 h-4 shrink-0" />
-          )}
-          <span>{banner.msg}</span>
-        </div>
-      )}
-
-      {/* Batch Toolbar & Save Form — hidden on Weekly Off Day or Holiday */}
-      {isDayBlocked ? (
-        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-xs text-center space-y-2">
-          <p className="text-sm font-bold text-slate-800">
-            Present Attendance Section Closed
-          </p>
-          <p className="text-xs text-slate-500 max-w-lg mx-auto">
-            {blockReason || `${date} is a non-working day.`} Daily Present / Late / Half-day marking is disabled automatically based on Working Schedules and Holiday Calendar.
-          </p>
-        </div>
-      ) : (
-      <form
-        onSubmit={handleSaveAll}
-        className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3"
-      >
-        <div className="flex flex-wrap items-end justify-between gap-3 pb-3 border-b border-slate-100">
-          <div className="flex flex-wrap items-end gap-2">
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                Status
-              </label>
-              <select
-                value={batchStatus}
-                onChange={(e) => setBatchStatus(e.target.value as DailyAttendanceStatus)}
-                className="px-2.5 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
-              >
-                {BULK_STATUSES.map((st) => (
-                  <option key={st} value={st}>
-                    {st}
-                  </option>
-                ))}
-              </select>
-            </div>
-            {batchStatus === 'Leave' && (
+          {isDayBlocked && (
+            <div
+              className={`p-4 rounded-xl border text-xs flex items-start gap-2.5 font-medium ${holidayInfo
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-amber-50 border-amber-200 text-amber-900'
+                }`}
+            >
+              <AlertTriangle
+                className={`w-4 h-4 shrink-0 mt-0.5 ${holidayInfo ? 'text-rose-600' : 'text-amber-600'
+                  }`}
+              />
               <div>
-                <label className="block text-[11px] font-semibold text-purple-600 uppercase mb-1">
-                  Leave Type
-                </label>
-                <select
-                  value={batchLeaveType}
-                  onChange={(e) => setBatchLeaveType(e.target.value as LeaveType)}
-                  className="px-2.5 py-1.5 text-xs font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-lg"
-                >
-                  {LEAVE_TYPE_OPTIONS.map((opt) => (
-                    <option key={opt.value} value={opt.value}>
-                      {opt.label}
-                    </option>
-                  ))}
-                </select>
+                <div className="font-bold">
+                  {holidayInfo
+                    ? `Holiday (${date}) — ${holidayInfo.title} (${holidayInfo.type})`
+                    : `Weekly Off Day (${date}) — ${weeklyOffInfo?.dayName}`}
+                </div>
+                <p className="mt-0.5 text-[11px] opacity-90">
+                  {blockReason} The Present / Late / Half-day attendance section is hidden on this date. Select a working date above to enter attendance.
+                </p>
               </div>
-            )}
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                In Time
-              </label>
-              <input
-                type="time"
-                value={batchInTime}
-                onChange={(e) => setBatchInTime(e.target.value)}
-                className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-              />
             </div>
-            <div>
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                Out Time
-              </label>
-              <input
-                type="time"
-                value={batchOutTime}
-                onChange={(e) => setBatchOutTime(e.target.value)}
-                className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-              />
-            </div>
-            <button
-              type="button"
-              onClick={handleApplyToSelected}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg disabled:opacity-45"
-            >
-              <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
-              Apply to Selected ({selectedCount})
-            </button>
-          </div>
+          )}
 
-          <div className="flex flex-wrap items-end gap-2 flex-1 justify-end min-w-[280px]">
-            <div className="flex-1 max-w-xs">
-              <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
-                Audit Reason *
-              </label>
-              <input
-                type="text"
-                required
-                placeholder="e.g. Morning biometric outage / Roster confirmation"
-                value={reason}
-                onChange={(e) => setReason(e.target.value)}
-                className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-              />
-            </div>
-            <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 pb-1.5 cursor-pointer">
-              <input
-                type="checkbox"
-                checked={overwriteExisting}
-                onChange={(e) => setOverwriteExisting(e.target.checked)}
-                className="rounded border-slate-300 text-emerald-600"
-              />
-              <span>Overwrite Existing</span>
-            </label>
-            <button
-              type="submit"
-              disabled={saving || selectedCount === 0}
-              className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
+          {banner && (
+            <div
+              className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 border ${banner.type === 'ok'
+                  ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                  : 'bg-rose-50 border-rose-200 text-rose-800'
+                }`}
             >
-              {saving ? (
-                <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+              {banner.type === 'ok' ? (
+                <CheckCircle2 className="w-4 h-4 shrink-0" />
               ) : (
-                <Save className="w-3.5 h-3.5" />
+                <AlertTriangle className="w-4 h-4 shrink-0" />
               )}
-              <span>{saving ? 'Saving...' : `Save Selected (${selectedCount})`}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Multi-Employee Table */}
-        <div className="overflow-x-auto">
-          {loading ? (
-            <div className="py-12 text-center">
-              <RefreshCw className="w-6 h-6 animate-spin text-emerald-600 mx-auto" />
+              <span>{banner.msg}</span>
             </div>
-          ) : rows.length === 0 ? (
-            <div className="py-10 text-center text-xs text-slate-400">
-              No active employees match the selected Department / Shift filter.
+          )}
+
+          {/* Batch Toolbar & Save Form — hidden on Weekly Off Day or Holiday */}
+          {isDayBlocked ? (
+            <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-xs text-center space-y-2">
+              <p className="text-sm font-bold text-slate-800">
+                Present Attendance Section Closed
+              </p>
+              <p className="text-xs text-slate-500 max-w-lg mx-auto">
+                {blockReason || `${date} is a non-working day.`} Daily Present / Late / Half-day marking is disabled automatically based on Working Schedules and Holiday Calendar.
+              </p>
             </div>
           ) : (
-            <table className="w-full text-left text-xs">
-              <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                <tr>
-                  <th className="px-3 py-2.5 w-10">
+            <form
+              onSubmit={handleSaveAll}
+              className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3"
+            >
+              <div className="flex flex-wrap items-end justify-between gap-3 pb-3 border-b border-slate-100">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Status
+                    </label>
+                    <select
+                      value={batchStatus}
+                      onChange={(e) => setBatchStatus(e.target.value as DailyAttendanceStatus)}
+                      className="px-2.5 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+                    >
+                      {BULK_STATUSES.map((st) => (
+                        <option key={st} value={st}>
+                          {st}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  {batchStatus === 'Leave' && (
+                    <div>
+                      <label className="block text-[11px] font-semibold text-purple-600 uppercase mb-1">
+                        Leave Type
+                      </label>
+                      <select
+                        value={batchLeaveType}
+                        onChange={(e) => setBatchLeaveType(e.target.value as LeaveType)}
+                        className="px-2.5 py-1.5 text-xs font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-lg"
+                      >
+                        {LEAVE_TYPE_OPTIONS.map((opt) => (
+                          <option key={opt.value} value={opt.value}>
+                            {opt.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      In Time
+                    </label>
+                    <input
+                      type="time"
+                      value={batchInTime}
+                      onChange={(e) => setBatchInTime(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Out Time
+                    </label>
+                    <input
+                      type="time"
+                      value={batchOutTime}
+                      onChange={(e) => setBatchOutTime(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleApplyToSelected}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg disabled:opacity-45"
+                  >
+                    <CheckCheck className="w-3.5 h-3.5 text-emerald-600" />
+                    Apply to Selected ({selectedCount})
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap items-end gap-2 flex-1 justify-end min-w-[280px]">
+                  <div className="flex-1 max-w-xs">
+                    <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
+                      Audit Reason *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="e.g. Morning biometric outage / Roster confirmation"
+                      value={reason}
+                      onChange={(e) => setReason(e.target.value)}
+                      className="w-full px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+                    />
+                  </div>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 pb-1.5 cursor-pointer">
                     <input
                       type="checkbox"
-                      checked={allUnlockedSelected}
-                      onChange={(e) => toggleSelectAll(e.target.checked)}
-                      title="Select all unlocked rows"
+                      checked={overwriteExisting}
+                      onChange={(e) => setOverwriteExisting(e.target.checked)}
                       className="rounded border-slate-300 text-emerald-600"
                     />
-                  </th>
-                  <th className="px-3 py-2.5">Employee</th>
-                  <th className="px-3 py-2.5">Dept / Shift</th>
-                  <th className="px-3 py-2.5">Existing Record</th>
-                  <th className="px-3 py-2.5">Mark Status / Leave Type</th>
-                  <th className="px-3 py-2.5">Check In</th>
-                  <th className="px-3 py-2.5">Check Out</th>
-                  <th className="px-3 py-2.5">Remark</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {rows.map((row) => {
-                  const locked = Boolean(row.existing?.locked);
-                  const needsTimes =
-                    row.status === 'Present' || row.status === 'Late' || row.status === 'Half-day';
+                    <span>Overwrite Existing</span>
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={saving || selectedCount === 0}
+                    className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
+                  >
+                    {saving ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Save className="w-3.5 h-3.5" />
+                    )}
+                    <span>{saving ? 'Saving...' : `Save Selected (${selectedCount})`}</span>
+                  </button>
+                </div>
+              </div>
 
-                  return (
-                    <tr
-                      key={row.employee._id}
-                      className={
-                        locked
-                          ? 'bg-slate-50/70 opacity-65'
-                          : row.selected
-                          ? 'bg-emerald-50/20'
-                          : 'hover:bg-slate-50/60'
-                      }
-                    >
-                      <td className="px-3 py-2.5">
-                        {locked ? (
-                          <span title="Locked by Payroll">
-                            <Lock className="w-3.5 h-3.5 text-slate-400" />
-                          </span>
-                        ) : (
+              {/* Multi-Employee Table */}
+              <div className="overflow-x-auto">
+                {loading ? (
+                  <div className="py-12 text-center">
+                    <RefreshCw className="w-6 h-6 animate-spin text-emerald-600 mx-auto" />
+                  </div>
+                ) : rows.length === 0 ? (
+                  <div className="py-10 text-center text-xs text-slate-400">
+                    No active employees match the selected Department / Shift filter.
+                  </div>
+                ) : (
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-3 py-2.5 w-10">
                           <input
                             type="checkbox"
-                            checked={row.selected}
-                            onChange={() => toggleRow(row.employee._id)}
+                            checked={allUnlockedSelected}
+                            onChange={(e) => toggleSelectAll(e.target.checked)}
+                            title="Select all unlocked rows"
                             className="rounded border-slate-300 text-emerald-600"
                           />
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        <Link
-                          href={`/hrm/employees/${row.employee._id}`}
-                          className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline block"
-                        >
-                          {row.employee.firstName} {row.employee.lastName}
-                        </Link>
-                        <div className="text-[11px] font-mono text-slate-400">
-                          {row.employee.employee_id}
-                          {row.employee.biometric_id ? ` • Bio: ${row.employee.biometric_id}` : ''}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
-                        <div className="font-semibold">{row.employee.department}</div>
-                        <div className="text-[11px] text-slate-400">
-                          {row.employee.shift || 'Regular'} ({row.schedule.start_time}–
-                          {row.schedule.end_time}, grace {row.schedule.grace_minutes ?? 10}m)
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5 whitespace-nowrap">
-                        {row.existing ? (
-                          <div className="space-y-0.5">
-                            <div className="flex items-center gap-1">
-                              <Badge variant="default">{row.existing.status}</Badge>
-                              <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
-                                {row.existing.source}
-                              </span>
-                            </div>
-                            {row.existing.status === 'Leave' && row.existing.leave_type && (
-                              <div className="text-[10px] font-semibold text-purple-700">
-                                {row.existing.leave_type} (
-                                {row.existing.leave_is_paid === false ? 'Unpaid' : 'Paid'})
-                              </div>
-                            )}
-                            {row.existing.first_in && (
-                              <div className="text-[10px] font-mono text-slate-400">
-                                {formatTimeDhaka(row.existing.first_in)} →{' '}
-                                {row.existing.last_out ? formatTimeDhaka(row.existing.last_out) : '—'}
-                              </div>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-slate-400 italic">Not Marked</span>
-                        )}
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <div className="flex flex-col gap-1">
-                          <select
-                            disabled={locked}
-                            value={row.status}
-                            onChange={(e) =>
-                              updateRowField(
-                                row.employee._id,
-                                'status',
-                                e.target.value as DailyAttendanceStatus
-                              )
+                        </th>
+                        <th className="px-3 py-2.5">Employee</th>
+                        <th className="px-3 py-2.5">Dept / Shift</th>
+                        <th className="px-3 py-2.5">Existing Record</th>
+                        <th className="px-3 py-2.5">Mark Status / Leave Type</th>
+                        <th className="px-3 py-2.5">Check In</th>
+                        <th className="px-3 py-2.5">Check Out</th>
+                        <th className="px-3 py-2.5">Remark</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {rows.map((row) => {
+                        const locked = Boolean(row.existing?.locked);
+                        const needsTimes =
+                          row.status === 'Present' || row.status === 'Late' || row.status === 'Half-day';
+
+                        return (
+                          <tr
+                            key={row.employee._id}
+                            className={
+                              locked
+                                ? 'bg-slate-50/70 opacity-65'
+                                : row.selected
+                                  ? 'bg-emerald-50/20'
+                                  : 'hover:bg-slate-50/60'
                             }
-                            className="px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-md"
                           >
-                            {BULK_STATUSES.map((st) => (
-                              <option key={st} value={st}>
-                                {st}
-                              </option>
-                            ))}
-                          </select>
-                          {row.status === 'Leave' && (
-                            <select
-                              disabled={locked}
-                              value={row.leave_type}
-                              onChange={(e) =>
-                                updateRowField(
-                                  row.employee._id,
-                                  'leave_type',
-                                  e.target.value as LeaveType
-                                )
-                              }
-                              className="px-2 py-1 text-[11px] font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-md"
-                            >
-                              {LEAVE_TYPE_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
-                                  {opt.label}
-                                </option>
-                              ))}
-                            </select>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <input
-                          type="time"
-                          disabled={locked || !needsTimes}
-                          value={row.check_in_time}
-                          onChange={(e) =>
-                            updateRowField(row.employee._id, 'check_in_time', e.target.value)
-                          }
-                          className="px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-md disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <input
-                          type="time"
-                          disabled={locked || !needsTimes}
-                          value={row.check_out_time}
-                          onChange={(e) =>
-                            updateRowField(row.employee._id, 'check_out_time', e.target.value)
-                          }
-                          className="px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-md disabled:bg-slate-100 disabled:text-slate-400"
-                        />
-                      </td>
-                      <td className="px-3 py-2.5">
-                        <input
-                          type="text"
-                          disabled={locked}
-                          placeholder="Optional note"
-                          value={row.remark}
-                          onChange={(e) =>
-                            updateRowField(row.employee._id, 'remark', e.target.value)
-                          }
-                          className="w-36 px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
-                        />
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+                            <td className="px-3 py-2.5">
+                              {locked ? (
+                                <span title="Locked by Payroll">
+                                  <Lock className="w-3.5 h-3.5 text-slate-400" />
+                                </span>
+                              ) : (
+                                <input
+                                  type="checkbox"
+                                  checked={row.selected}
+                                  onChange={() => toggleRow(row.employee._id)}
+                                  className="rounded border-slate-300 text-emerald-600"
+                                />
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              <Link
+                                href={`/hrm/employees/${row.employee._id}`}
+                                className="font-semibold text-slate-900 hover:text-emerald-700 hover:underline block"
+                              >
+                                {row.employee.firstName} {row.employee.lastName}
+                              </Link>
+                              <div className="text-[11px] font-mono text-slate-400">
+                                {row.employee.employee_id}
+                                {row.employee.biometric_id ? ` • Bio: ${row.employee.biometric_id}` : ''}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap text-slate-600">
+                              <div className="font-semibold">{row.employee.department}</div>
+                              <div className="text-[11px] text-slate-400">
+                                {row.employee.shift || 'Regular'} ({row.schedule.start_time}–
+                                {row.schedule.end_time}, grace {row.schedule.grace_minutes ?? 10}m)
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5 whitespace-nowrap">
+                              {row.existing ? (
+                                <div className="space-y-0.5">
+                                  <div className="flex items-center gap-1">
+                                    <Badge variant="default">{row.existing.status}</Badge>
+                                    <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
+                                      {row.existing.source}
+                                    </span>
+                                  </div>
+                                  {row.existing.status === 'Leave' && row.existing.leave_type && (
+                                    <div className="text-[10px] font-semibold text-purple-700">
+                                      {row.existing.leave_type} (
+                                      {row.existing.leave_is_paid === false ? 'Unpaid' : 'Paid'})
+                                    </div>
+                                  )}
+                                  {row.existing.first_in && (
+                                    <div className="text-[10px] font-mono text-slate-400">
+                                      {formatTimeDhaka(row.existing.first_in)} →{' '}
+                                      {row.existing.last_out ? formatTimeDhaka(row.existing.last_out) : '—'}
+                                    </div>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-slate-400 italic">Not Marked</span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <div className="flex flex-col gap-1">
+                                <select
+                                  disabled={locked}
+                                  value={row.status}
+                                  onChange={(e) =>
+                                    updateRowField(
+                                      row.employee._id,
+                                      'status',
+                                      e.target.value as DailyAttendanceStatus
+                                    )
+                                  }
+                                  className="px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-md"
+                                >
+                                  {BULK_STATUSES.map((st) => (
+                                    <option key={st} value={st}>
+                                      {st}
+                                    </option>
+                                  ))}
+                                </select>
+                                {row.status === 'Leave' && (
+                                  <select
+                                    disabled={locked}
+                                    value={row.leave_type}
+                                    onChange={(e) =>
+                                      updateRowField(
+                                        row.employee._id,
+                                        'leave_type',
+                                        e.target.value as LeaveType
+                                      )
+                                    }
+                                    className="px-2 py-1 text-[11px] font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-md"
+                                  >
+                                    {LEAVE_TYPE_OPTIONS.map((opt) => (
+                                      <option key={opt.value} value={opt.value}>
+                                        {opt.label}
+                                      </option>
+                                    ))}
+                                  </select>
+                                )}
+                              </div>
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <input
+                                type="time"
+                                disabled={locked || !needsTimes}
+                                value={row.check_in_time}
+                                onChange={(e) =>
+                                  updateRowField(row.employee._id, 'check_in_time', e.target.value)
+                                }
+                                className="px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-md disabled:bg-slate-100 disabled:text-slate-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <input
+                                type="time"
+                                disabled={locked || !needsTimes}
+                                value={row.check_out_time}
+                                onChange={(e) =>
+                                  updateRowField(row.employee._id, 'check_out_time', e.target.value)
+                                }
+                                className="px-2 py-1 text-xs font-mono bg-white border border-slate-200 rounded-md disabled:bg-slate-100 disabled:text-slate-400"
+                              />
+                            </td>
+                            <td className="px-3 py-2.5">
+                              <input
+                                type="text"
+                                disabled={locked}
+                                placeholder="Optional note"
+                                value={row.remark}
+                                onChange={(e) =>
+                                  updateRowField(row.employee._id, 'remark', e.target.value)
+                                }
+                                className="w-36 px-2 py-1 text-xs bg-white border border-slate-200 rounded-md"
+                              />
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </form>
           )}
         </div>
-      </form>
-      )}
-    </div>
-  );
+      );
 }
 

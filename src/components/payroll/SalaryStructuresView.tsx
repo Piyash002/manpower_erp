@@ -260,6 +260,21 @@ export function SalaryStructuresView() {
           <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mx-auto mb-2" />
           <p className="text-xs text-slate-500">Loading salary structures...</p>
         </div>
+      ) : structures.length === 0 ? (
+        <div className="bg-white rounded-xl border border-slate-200 py-16 text-center space-y-2.5">
+          <Layers className="w-10 h-10 text-slate-300 mx-auto" />
+          <p className="font-semibold text-slate-700">No salary structures configured yet</p>
+          <p className="text-xs text-slate-400">
+            Create a salary structure first, then assign contracts to active employees.
+          </p>
+          <button
+            type="button"
+            onClick={openCreateStruct}
+            className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+          >
+            <Plus className="w-3.5 h-3.5" /> Create Salary Structure
+          </button>
+        </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
           {/* Structures List */}

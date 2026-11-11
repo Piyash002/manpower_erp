@@ -8,7 +8,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   const { id } = await params;
@@ -32,6 +32,7 @@ export async function PUT(
         PRESENT_DAYS: 26,
         ABSENT_DAYS: 0,
         LATE_DAYS: 0,
+        LATE_PENALTY_DAYS: 0,
         HALF_DAYS: 0,
         PAID_LEAVE_DAYS: 0,
         UNPAID_LEAVE_DAYS: 0,
@@ -98,7 +99,7 @@ export async function DELETE(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   const { id } = await params;

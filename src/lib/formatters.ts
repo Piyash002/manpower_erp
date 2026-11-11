@@ -39,6 +39,19 @@ export function formatDate(dateInput: Date | string | null | undefined): string 
 }
 
 /**
+ * Format date as DD-MM-YYYY (Payroll & official tables)
+ */
+export function formatDateDMY(dateInput: Date | string | null | undefined): string {
+  if (!dateInput) return '—';
+  const d = new Date(dateInput);
+  if (isNaN(d.getTime())) return '—';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}-${month}-${year}`;
+}
+
+/**
  * Format input date for HTML date input (YYYY-MM-DD)
  */
 export function toInputDate(dateInput: Date | string | null | undefined): string {
@@ -185,7 +198,7 @@ export function amountInWords(num: number): string {
     words += convertGroup(remaining) + ' ';
   }
 
-  return `${words.trim()} Taka Only`;
+  return `${num < 0 ? 'Minus ' : ''}${words.trim()} Taka Only`;
 }
 
 export const EMPLOYEE_DEPARTMENTS = [

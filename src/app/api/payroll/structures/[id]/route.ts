@@ -9,7 +9,7 @@ export async function GET(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR', 'Accountant', 'Viewer']);
   if (auth.errorResponse) return auth.errorResponse;
 
   const { id } = await params;
@@ -39,7 +39,7 @@ export async function PUT(
   req: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   const { id } = await params;

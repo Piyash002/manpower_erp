@@ -11,7 +11,8 @@ import {
   RotateCcw,
   AlertCircle,
 } from 'lucide-react';
-import { formatBDT, formatDate } from '@/lib/formatters';
+import { formatBDT, formatDateDMY, amountInWords } from '@/lib/formatters';
+import { Download } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
@@ -119,7 +120,7 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
       {/* Action Toolbar (Hidden when printing) */}
       <div className="max-w-3xl mx-auto mb-5 bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3 print:hidden">
         <Link
-          href="/payroll"
+          href="/payroll/payslips"
           className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900"
         >
           <ArrowLeft className="w-4 h-4" /> Back to Payslips
@@ -157,6 +158,13 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
               <Banknote className="w-3.5 h-3.5" /> Mark Paid
             </button>
           )}
+
+          <a
+            href={`/api/payroll/payslips/${payslipId}?format=pdf`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+            <Download className="w-3.5 h-3.5" /> Download PDF
+          </a>
 
           <button
             type="button"
@@ -210,9 +218,12 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
               <strong className="text-slate-900">{payslip.structure_id?.name || 'Regular'}</strong>
             </p>
             <p>
-              <span className="text-slate-500">Bank / Account:</span>{' '}
+              <span className="text-slate-500">Payment Method:</span>{' '}
               <strong className="font-mono text-slate-800">
-                {contract.bank_name ? `${contract.bank_name} (${contract.bank_account_no})` : 'Cash Payout'}
+                {payslip.payment_method || emp.payment_method || 'Bank'}
+                {(emp.bank_account_no || contract.bank_account_no)
+                  ? ` (${emp.bank_name || contract.bank_name ? `${emp.bank_name || contract.bank_name} · ` : ''}${emp.bank_account_no || contract.bank_account_no})`
+                  : ''}
               </strong>
             </p>
             <p className="flex items-center sm:justify-end gap-1.5">
@@ -223,13 +234,20 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
                     ? 'success'
                     : payslip.status === 'Confirmed'
                       ? 'info'
-                      : 'warning'
+                      : payslip.status === 'Verified'
+                        ? 'purple'
+                        : payslip.status === 'Reversed'
+                          ? 'danger'
+                          : 'warning'
                 }
               >
                 {payslip.status}
               </Badge>
               {payslip.paid_at && (
-                <span className="text-[11px] text-slate-500">({formatDate(payslip.paid_at)})</span>
+                <span className="text-[11px] text-slate-500">
+                  ({formatDateDMY(payslip.payment_date || payslip.paid_at)}
+                  {payslip.payment_reference ? ` • Ref: ${payslip.payment_reference}` : ''})
+                </span>
               )}
             </p>
           </div>
@@ -325,12 +343,15 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
         </div>
 
         {/* Net Pay Banner */}
-        <div className="p-4 bg-emerald-50 border-2 border-emerald-600 rounded-xl flex items-center justify-between mb-10">
+        <div className="p-4 bg-emerald-50 border-2 border-emerald-600 rounded-xl flex flex-wrap items-center justify-between gap-3 mb-10">
           <div>
             <span className="text-xs font-bold text-emerald-900 uppercase block">
               Net Salary Payable
             </span>
-            <span className="text-[11px] text-emerald-700">
+            <span className="text-[11px] font-semibold text-emerald-800 block mt-0.5">
+              In Words: {payslip.amount_in_words || amountInWords(payslip.net_pay || 0)}
+            </span>
+            <span className="text-[11px] text-emerald-700 block mt-0.5">
               Gross ({formatBDT(payslip.gross_pay)}) − Deductions ({formatBDT(payslip.total_deductions)})
             </span>
           </div>

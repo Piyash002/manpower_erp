@@ -58,12 +58,12 @@ export async function GET(req: NextRequest) {
       .lean();
 
     const [dailyDocs, dateBlock, activeHolidays] = await Promise.all([
-      DailyAttendance.find({ date: dateObj })
-        .populate('leave_id', 'leave_type is_paid status')
-        .lean(),
-      checkDateBlockedForAttendance(dateString),
-      Holiday.find({ active: true }).sort({ date: 1 }).lean(),
-    ]);
+        DailyAttendance.find({ date: dateObj })
+          .populate('leave_id', 'leave_type is_paid status')
+          .lean(),
+        checkDateBlockedForAttendance(dateString),
+        Holiday.find({ active: true }).sort({ date: 1 }).lean(),
+      ]);
 
     const dailyMap = new Map<string, (typeof dailyDocs)[number]>();
     for (const d of dailyDocs) {
@@ -71,24 +71,24 @@ export async function GET(req: NextRequest) {
     }
 
     const rows = await Promise.all(
-      employees.map(async (emp) => {
-        const sched = await resolveEmployeeSchedule(emp);
-        const existing = dailyMap.get(emp._id.toString()) || null;
-        const leaveObj = existing?.leave_id as unknown as {
-          leave_type?: LeaveType;
-          is_paid?: boolean;
-        } | null;
+        employees.map(async (emp) => {
+          const sched = await resolveEmployeeSchedule(emp);
+          const existing = dailyMap.get(emp._id.toString()) || null;
+          const leaveObj = existing?.leave_id as unknown as {
+            leave_type?: LeaveType;
+            is_paid?: boolean;
+          } | null;
 
-        return {
-          employee: { ...emp, _id: emp._id.toString() },
-          schedule: {
-            name: sched.name,
-            start_time: sched.start_time,
-            end_time: sched.end_time,
-            grace_minutes: sched.grace_minutes ?? 10,
-          },
-          existing: existing
-            ? {
+          return {
+            employee: { ...emp, _id: emp._id.toString() },
+            schedule: {
+              name: sched.name,
+              start_time: sched.start_time,
+              end_time: sched.end_time,
+              grace_minutes: sched.grace_minutes ?? 10,
+            },
+            existing: existing
+              ? {
                 _id: existing._id.toString(),
                 status: existing.status,
                 source: existing.source,
@@ -99,9 +99,9 @@ export async function GET(req: NextRequest) {
                 notes: existing.notes || '',
                 locked: existing.locked,
               }
-            : null,
-        };
-      })
+              : null,
+          };
+        })
     );
 
     return NextResponse.json({
@@ -154,109 +154,108 @@ export async function POST(req: NextRequest) {
       if (!empDoc) continue;
 
       if (item.status === 'Present' || item.status === 'Late' || item.status === 'Half-day') {
-        const block = await checkDateBlockedForAttendance(dateString, empDoc);
-        if (block.blocked) {
-          return NextResponse.json({ success: false, message: block.reason }, { status: 400 });
+          const block = await checkDateBlockedForAttendance(dateString, empDoc);
+          if (block.blocked) {
+            return NextResponse.json({ success: false, message: block.reason }, { status: 400 });
+          }
         }
-      }
 
-      const existing = await DailyAttendance.findOne({
-        employee_id: item.employee_id,
-        date: dateObj,
-      }).lean();
-
-      if (existing?.locked) {
-        lockedCount++;
-        continue;
-      }
-
-      if (existing && !overwrite) {
-        skippedExistingCount++;
-        continue;
-      }
-
-      const needsTimes =
-        item.status === 'Present' || item.status === 'Late' || item.status === 'Half-day';
-
-      await replaceManualPunchesForDate({
-        employeeId: item.employee_id,
-        dateStr: dateString,
-        inTime: needsTimes ? item.check_in_time : undefined,
-        outTime: needsTimes ? item.check_out_time : undefined,
-        clearExistingManual: true,
-        reason: item.remark?.trim() || reasonText,
-        recordedBy: auth.user.name,
-      });
-
-      let leaveId: string | null | undefined;
-      let leaveIsPaid: boolean | null | undefined;
-      let finalNote = item.remark?.trim() || reasonText;
-
-      if (item.status === 'Leave') {
-        const lType: LeaveType = item.leave_type || 'Casual';
-        const isPaid = lType !== 'Unpaid';
-        let leaveDoc = await Leave.findOne({
+        const existing = await DailyAttendance.findOne({
           employee_id: item.employee_id,
-          status: 'Approved',
-          start_date: { $lte: new Date(dateObj.getTime() + 24 * 60 * 60 * 1000 - 1) },
-          end_date: { $gte: dateObj },
-        });
-        if (!leaveDoc) {
-          leaveDoc = await Leave.create({
-            employee_id: item.employee_id,
-            leave_type: lType,
-            is_paid: isPaid,
-            start_date: dateObj,
-            end_date: dateObj,
-            reason: item.remark?.trim() || reasonText,
-            status: 'Approved',
-            reviewed_by: auth.user.name,
-            reviewed_at: new Date(),
-          });
-        } else {
-          leaveDoc.leave_type = lType;
-          leaveDoc.is_paid = isPaid;
-          await leaveDoc.save();
+          date: dateObj,
+        }).lean();
+
+        if (existing?.locked) {
+          lockedCount++;
+          continue;
         }
-        leaveId = leaveDoc._id.toString();
-        leaveIsPaid = isPaid;
-        finalNote = `${lType} Leave (${isPaid ? 'Paid' : 'Unpaid'}) — ${finalNote}`;
+
+        if (existing && !overwrite) {
+          skippedExistingCount++;
+          continue;
+        }
+
+        const needsTimes =
+          item.status === 'Present' || item.status === 'Late' || item.status === 'Half-day';
+
+        await replaceManualPunchesForDate({
+          employeeId: item.employee_id,
+          dateStr: dateString,
+          inTime: needsTimes ? item.check_in_time : undefined,
+          outTime: needsTimes ? item.check_out_time : undefined,
+          clearExistingManual: true,
+          reason: item.remark?.trim() || reasonText,
+          recordedBy: auth.user.name,
+        });
+
+        let leaveId: string | null | undefined;
+        let leaveIsPaid: boolean | null | undefined;
+        let finalNote = item.remark?.trim() || reasonText;
+
+        if (item.status === 'Leave') {
+          const lType: LeaveType = item.leave_type || 'Casual';
+          const isPaid = lType !== 'Unpaid';
+          let leaveDoc = await Leave.findOne({
+            employee_id: item.employee_id,
+            status: 'Approved',
+            start_date: { $lte: new Date(dateObj.getTime() + 24 * 60 * 60 * 1000 - 1) },
+            end_date: { $gte: dateObj },
+          });
+          if (!leaveDoc) {
+            leaveDoc = await Leave.create({
+              employee_id: item.employee_id,
+              leave_type: lType,
+              is_paid: isPaid,
+              start_date: dateObj,
+              end_date: dateObj,
+              reason: item.remark?.trim() || reasonText,
+              status: 'Approved',
+              reviewed_by: auth.user.name,
+              reviewed_at: new Date(),
+            });
+          } else {
+            leaveDoc.leave_type = lType;
+            leaveDoc.is_paid = isPaid;
+            await leaveDoc.save();
+          }
+          leaveId = leaveDoc._id.toString();
+          leaveIsPaid = isPaid;
+          finalNote = `${lType} Leave (${isPaid ? 'Paid' : 'Unpaid'}) — ${finalNote}`;
+        }
+
+        await recomputeDailyAttendance(item.employee_id, dateString, {
+          explicitStatusOverride: item.status,
+          preferredSource: 'Manual',
+          notes: finalNote,
+          leaveId,
+          leaveIsPaid,
+        });
+
+        savedCount++;
       }
 
-      await recomputeDailyAttendance(item.employee_id, dateString, {
-        explicitStatusOverride: item.status,
-        preferredSource: 'Manual',
-        notes: finalNote,
-        leaveId,
-        leaveIsPaid,
+      await createAuditLog({
+        user: auth.user,
+        action: 'ATTENDANCE_BULK_MANUAL',
+        entity: 'DailyAttendance',
+        newValues: {
+          submitted: body.entries.length,
+          savedCount,
+          skippedExistingCount,
+          lockedCount,
+          overwrite,
+          reason: reasonText,
+        },
       });
 
-      savedCount++;
+      return NextResponse.json({
+        success: true,
+        message: `Saved ${savedCount} record(s)${skippedExistingCount ? `, skipped ${skippedExistingCount} existing` : ''
+          }${lockedCount ? `, ${lockedCount} locked` : ''}.`,
+        data: { savedCount, skippedExistingCount, lockedCount },
+      });
+    } catch (error: unknown) {
+      const msg = error instanceof Error ? error.message : 'Bulk save failed';
+      return NextResponse.json({ success: false, message: msg }, { status: 500 });
     }
-
-    await createAuditLog({
-      user: auth.user,
-      action: 'ATTENDANCE_BULK_MANUAL',
-      entity: 'DailyAttendance',
-      newValues: {
-        submitted: body.entries.length,
-        savedCount,
-        skippedExistingCount,
-        lockedCount,
-        overwrite,
-        reason: reasonText,
-      },
-    });
-
-    return NextResponse.json({
-      success: true,
-      message: `Saved ${savedCount} record(s)${
-        skippedExistingCount ? `, skipped ${skippedExistingCount} existing` : ''
-      }${lockedCount ? `, ${lockedCount} locked` : ''}.`,
-      data: { savedCount, skippedExistingCount, lockedCount },
-    });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : 'Bulk save failed';
-    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
-}

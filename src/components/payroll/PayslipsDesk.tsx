@@ -10,46 +10,86 @@ import {
   CheckCircle2,
   Banknote,
   Trash2,
-  XCircle,
   AlertCircle,
-  RotateCcw,
+  Search,
+  Download,
+  FileArchive,
+  FileSpreadsheet,
+  ShieldCheck,
+  X,
+  Lock,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
-import { formatBDT } from '@/lib/formatters';
+import { formatBDT, formatDateDMY, EMPLOYEE_DEPARTMENTS } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 const MONTHS = [
-  'January',
-  'February',
-  'March',
-  'April',
-  'May',
-  'June',
-  'July',
-  'August',
-  'September',
-  'October',
-  'November',
-  'December',
+  'January', 'February', 'March', 'April', 'May', 'June',
+  'July', 'August', 'September', 'October', 'November', 'December',
 ];
+
+const STAFF_ROLES = ['Admin', 'HR', 'Accountant', 'Viewer'];
+
+function SourceTag({ source }: { source?: string }) {
+  const styles: Record<string, string> = {
+    contract: 'bg-blue-50 text-blue-700 border-blue-200',
+    attendance: 'bg-amber-50 text-amber-800 border-amber-200',
+    leave: 'bg-purple-50 text-purple-700 border-purple-200',
+    monthly_input: 'bg-emerald-50 text-emerald-700 border-emerald-200',
+    formula: 'bg-slate-100 text-slate-600 border-slate-200',
+  };
+  const labels: Record<string, string> = {
+    contract: 'Contract',
+    attendance: 'Attendance',
+    leave: 'Leave',
+    monthly_input: 'Monthly Input',
+    formula: 'Formula',
+  };
+  const key = source || 'formula';
+  return (
+    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded border ${styles[key] || styles.formula}`}>
+      {labels[key] || key}
+    </span>
+  );
+}
 
 export function PayslipsDesk() {
   const { user } = useAuth();
-  const isAdmin = user?.role === 'Admin';
+  const role = user?.role || 'Viewer';
+  const isStaff = STAFF_ROLES.includes(role);
+  const canVerifyOrEdit = role === 'Admin' || role === 'HR';
+  const canConfirm = role === 'Admin';
+  const canPay = role === 'Admin' || role === 'Accountant';
 
   const now = new Date();
-  const [month, setMonth] = useState<string>(String(now.getMonth() + 1));
+  const [month, setMonth] = useState<string>('all');
   const [year, setYear] = useState<string>(String(now.getFullYear()));
+  const [department, setDepartment] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
+  const [searchInput, setSearchInput] = useState<string>('');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [page, setPage] = useState<number>(1);
 
   const [payslips, setPayslips] = useState<any[]>([]);
+  const [allSummary, setAllSummary] = useState({ count: 0, gross: 0, deductions: 0, net: 0 });
+  const [pagination, setPagination] = useState({ total: 0, page: 1, limit: 20, totalPages: 1 });
   const [employees, setEmployees] = useState<any[]>([]);
   const [myEmployee, setMyEmployee] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [busy, setBusy] = useState(false);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
-  // Single Generate Modal
+  // Selection for Bulk Actions
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // Detail Drawer
+  const [drawerPayslip, setDrawerPayslip] = useState<any | null>(null);
+  const [draftEdit, setDraftEdit] = useState({ bonus_adjustment: '0', fine_adjustment: '0', notes: '' });
+
+  // Secondary Exception Single Generate Modal
   const [isGenModalOpen, setIsGenModalOpen] = useState(false);
   const [genForm, setGenForm] = useState({
     employee_id: '',
@@ -57,19 +97,37 @@ export function PayslipsDesk() {
     year: String(now.getFullYear()),
     notes: '',
   });
-  const [submittingGen, setSubmittingGen] = useState(false);
   const [genError, setGenError] = useState('');
+
+  // Bulk Mark Paid Modal
+  const [isPayModalOpen, setIsPayModalOpen] = useState(false);
+  const [payForm, setPayForm] = useState({
+    payment_method: 'Bank',
+    payment_date: now.toISOString().split('T')[0],
+    payment_reference: '',
+  });
+
+  const buildFilterParams = (extra?: Record<string, string>) => {
+    const params = new URLSearchParams();
+    if (month !== 'all') params.append('month', month);
+    if (year !== 'all') params.append('year', year);
+    if (department !== 'all') params.append('department', department);
+    if (statusFilter !== 'all') params.append('status', statusFilter);
+    if (searchQuery) params.append('search', searchQuery);
+    params.append('page', String(page));
+    params.append('limit', '20');
+    if (extra) {
+      for (const [k, v] of Object.entries(extra)) params.set(k, v);
+    }
+    return params.toString();
+  };
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const params = new URLSearchParams();
-      if (month !== 'all') params.append('month', month);
-      if (year !== 'all') params.append('year', year);
-      if (statusFilter !== 'all') params.append('status', statusFilter);
-
-      const reqs: Promise<Response>[] = [fetch(`/api/payroll/payslips?${params.toString()}`)];
-      if (isAdmin) {
+      const qs = buildFilterParams();
+      const reqs: Promise<Response>[] = [fetch(`/api/payroll/payslips?${qs}`)];
+      if (canVerifyOrEdit && employees.length === 0) {
         reqs.push(fetch('/api/hrm/employees?status=Active'));
       }
 
@@ -77,14 +135,15 @@ export function PayslipsDesk() {
       const slipJson = await slipRes.json();
       if (slipJson.success && slipJson.data) {
         setPayslips(slipJson.data.payslips || []);
+        setAllSummary(slipJson.data.allSummary || { count: 0, gross: 0, deductions: 0, net: 0 });
+        setPagination(slipJson.data.pagination || { total: 0, page: 1, limit: 20, totalPages: 1 });
         setMyEmployee(slipJson.data.myEmployee || null);
+        setSelectedIds([]);
       }
 
       if (empRes && empRes.ok) {
         const empJson = await empRes.json();
-        if (empJson.success) {
-          setEmployees(empJson.data || []);
-        }
+        if (empJson.success) setEmployees(empJson.data || []);
       }
     } catch (err) {
       console.error('Failed to load payslips:', err);
@@ -96,12 +155,37 @@ export function PayslipsDesk() {
   useEffect(() => {
     loadData();
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [month, year, statusFilter, isAdmin]);
+  }, [month, year, department, statusFilter, searchQuery, page, role]);
 
-  const handleGenerateSingle = async (e: React.FormEvent) => {
+  const handleBulkAction = async (
+    action: 'verify' | 'confirm' | 'pay',
+    extra: Record<string, any> = {}
+  ) => {
+    if (selectedIds.length === 0) return;
+    setBusy(true);
+    setBanner(null);
+    try {
+      const res = await fetch('/api/payroll/payslips', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids: selectedIds, action, ...extra }),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Bulk action failed');
+      setIsPayModalOpen(false);
+      setBanner({ type: 'ok', msg: json.message });
+      loadData();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleGenerateException = async (e: React.FormEvent) => {
     e.preventDefault();
     setGenError('');
-    setSubmittingGen(true);
+    setBusy(true);
     try {
       const res = await fetch('/api/payroll/payslips', {
         method: 'POST',
@@ -114,45 +198,71 @@ export function PayslipsDesk() {
         }),
       });
       const json = await res.json();
-      if (!res.ok || !json.success) {
-        throw new Error(json.message || 'Failed to generate payslip');
-      }
+      if (!res.ok || !json.success) throw new Error(json.message || 'Generation failed');
       setIsGenModalOpen(false);
       setBanner({ type: 'ok', msg: json.message });
       loadData();
     } catch (err: any) {
       setGenError(err.message);
     } finally {
-      setSubmittingGen(false);
+      setBusy(false);
     }
   };
 
-  const handlePayslipUpdate = async (id: string, payload: Record<string, any>) => {
+  const handleDrawerUpdate = async (payload: Record<string, any>) => {
+    if (!drawerPayslip) return;
+    setBusy(true);
     setBanner(null);
-    const res = await fetch(`/api/payroll/payslips/${id}`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      setBanner({ type: 'err', msg: json.message || 'Update failed' });
-      return;
+    try {
+      const res = await fetch(`/api/payroll/payslips/${drawerPayslip._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Update failed');
+      setDrawerPayslip(json.data);
+      setBanner({ type: 'ok', msg: json.message });
+      loadData();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
     }
-    setBanner({ type: 'ok', msg: json.message });
-    loadData();
   };
 
-  const handleDelete = async (id: string, payslipNo: string) => {
-    if (!confirm(`Delete payslip ${payslipNo}?`)) return;
-    const res = await fetch(`/api/payroll/payslips/${id}`, { method: 'DELETE' });
-    const json = await res.json();
-    if (!res.ok || !json.success) {
-      setBanner({ type: 'err', msg: json.message || 'Delete failed' });
-      return;
+  const handleDeleteDraft = async (id: string, payslipNo: string) => {
+    if (!confirm(`Delete Draft payslip ${payslipNo}?`)) return;
+    setBusy(true);
+    try {
+      const res = await fetch(`/api/payroll/payslips/${id}`, { method: 'DELETE' });
+      const json = await res.json();
+      if (!res.ok || !json.success) throw new Error(json.message || 'Delete failed');
+      if (drawerPayslip?._id === id) setDrawerPayslip(null);
+      setBanner({ type: 'ok', msg: json.message });
+      loadData();
+    } catch (err: any) {
+      setBanner({ type: 'err', msg: err.message });
+    } finally {
+      setBusy(false);
     }
-    setBanner({ type: 'ok', msg: json.message });
-    loadData();
+  };
+
+  const toggleSelectAll = (checked: boolean) => {
+    setSelectedIds(checked ? payslips.map((p) => p._id) : []);
+  };
+
+  const toggleRow = (id: string) => {
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+  };
+
+  const openDrawer = (p: any) => {
+    setDrawerPayslip(p);
+    setDraftEdit({
+      bonus_adjustment: '0',
+      fine_adjustment: '0',
+      notes: p.notes || '',
+    });
   };
 
   const getStatusBadge = (status: string) => {
@@ -161,17 +271,18 @@ export function PayslipsDesk() {
         return <Badge variant="success">Paid</Badge>;
       case 'Confirmed':
         return <Badge variant="info">Confirmed</Badge>;
+      case 'Verified':
+        return <Badge variant="purple">Verified</Badge>;
+      case 'Reversed':
       case 'Cancelled':
-        return <Badge variant="danger">Cancelled</Badge>;
+        return <Badge variant="danger">{status}</Badge>;
       default:
         return <Badge variant="warning">Draft</Badge>;
     }
   };
 
-  const nonCancelled = payslips.filter((p) => p.status !== 'Cancelled');
-  const totalGross = nonCancelled.reduce((s, p) => s + (p.gross_pay || 0), 0);
-  const totalDeductions = nonCancelled.reduce((s, p) => s + (p.total_deductions || 0), 0);
-  const totalNet = nonCancelled.reduce((s, p) => s + (p.net_pay || 0), 0);
+  const exportQueryIds =
+    selectedIds.length > 0 ? `ids=${selectedIds.join(',')}` : buildFilterParams();
 
   return (
     <div className="space-y-6">
@@ -179,19 +290,19 @@ export function PayslipsDesk() {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-3 border-b border-slate-200">
         <div>
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">
-            {isAdmin ? 'Payroll & Payslips' : 'My Payslips'}
+            {isStaff ? 'Payslips' : 'My Payslips'}
           </h1>
           <p className="text-sm text-slate-500 mt-0.5">
-            {isAdmin
-              ? 'Compute, verify, confirm, and disburse employee payslips from contracts, attendance, leaves & inputs.'
+            {isStaff
+              ? 'Search, inspect line-by-line calculation sources, bulk approve, and download payslip bundles.'
               : myEmployee
                 ? `Viewing payslips for ${myEmployee.firstName} ${myEmployee.lastName} (${myEmployee.employee_id})`
-                : 'View and print your personal monthly payslips.'}
+                : 'View and download your personal monthly payslips.'}
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          {isAdmin && (
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          {canVerifyOrEdit && (
             <button
               type="button"
               onClick={() => {
@@ -204,10 +315,10 @@ export function PayslipsDesk() {
                 });
                 setIsGenModalOpen(true);
               }}
-              className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs"
+              className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
             >
-              <Plus className="w-4 h-4" />
-              <span>Generate Payslip</span>
+              <Plus className="w-3.5 h-3.5 text-emerald-600" />
+              <span>Single payslip (exceptions)</span>
             </button>
           )}
           <button
@@ -241,231 +352,593 @@ export function PayslipsDesk() {
       {/* KPI Strip */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
-          <span className="text-xs font-semibold text-slate-500 uppercase">Payslips Count</span>
-          <p className="text-2xl font-bold text-slate-900 mt-1">{nonCancelled.length}</p>
+          <span className="text-xs font-semibold text-slate-500 uppercase">Matching Payslips</span>
+          <p className="text-2xl font-bold text-slate-900 mt-1">{allSummary.count}</p>
         </div>
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs">
           <span className="text-xs font-semibold text-slate-500 uppercase">Gross Total</span>
-          <p className="text-2xl font-bold text-slate-900 font-mono mt-1">{formatBDT(totalGross)}</p>
+          <p className="text-2xl font-bold text-slate-900 font-mono mt-1">{formatBDT(allSummary.gross)}</p>
         </div>
         <div className="bg-white p-4 rounded-xl border border-rose-200 shadow-xs">
           <span className="text-xs font-semibold text-rose-700 uppercase">Total Deductions</span>
           <p className="text-2xl font-bold text-rose-700 font-mono mt-1">
-            {formatBDT(totalDeductions)}
+            {formatBDT(allSummary.deductions)}
           </p>
         </div>
         <div className="bg-white p-4 rounded-xl border border-emerald-200 bg-emerald-50/20 shadow-xs">
           <span className="text-xs font-semibold text-emerald-800 uppercase">Net Payable</span>
-          <p className="text-2xl font-bold text-emerald-800 font-mono mt-1">
-            {formatBDT(totalNet)}
-          </p>
+          <p className="text-2xl font-bold text-emerald-800 font-mono mt-1">{formatBDT(allSummary.net)}</p>
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center gap-3">
-        <select
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-800"
-        >
-          <option value="all">Month: All</option>
-          {MONTHS.map((m, idx) => (
-            <option key={m} value={String(idx + 1)}>
-              {m}
-            </option>
-          ))}
-        </select>
+      {/* Filters & Search */}
+      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-wrap items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center gap-2 flex-1">
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              setPage(1);
+              setSearchQuery(searchInput.trim());
+            }}
+            className="relative flex-1 min-w-[200px] max-w-xs"
+          >
+            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+            <input
+              type="text"
+              placeholder="Search name, ID or payslip no..."
+              value={searchInput}
+              onChange={(e) => {
+                setSearchInput(e.target.value);
+                if (e.target.value === '') {
+                  setPage(1);
+                  setSearchQuery('');
+                }
+              }}
+              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
+            />
+          </form>
 
-        <select
-          value={year}
-          onChange={(e) => setYear(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-800 font-mono"
-        >
-          <option value="all">Year: All</option>
-          {[now.getFullYear() - 1, now.getFullYear(), now.getFullYear() + 1].map((y) => (
-            <option key={y} value={String(y)}>
-              {y}
-            </option>
-          ))}
-        </select>
+          <select
+            value={month}
+            onChange={(e) => {
+              setPage(1);
+              setMonth(e.target.value);
+            }}
+            className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+          >
+            <option value="all">Month: All</option>
+            {MONTHS.map((m, i) => (
+              <option key={m} value={i + 1}>
+                {m}
+              </option>
+            ))}
+          </select>
 
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-800"
-        >
-          <option value="all">Status: All</option>
-          <option value="Draft">Draft</option>
-          <option value="Confirmed">Confirmed</option>
-          <option value="Paid">Paid</option>
-          <option value="Cancelled">Cancelled</option>
-        </select>
+          <select
+            value={year}
+            onChange={(e) => {
+              setPage(1);
+              setYear(e.target.value);
+            }}
+            className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+          >
+            <option value="all">Year: All</option>
+            {[2025, 2026, 2027, 2028].map((y) => (
+              <option key={y} value={y}>
+                {y}
+              </option>
+            ))}
+          </select>
+
+          {isStaff && (
+            <select
+              value={department}
+              onChange={(e) => {
+                setPage(1);
+                setDepartment(e.target.value);
+              }}
+              className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+            >
+              <option value="all">Dept: All</option>
+              {EMPLOYEE_DEPARTMENTS.map((d) => (
+                <option key={d} value={d}>
+                  {d}
+                </option>
+              ))}
+            </select>
+          )}
+
+          <select
+            value={statusFilter}
+            onChange={(e) => {
+              setPage(1);
+              setStatusFilter(e.target.value);
+            }}
+            className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
+          >
+            <option value="all">Status: All</option>
+            <option value="Draft">Draft</option>
+            <option value="Verified">Verified</option>
+            <option value="Confirmed">Confirmed</option>
+            <option value="Paid">Paid</option>
+            <option value="Reversed">Reversed</option>
+          </select>
+        </div>
+
+        {/* Export filtered/selected */}
+        <div className="flex flex-wrap items-center gap-2">
+          <a
+            href={`/api/payroll/payslips?${exportQueryIds}&export=zip`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-lg"
+          >
+            <FileArchive className="w-3.5 h-3.5" />
+            Download PDFs (.zip)
+          </a>
+          <a
+            href={`/api/payroll/payslips?${exportQueryIds}&export=xlsx`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-emerald-700 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 rounded-lg"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Export Excel
+          </a>
+          <a
+            href={`/api/payroll/payslips?${exportQueryIds}&export=csv`}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+          >
+            <Download className="w-3.5 h-3.5" />
+            CSV
+          </a>
+        </div>
       </div>
 
-      {/* Payslips Table */}
-      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-        {loading ? (
-          <div className="py-16 text-center">
-            <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mx-auto mb-2" />
-            <p className="text-xs text-slate-500">Loading payslips...</p>
-          </div>
-        ) : payslips.length === 0 ? (
-          <div className="py-16 text-center text-slate-500">
-            <Receipt className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <p className="font-semibold text-slate-700">No payslips found for this period</p>
-            {!isAdmin && !myEmployee && (
-              <p className="text-xs text-slate-400 mt-1">
-                Your ERP user is not linked to an Employee profile yet.
-              </p>
+      {/* Bulk Action Strip */}
+      {isStaff && selectedIds.length > 0 && (
+        <div className="p-3 rounded-xl bg-slate-900 text-white flex flex-wrap items-center justify-between gap-3 text-xs">
+          <span className="font-semibold">{selectedIds.length} payslip(s) selected</span>
+          <div className="flex flex-wrap items-center gap-2">
+            {canVerifyOrEdit && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleBulkAction('verify')}
+                className="inline-flex items-center gap-1 px-3 py-1.5 font-semibold bg-purple-600 hover:bg-purple-700 rounded-lg"
+              >
+                <ShieldCheck className="w-3.5 h-3.5" /> Verify Selected
+              </button>
+            )}
+            {canConfirm && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => handleBulkAction('confirm')}
+                className="inline-flex items-center gap-1 px-3 py-1.5 font-semibold bg-blue-600 hover:bg-blue-700 rounded-lg"
+              >
+                <CheckCircle2 className="w-3.5 h-3.5" /> Confirm Selected
+              </button>
+            )}
+            {canPay && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setIsPayModalOpen(true)}
+                className="inline-flex items-center gap-1 px-3 py-1.5 font-semibold bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+              >
+                <Banknote className="w-3.5 h-3.5" /> Mark Paid
+              </button>
             )}
           </div>
-        ) : (
+        </div>
+      )}
+
+      {/* Payslips Table */}
+      <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
+        <div className="overflow-x-auto">
           <table className="w-full text-left text-sm">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
               <tr>
-                <th className="px-4 py-3">Payslip #</th>
+                {isStaff && (
+                  <th className="px-4 py-3 w-10">
+                    <input
+                      type="checkbox"
+                      checked={payslips.length > 0 && selectedIds.length === payslips.length}
+                      onChange={(e) => toggleSelectAll(e.target.checked)}
+                      className="rounded border-slate-300 text-emerald-600"
+                    />
+                  </th>
+                )}
+                <th className="px-4 py-3">Payslip No</th>
                 <th className="px-4 py-3">Employee</th>
-                <th className="px-4 py-3">Period &amp; Structure</th>
-                <th className="px-4 py-3 text-right">Gross Pay</th>
+                <th className="px-4 py-3">Period / Run</th>
+                <th className="px-4 py-3 text-right">Gross</th>
                 <th className="px-4 py-3 text-right">Deductions</th>
                 <th className="px-4 py-3 text-right">Net Pay</th>
                 <th className="px-4 py-3 text-center">Status</th>
-                <th className="px-4 py-3 text-right">Actions</th>
+                <th className="px-4 py-3 text-right">Details</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
-              {payslips.map((slip) => (
-                <tr key={slip._id} className="hover:bg-slate-50/70">
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <Link
-                      href={`/payroll/payslips/${slip._id}`}
-                      className="font-mono font-bold text-xs text-blue-700 hover:underline"
-                    >
-                      {slip.payslip_no}
-                    </Link>
-                    {slip.batch_id?.batch_code && (
-                      <div className="text-[10px] font-mono text-slate-400">
-                        {slip.batch_id.batch_code}
-                      </div>
-                    )}
-                  </td>
-
-                  <td className="px-4 py-3.5 whitespace-nowrap">
-                    <div className="font-semibold text-slate-900">
-                      {slip.employee_id?.firstName} {slip.employee_id?.lastName}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      <span className="font-mono">{slip.employee_id?.employee_id}</span> •{' '}
-                      {slip.employee_id?.department}
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-3.5 whitespace-nowrap text-xs">
-                    <div className="font-semibold text-slate-800">
-                      {MONTHS[(slip.month || 1) - 1]} {slip.year}
-                    </div>
-                    <div className="text-[11px] text-slate-500">
-                      {slip.structure_id?.name || '—'}
-                    </div>
-                  </td>
-
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap font-mono font-semibold text-slate-800">
-                    {formatBDT(slip.gross_pay)}
-                  </td>
-
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap font-mono text-rose-700">
-                    {formatBDT(slip.total_deductions)}
-                  </td>
-
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap font-mono font-extrabold text-emerald-700">
-                    {formatBDT(slip.net_pay)}
-                  </td>
-
-                  <td className="px-4 py-3.5 text-center whitespace-nowrap">
-                    {getStatusBadge(slip.status)}
-                  </td>
-
-                  <td className="px-4 py-3.5 text-right whitespace-nowrap">
-                    <div className="inline-flex items-center gap-1">
-                      <Link
-                        href={`/payroll/payslips/${slip._id}`}
-                        className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded-md"
-                        title="View / Print Payslip"
-                      >
-                        <Eye className="w-3.5 h-3.5" />
-                        <span>View</span>
-                      </Link>
-
-                      {isAdmin && slip.status === 'Draft' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handlePayslipUpdate(slip._id, { recompute: true })}
-                            className="p-1.5 text-blue-600 hover:bg-blue-50 rounded-md"
-                            title="Recompute from latest Attendance/Leaves/Inputs"
-                          >
-                            <RotateCcw className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handlePayslipUpdate(slip._id, { status: 'Confirmed' })}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-md"
-                          >
-                            <CheckCircle2 className="w-3 h-3" /> Confirm
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDelete(slip._id, slip.payslip_no)}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-md"
-                            title="Delete Draft"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-
-                      {isAdmin && slip.status === 'Confirmed' && (
-                        <>
-                          <button
-                            type="button"
-                            onClick={() => handlePayslipUpdate(slip._id, { status: 'Paid' })}
-                            className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-md"
-                          >
-                            <Banknote className="w-3 h-3" /> Mark Paid
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handlePayslipUpdate(slip._id, { status: 'Cancelled' })}
-                            className="p-1.5 text-rose-500 hover:bg-rose-50 rounded-md"
-                            title="Cancel Payslip"
-                          >
-                            <XCircle className="w-3.5 h-3.5" />
-                          </button>
-                        </>
-                      )}
-                    </div>
+            <tbody className="divide-y divide-slate-100 text-xs">
+              {loading ? (
+                [1, 2, 3, 4].map((i) => (
+                  <tr key={i}>
+                    <td colSpan={9} className="px-4 py-3">
+                      <div className="h-8 bg-slate-100 rounded animate-pulse" />
+                    </td>
+                  </tr>
+                ))
+              ) : payslips.length === 0 ? (
+                <tr>
+                  <td colSpan={9} className="py-14 text-center space-y-2">
+                    <Receipt className="w-8 h-8 text-slate-300 mx-auto" />
+                    <p className="text-slate-600 font-semibold">No payslips match the current filters</p>
+                    <p className="text-slate-400">
+                      Generate a monthly Payroll Run in the Payroll Runs tab, or adjust your filters.
+                    </p>
                   </td>
                 </tr>
-              ))}
+              ) : (
+                payslips.map((p) => (
+                  <tr
+                    key={p._id}
+                    onClick={() => openDrawer(p)}
+                    className="hover:bg-slate-50 cursor-pointer transition-colors"
+                  >
+                    {isStaff && (
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input
+                          type="checkbox"
+                          checked={selectedIds.includes(p._id)}
+                          onChange={() => toggleRow(p._id)}
+                          className="rounded border-slate-300 text-emerald-600"
+                        />
+                      </td>
+                    )}
+                    <td className="px-4 py-3 whitespace-nowrap font-mono font-bold text-slate-900">
+                      {p.payslip_no}
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className="font-semibold text-slate-900 block">
+                        {p.employee_id?.firstName} {p.employee_id?.lastName}
+                      </span>
+                      <span className="text-[11px] text-slate-400">
+                        {p.employee_id?.employee_id} • {p.employee_id?.department}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 whitespace-nowrap">
+                      <span className="font-semibold text-slate-800 block">
+                        {MONTHS[(p.month || 1) - 1]} {p.year}
+                      </span>
+                      <span className="text-[11px] font-mono text-slate-400">
+                        {p.batch_id?.batch_code || 'Unassigned'}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono">{formatBDT(p.gross_pay)}</td>
+                    <td className="px-4 py-3 text-right font-mono text-rose-700">
+                      {formatBDT(p.total_deductions)}
+                    </td>
+                    <td className="px-4 py-3 text-right font-mono font-bold text-emerald-800">
+                      {formatBDT(p.net_pay)}
+                    </td>
+                    <td className="px-4 py-3 text-center">{getStatusBadge(p.status)}</td>
+                    <td className="px-4 py-3 text-right whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                      <div className="inline-flex items-center gap-1">
+                        <button
+                          type="button"
+                          onClick={() => openDrawer(p)}
+                          className="px-2 py-1 text-[11px] font-medium text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                        >
+                          Inspect
+                        </button>
+                        <Link
+                          href={`/payroll/payslips/${p._id}`}
+                          className="inline-flex items-center gap-1 px-2 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded hover:bg-slate-50"
+                        >
+                          <Eye className="w-3 h-3" /> PDF
+                        </Link>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
+        </div>
+
+        {/* Pagination */}
+        {pagination.totalPages > 1 && (
+          <div className="px-4 py-3 border-t border-slate-200 flex items-center justify-between text-xs text-slate-600">
+            <span>
+              Page {pagination.page} of {pagination.totalPages} ({pagination.total} total)
+            </span>
+            <div className="inline-flex items-center gap-1.5">
+              <button
+                type="button"
+                disabled={pagination.page <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                className="p-1.5 rounded border border-slate-300 disabled:opacity-40"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <button
+                type="button"
+                disabled={pagination.page >= pagination.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                className="p-1.5 rounded border border-slate-300 disabled:opacity-40"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
         )}
       </div>
 
-      {/* Single Generate Modal */}
+      {/* Payslip Detail Drawer */}
+      {drawerPayslip && (
+        <div className="fixed inset-0 z-50 flex justify-end bg-slate-900/40 backdrop-blur-xs">
+          <div className="w-full max-w-xl bg-white h-full shadow-2xl overflow-y-auto flex flex-col">
+            <div className="px-6 py-4 bg-slate-900 text-white flex items-center justify-between sticky top-0 z-10">
+              <div>
+                <div className="flex items-center gap-2">
+                  <span className="font-mono text-sm font-bold">{drawerPayslip.payslip_no}</span>
+                  {getStatusBadge(drawerPayslip.status)}
+                </div>
+                <p className="text-xs text-slate-300 mt-0.5">
+                  {drawerPayslip.employee_id?.firstName} {drawerPayslip.employee_id?.lastName} (
+                  {drawerPayslip.employee_id?.employee_id}) •{' '}
+                  {MONTHS[(drawerPayslip.month || 1) - 1]} {drawerPayslip.year}
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => setDrawerPayslip(null)}
+                className="p-1.5 rounded-lg hover:bg-slate-800 text-slate-300"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="p-6 space-y-5 text-xs flex-1">
+              {/* Attendance & Proration Sources Summary */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2.5 bg-slate-50 p-3.5 rounded-xl border border-slate-200">
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Days Worked</span>
+                  <span className="font-bold text-slate-900">
+                    {drawerPayslip.prorated_days || drawerPayslip.days_in_month}/
+                    {drawerPayslip.days_in_month}d
+                  </span>
+                  <div className="mt-1">
+                    <SourceTag source="contract" />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Absent / Late</span>
+                  <span className="font-bold text-rose-700">
+                    {drawerPayslip.attendance_summary?.absentDays || 0}A /{' '}
+                    {drawerPayslip.attendance_summary?.lateDays || 0}L
+                  </span>
+                  <div className="mt-1">
+                    <SourceTag source="attendance" />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Leave (Paid/Unpaid)</span>
+                  <span className="font-bold text-purple-700">
+                    {drawerPayslip.attendance_summary?.paidLeaveDays || 0}P /{' '}
+                    {drawerPayslip.attendance_summary?.unpaidLeaveDays || 0}U
+                  </span>
+                  <div className="mt-1">
+                    <SourceTag source="leave" />
+                  </div>
+                </div>
+                <div>
+                  <span className="text-[10px] uppercase font-bold text-slate-400 block">Overtime Hours</span>
+                  <span className="font-bold text-emerald-700">
+                    {drawerPayslip.inputs_snapshot?.overtime_hours || 0}h (
+                    {drawerPayslip.overtime_multiplier || 2}x)
+                  </span>
+                  <div className="mt-1">
+                    <SourceTag source="monthly_input" />
+                  </div>
+                </div>
+              </div>
+
+              {/* Earnings Lines */}
+              <div className="space-y-2">
+                <h4 className="font-bold text-emerald-800 uppercase tracking-wider">Earnings</h4>
+                <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+                  {(drawerPayslip.lines || [])
+                    .filter((l: any) => l.category === 'BASIC' || l.category === 'ALLOWANCE')
+                    .map((l: any, idx: number) => (
+                      <div key={idx} className="p-3 flex items-start justify-between gap-3">
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-semibold text-slate-900">{l.name}</span>
+                            <SourceTag source={l.source} />
+                          </div>
+                          {l.calculation_note && (
+                            <p className="text-[11px] text-slate-500 mt-0.5">{l.calculation_note}</p>
+                          )}
+                        </div>
+                        <span className="font-mono font-semibold text-slate-900 whitespace-nowrap">
+                          {formatBDT(l.amount)}
+                        </span>
+                      </div>
+                    ))}
+                  <div className="p-3 bg-emerald-50/40 flex justify-between font-bold text-emerald-900">
+                    <span>Gross Earnings</span>
+                    <span className="font-mono">{formatBDT(drawerPayslip.gross_pay)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Deductions Lines */}
+              <div className="space-y-2">
+                <h4 className="font-bold text-rose-800 uppercase tracking-wider">Deductions</h4>
+                <div className="border border-slate-200 rounded-xl divide-y divide-slate-100">
+                  {(drawerPayslip.lines || []).filter((l: any) => l.category === 'DEDUCTION').length ===
+                  0 ? (
+                    <div className="p-3 text-slate-400 italic">No deductions this month.</div>
+                  ) : (
+                    (drawerPayslip.lines || [])
+                      .filter((l: any) => l.category === 'DEDUCTION')
+                      .map((l: any, idx: number) => (
+                        <div key={idx} className="p-3 flex items-start justify-between gap-3">
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-semibold text-slate-900">{l.name}</span>
+                              <SourceTag source={l.source} />
+                            </div>
+                            {l.calculation_note && (
+                              <p className="text-[11px] text-slate-500 mt-0.5">{l.calculation_note}</p>
+                            )}
+                          </div>
+                          <span className="font-mono font-semibold text-rose-700 whitespace-nowrap">
+                            -{formatBDT(l.amount)}
+                          </span>
+                        </div>
+                      ))
+                  )}
+                  <div className="p-3 bg-rose-50/40 flex justify-between font-bold text-rose-900">
+                    <span>Total Deductions</span>
+                    <span className="font-mono">-{formatBDT(drawerPayslip.total_deductions)}</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Net Total */}
+              <div className="p-4 rounded-xl bg-slate-900 text-white space-y-1">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs uppercase font-semibold text-slate-300">Net Payable</span>
+                  <span className="text-xl font-bold font-mono text-emerald-400">
+                    {formatBDT(drawerPayslip.net_pay)}
+                  </span>
+                </div>
+                <p className="text-[11px] text-slate-300">
+                  {drawerPayslip.amount_in_words || ''}
+                </p>
+                {drawerPayslip.payment_date && (
+                  <p className="text-[11px] text-emerald-300 pt-1">
+                    Disbursed via {drawerPayslip.payment_method} on{' '}
+                    {formatDateDMY(drawerPayslip.payment_date)} (Ref: {drawerPayslip.payment_reference})
+                  </p>
+                )}
+              </div>
+
+              {/* Draft Editing & Audit Section */}
+              {drawerPayslip.status === 'Draft' && canVerifyOrEdit ? (
+                <div className="p-4 rounded-xl border border-slate-200 bg-slate-50 space-y-3">
+                  <h4 className="font-bold text-slate-800 uppercase">Edit Draft Payslip (Audited)</h4>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Bonus Adjustment (৳)
+                      </label>
+                      <input
+                        type="number"
+                        value={draftEdit.bonus_adjustment}
+                        onChange={(e) =>
+                          setDraftEdit({ ...draftEdit, bonus_adjustment: e.target.value })
+                        }
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-slate-600 mb-1">
+                        Deduction Adjustment (৳)
+                      </label>
+                      <input
+                        type="number"
+                        value={draftEdit.fine_adjustment}
+                        onChange={(e) =>
+                          setDraftEdit({ ...draftEdit, fine_adjustment: e.target.value })
+                        }
+                        className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-slate-600 mb-1">Notes</label>
+                    <input
+                      type="text"
+                      value={draftEdit.notes}
+                      onChange={(e) => setDraftEdit({ ...draftEdit, notes: e.target.value })}
+                      className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        handleDrawerUpdate({
+                          bonus_adjustment: Number(draftEdit.bonus_adjustment) || 0,
+                          fine_adjustment: Number(draftEdit.fine_adjustment) || 0,
+                          notes: draftEdit.notes,
+                        })
+                      }
+                      className="px-3 py-1.5 font-semibold text-white bg-slate-900 rounded-lg hover:bg-slate-800"
+                    >
+                      Save Draft Adjustments
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => handleDrawerUpdate({ recompute: true })}
+                      className="px-3 py-1.5 font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
+                    >
+                      Recalculate from Live Data
+                    </button>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() =>
+                        handleDeleteDraft(drawerPayslip._id, drawerPayslip.payslip_no)
+                      }
+                      className="inline-flex items-center gap-1 px-3 py-1.5 font-semibold text-rose-700 bg-rose-50 border border-rose-200 rounded-lg"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" /> Delete Draft
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-3 rounded-lg bg-slate-100 border border-slate-200 text-slate-600 flex items-center gap-2">
+                  <Lock className="w-4 h-4 text-slate-400" />
+                  <span>
+                    Payslip status is <strong>{drawerPayslip.status}</strong> and locked from manual edits.
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="px-6 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between">
+              <a
+                href={`/api/payroll/payslips/${drawerPayslip._id}?format=pdf`}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-100"
+              >
+                <Download className="w-3.5 h-3.5" /> Download PDF
+              </a>
+              <Link
+                href={`/payroll/payslips/${drawerPayslip._id}`}
+                className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+              >
+                <Eye className="w-3.5 h-3.5" /> Open Print View
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Secondary Modal: Single payslip (exceptions) */}
       <Modal
         isOpen={isGenModalOpen}
         onClose={() => setIsGenModalOpen(false)}
-        title="Generate Single Employee Payslip"
-        description="Computes lines from active Contract, Attendance, Approved Leaves, and Monthly Inputs."
+        title="Single Payslip (Exceptions)"
+        description="For mid-month joiners, single recalculations, or final settlements. Automatically attaches to the month's Payroll Run."
         maxWidth="md"
       >
-        <form onSubmit={handleGenerateSingle} className="space-y-4">
+        <form onSubmit={handleGenerateException} className="space-y-4">
           {genError && (
-            <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 text-xs rounded-lg flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>{genError}</span>
+            <div className="p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-xs font-medium">
+              {genError}
             </div>
           )}
 
@@ -478,9 +951,9 @@ export function PayslipsDesk() {
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             >
               <option value="">Select Employee...</option>
-              {employees.map((e) => (
-                <option key={e._id} value={e._id}>
-                  {e.firstName} {e.lastName} ({e.employee_id} • {e.department})
+              {employees.map((emp) => (
+                <option key={emp._id} value={emp._id}>
+                  {emp.firstName} {emp.lastName} ({emp.employee_id} • {emp.department})
                 </option>
               ))}
             </select>
@@ -494,8 +967,8 @@ export function PayslipsDesk() {
                 onChange={(e) => setGenForm({ ...genForm, month: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               >
-                {MONTHS.map((m, idx) => (
-                  <option key={m} value={String(idx + 1)}>
+                {MONTHS.map((m, i) => (
+                  <option key={m} value={i + 1}>
                     {m}
                   </option>
                 ))}
@@ -503,30 +976,32 @@ export function PayslipsDesk() {
             </div>
             <div>
               <label className="block text-xs font-semibold text-slate-700 mb-1">Year *</label>
-              <input
-                type="number"
-                required
-                min="2020"
-                max="2100"
+              <select
                 value={genForm.year}
                 onChange={(e) => setGenForm({ ...genForm, year: e.target.value })}
-                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
-              />
+                className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+              >
+                {[2025, 2026, 2027, 2028].map((y) => (
+                  <option key={y} value={y}>
+                    {y}
+                  </option>
+                ))}
+              </select>
             </div>
           </div>
 
           <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Notes</label>
+            <label className="block text-xs font-semibold text-slate-700 mb-1">Exception Reason</label>
             <input
               type="text"
+              placeholder="e.g. Mid-month joiner / Final settlement"
               value={genForm.notes}
               onChange={(e) => setGenForm({ ...genForm, notes: e.target.value })}
-              placeholder="Optional remarks"
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             />
           </div>
 
-          <div className="flex items-center justify-end gap-2 pt-3 border-t border-slate-200">
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
             <button
               type="button"
               onClick={() => setIsGenModalOpen(false)}
@@ -536,10 +1011,77 @@ export function PayslipsDesk() {
             </button>
             <button
               type="submit"
-              disabled={submittingGen}
+              disabled={busy || !genForm.employee_id}
               className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
             >
-              {submittingGen ? 'Computing...' : 'Generate Draft Payslip'}
+              {busy ? 'Attaching...' : 'Attach Draft Payslip to Run'}
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* Bulk Mark Paid Modal */}
+      <Modal
+        isOpen={isPayModalOpen}
+        onClose={() => setIsPayModalOpen(false)}
+        title={`Mark ${selectedIds.length} Payslip(s) as Paid`}
+        maxWidth="sm"
+      >
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleBulkAction('pay', payForm);
+          }}
+          className="space-y-4 text-xs"
+        >
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Payment Method *</label>
+            <select
+              value={payForm.payment_method}
+              onChange={(e) => setPayForm({ ...payForm, payment_method: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            >
+              <option value="Bank">Bank Transfer</option>
+              <option value="bKash">bKash</option>
+              <option value="Nagad">Nagad</option>
+              <option value="Cash">Cash</option>
+            </select>
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Payment Date *</label>
+            <input
+              type="date"
+              required
+              value={payForm.payment_date}
+              onChange={(e) => setPayForm({ ...payForm, payment_date: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+          <div>
+            <label className="block font-semibold text-slate-700 mb-1">Reference / Trx ID *</label>
+            <input
+              type="text"
+              required
+              placeholder="e.g. BEFTN-092"
+              value={payForm.payment_reference}
+              onChange={(e) => setPayForm({ ...payForm, payment_reference: e.target.value })}
+              className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
+            />
+          </div>
+          <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">
+            <button
+              type="button"
+              onClick={() => setIsPayModalOpen(false)}
+              className="px-4 py-2 font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !payForm.payment_reference.trim()}
+              className="px-4 py-2 font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+            >
+              Confirm Payment
             </button>
           </div>
         </form>
@@ -547,4 +1089,3 @@ export function PayslipsDesk() {
     </div>
   );
 }
-

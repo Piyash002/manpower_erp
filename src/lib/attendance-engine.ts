@@ -497,10 +497,10 @@ export async function recomputeDailyAttendance(
     const fmt = (d: Date | null) =>
       d
         ? d.toLocaleTimeString('en-US', {
-            timeZone: 'Asia/Dhaka',
-            hour: '2-digit',
-            minute: '2-digit',
-          })
+          timeZone: 'Asia/Dhaka',
+          hour: '2-digit',
+          minute: '2-digit',
+        })
         : '—';
     conflictDetails = `Manual (${fmt(manualPair.firstIn)}–${fmt(manualPair.lastOut)}) vs Biometric (${fmt(bioPair.firstIn)}–${fmt(bioPair.lastOut)})`;
   }

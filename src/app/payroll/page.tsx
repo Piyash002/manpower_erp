@@ -1,10 +1,10 @@
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
-import { PayslipsDesk } from '@/components/payroll/PayslipsDesk';
+import { PayrollRunsView } from '@/components/payroll/PayrollRunsView';
 
 export const metadata = {
-  title: 'Payroll & Payslips | Dreams ERP',
-  description: 'Employee payslips generation, confirmation, and disbursement',
+  title: 'Payroll Runs | Dreams ERP',
+  description: 'Batch-first monthly payroll generation, verification, confirmation, and disbursement',
 };
 
 export default function PayrollPage() {
@@ -12,9 +12,8 @@ export default function PayrollPage() {
     <DashboardLayout>
       <div className="space-y-4">
         <PayrollModuleNav />
-        <PayslipsDesk />
+        <PayrollRunsView />
       </div>
     </DashboardLayout>
   );
 }
-

@@ -4,57 +4,60 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
-  Receipt,
   FolderKanban,
-  FileSignature,
+  Receipt,
   SlidersHorizontal,
+  FileSignature,
   Layers,
   BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
+const STAFF_ROLES = ['Admin', 'HR', 'Accountant', 'Viewer'];
+
 export function PayrollModuleNav() {
   const pathname = usePathname();
   const { user } = useAuth();
   const role = user?.role || 'Viewer';
+  const isPayrollStaff = STAFF_ROLES.includes(role);
 
   const tabs = [
     {
-      label: role === 'Admin' ? 'Payslips' : 'My Payslips',
+      label: 'Payroll Runs',
       href: '/payroll',
-      icon: Receipt,
-      exact: true,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
-    },
-    {
-      label: 'Payslip Batches',
-      href: '/payroll/batches',
       icon: FolderKanban,
-      allowed: ['Admin'],
+      exact: true,
+      allowed: STAFF_ROLES,
     },
     {
-      label: 'Contracts',
-      href: '/payroll/contracts',
-      icon: FileSignature,
-      allowed: ['Admin'],
+      label: isPayrollStaff ? 'Payslips' : 'My Payslips',
+      href: '/payroll/payslips',
+      icon: Receipt,
+      allowed: ['Admin', 'HR', 'Accountant', 'Viewer', 'Manager', 'Employee', 'Counselor'],
     },
     {
       label: 'Monthly Inputs',
       href: '/payroll/inputs',
       icon: SlidersHorizontal,
-      allowed: ['Admin'],
+      allowed: STAFF_ROLES,
+    },
+    {
+      label: 'Contracts',
+      href: '/payroll/contracts',
+      icon: FileSignature,
+      allowed: STAFF_ROLES,
     },
     {
       label: 'Salary Structures',
       href: '/payroll/structures',
       icon: Layers,
-      allowed: ['Admin'],
+      allowed: STAFF_ROLES,
     },
     {
       label: 'Reports',
       href: '/payroll/reports',
       icon: BarChart3,
-      allowed: ['Admin'],
+      allowed: STAFF_ROLES,
     },
   ].filter((t) => t.allowed.includes(role));
 
@@ -63,7 +66,7 @@ export function PayrollModuleNav() {
       {tabs.map((tab) => {
         const Icon = tab.icon;
         const isActive = tab.exact
-          ? pathname === tab.href || pathname.startsWith('/payroll/payslips')
+          ? pathname === tab.href || pathname === '/payroll/batches'
           : pathname === tab.href || pathname.startsWith(`${tab.href}/`);
 
         return (
@@ -84,4 +87,3 @@ export function PayrollModuleNav() {
     </div>
   );
 }
-

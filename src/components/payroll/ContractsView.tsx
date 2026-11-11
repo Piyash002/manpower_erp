@@ -9,7 +9,8 @@ import {
   AlertCircle,
   CheckCircle2,
 } from 'lucide-react';
-import { formatBDT, formatDate } from '@/lib/formatters';
+import Link from 'next/link';
+import { formatBDT, formatDateDMY } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 
@@ -165,12 +166,34 @@ export function ContractsView() {
             <p className="text-xs text-slate-500">Loading employee contracts...</p>
           </div>
         ) : contracts.length === 0 ? (
-          <div className="py-16 text-center text-slate-500">
-            <FileSignature className="w-10 h-10 text-slate-300 mx-auto mb-2" />
-            <p className="font-semibold text-slate-700">No contracts assigned yet</p>
-            <p className="text-xs text-slate-400 mt-1">
-              Employees require an Active contract before payslips can be generated.
+          <div className="py-16 text-center text-slate-500 space-y-2.5">
+            <FileSignature className="w-10 h-10 text-slate-300 mx-auto" />
+            <p className="font-semibold text-slate-700">
+              {structures.length === 0
+                ? 'Create a salary structure first, then add a contract.'
+                : 'No contracts assigned yet'}
             </p>
+            <p className="text-xs text-slate-400">
+              {structures.length === 0
+                ? 'Employees require a Salary Structure and an Active contract before a Payroll Run can include them.'
+                : 'Assign a Salary Structure and basic salary to each active employee.'}
+            </p>
+            {structures.length === 0 ? (
+              <Link
+                href="/payroll/structures"
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg"
+              >
+                Go to Salary Structures
+              </Link>
+            ) : (
+              <button
+                type="button"
+                onClick={openCreateModal}
+                className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg"
+              >
+                <Plus className="w-3.5 h-3.5" /> Add First Contract
+              </button>
+            )}
           </div>
         ) : (
           <table className="w-full text-left text-sm">
@@ -206,7 +229,7 @@ export function ContractsView() {
                     {formatBDT(c.basic_salary)}
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap text-xs text-slate-600">
-                    {formatDate(c.start_date)} → {c.end_date ? formatDate(c.end_date) : 'Open-ended'}
+                    {formatDateDMY(c.start_date)} → {c.end_date ? formatDateDMY(c.end_date) : 'Open-ended'}
                   </td>
                   <td className="px-4 py-3.5 whitespace-nowrap text-xs text-slate-600">
                     {c.bank_name ? (

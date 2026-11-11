@@ -13,6 +13,7 @@ export interface DefaultRuleSeed {
   amount_or_percentage: number;
   formula: string;
   sequence: number;
+  active?: boolean;
 }
 
 export const DEFAULT_REGULAR_RULES: DefaultRuleSeed[] = [
@@ -87,6 +88,7 @@ export const DEFAULT_REGULAR_RULES: DefaultRuleSeed[] = [
     amount_or_percentage: 5,
     formula: '',
     sequence: 80,
+    active: false, // Deferred per Phase 2 ("Do not build PF/Tax now")
   },
   {
     name: 'Income Tax (TDS)',
@@ -96,6 +98,7 @@ export const DEFAULT_REGULAR_RULES: DefaultRuleSeed[] = [
     amount_or_percentage: 0,
     formula: 'GROSS > 50000 ? (GROSS - 50000) * 0.05 : 0',
     sequence: 90,
+    active: false, // Deferred per Phase 2 ("Do not build PF/Tax now")
   },
   {
     name: 'Loan / Advance Recovery',
@@ -151,7 +154,7 @@ export async function seedDefaultRulesForStructure(structureId: any) {
           amount_or_percentage: r.amount_or_percentage,
           formula: r.formula,
           sequence: r.sequence,
-          active: true,
+          active: r.active !== undefined ? r.active : true,
         },
       },
       { upsert: true }

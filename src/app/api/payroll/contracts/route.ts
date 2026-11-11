@@ -19,7 +19,7 @@ interface CreateContractBody {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR', 'Accountant', 'Viewer']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -53,7 +53,7 @@ export async function GET(req: NextRequest) {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {

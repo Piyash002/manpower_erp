@@ -51,6 +51,7 @@ export interface IEmployee extends Document {
   };
   department: EmployeeDepartment;
   department_id?: mongoose.Types.ObjectId | null;
+  branch?: string;
   designation: string;
   designation_id?: mongoose.Types.ObjectId | null;
   employee_type: EmployeeType;
@@ -132,6 +133,7 @@ const EmployeeSchema = new Schema<IEmployee>(
       default: null,
       index: true,
     },
+    branch: { type: String, default: 'Main', trim: true },
     designation: { type: String, required: true, trim: true },
     designation_id: {
       type: Schema.Types.ObjectId,
