@@ -5,6 +5,7 @@ import { Employee } from '@/models/Employee';
 import { AttendanceLog, PunchType } from '@/models/AttendanceLog';
 import { DailyAttendance, DailyAttendanceStatus } from '@/models/DailyAttendance';
 import {
+  checkDateBlockedForAttendance,
   getDhakaDateString,
   normalizeDhakaDate,
   recomputeDailyAttendance,
@@ -12,8 +13,7 @@ import {
   resolveEmployeeSchedule,
   getDhakaDayOfWeek,
 } from '@/lib/attendance-engine';
-import { Holiday } from '@/models/Holiday';
-import { Leave } from '@/models/Leave';
+import { Leave, LeaveType } from '@/models/Leave';
 
 interface PunchBody {
   mode: 'self' | 'hr_manual' | 'hr_bulk_present';
@@ -26,6 +26,7 @@ interface PunchBody {
   check_out_time?: string; // HH:mm
   status_override?: DailyAttendanceStatus | '';
   quick_status?: DailyAttendanceStatus;
+  leave_type?: LeaveType;
   reason?: string;
 }
 
@@ -73,13 +74,12 @@ export async function POST(req: NextRequest) {
         );
       }
 
-      const todayHoliday = await Holiday.findOne({ date: dateObj, active: true }).lean();
-      if (todayHoliday) {
-        const desc = todayHoliday.description ? ` — ${todayHoliday.description}` : '';
+      const todayBlock = await checkDateBlockedForAttendance(todayStr, emp);
+      if (todayBlock.blocked) {
         return NextResponse.json(
           {
             success: false,
-            message: `Blocked: ${todayStr} is ${todayHoliday.title} (${todayHoliday.type} Holiday)${desc}. Check-in is not allowed on holidays.`,
+            message: `${todayBlock.reason} Self check-in is closed on this day.`,
           },
           { status: 400 }
         );
@@ -135,10 +135,10 @@ export async function POST(req: NextRequest) {
       }
 
       const { dateObj, dateString } = normalizeDhakaDate(body.date);
-      const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
-      if (holiday) {
+      const dateBlock = await checkDateBlockedForAttendance(dateString);
+      if (dateBlock.blocked) {
         return NextResponse.json(
-          { success: false, message: `${dateString} is marked as Holiday (${holiday.title}).` },
+          { success: false, message: dateBlock.reason },
           { status: 400 }
         );
       }
@@ -228,13 +228,12 @@ export async function POST(req: NextRequest) {
     const isAttendanceMark =
       targetStatus === 'Present' || targetStatus === 'Late' || targetStatus === 'Half-day';
     if (isAttendanceMark) {
-      const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
-      if (holiday) {
-        const desc = holiday.description ? ` — ${holiday.description}` : '';
+      const dateBlock = await checkDateBlockedForAttendance(dateString, emp);
+      if (dateBlock.blocked) {
         return NextResponse.json(
           {
             success: false,
-            message: `Blocked: ${dateString} is ${holiday.title} (${holiday.type} Holiday)${desc}. Cannot mark ${targetStatus} on a holiday.`,
+            message: `${dateBlock.reason} Cannot mark ${targetStatus}.`,
           },
           { status: 400 }
         );
@@ -316,10 +315,44 @@ export async function POST(req: NextRequest) {
       });
     }
 
+    let leaveId: string | undefined;
+    let leaveIsPaid: boolean | undefined;
+    if (body.status_override === 'Leave') {
+      const resolvedLeaveType: LeaveType = body.leave_type || 'Casual';
+      leaveIsPaid = resolvedLeaveType !== 'Unpaid';
+      let leaveDoc = await Leave.findOne({
+        employee_id: emp._id,
+        status: 'Approved',
+        start_date: { $lte: dateObj },
+        end_date: { $gte: dateObj },
+      });
+      if (!leaveDoc) {
+        leaveDoc = await Leave.create({
+          employee_id: emp._id,
+          leave_type: resolvedLeaveType,
+          is_paid: leaveIsPaid,
+          start_date: dateObj,
+          end_date: dateObj,
+          reason: reasonText || `Manual ${resolvedLeaveType} leave`,
+          status: 'Approved',
+          reviewed_by: auth.user.name,
+          reviewed_at: new Date(),
+        });
+      } else if (body.leave_type) {
+        leaveDoc.leave_type = resolvedLeaveType;
+        leaveDoc.is_paid = leaveIsPaid;
+        await leaveDoc.save();
+      }
+      leaveId = leaveDoc._id.toString();
+      leaveIsPaid = leaveDoc.is_paid ?? leaveDoc.leave_type !== 'Unpaid';
+    }
+
     const updatedDaily = await recomputeDailyAttendance(emp._id.toString(), dateString, {
       explicitStatusOverride: body.status_override ? body.status_override : undefined,
       preferredSource: 'Manual',
       notes: reasonText,
+      leaveId,
+      leaveIsPaid,
     });
 
     await createAuditLog({

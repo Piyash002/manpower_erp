@@ -6,6 +6,7 @@ export type LeaveStatus = 'Pending' | 'Approved' | 'Rejected';
 export interface ILeave extends Document {
   employee_id: mongoose.Types.ObjectId;
   leave_type: LeaveType;
+  is_paid: boolean;
   start_date: Date;
   end_date: Date;
   reason?: string;
@@ -25,6 +26,10 @@ const LeaveSchema = new Schema<ILeave>(
       default: 'Casual',
       required: true,
     },
+    is_paid: {
+      type: Boolean,
+      default: true,
+    },
     start_date: { type: Date, required: true },
     end_date: { type: Date, required: true },
     reason: { type: String, default: '', trim: true },
@@ -42,4 +47,3 @@ const LeaveSchema = new Schema<ILeave>(
 
 export const Leave: Model<ILeave> =
   mongoose.models.Leave || mongoose.model<ILeave>('Leave', LeaveSchema);
-

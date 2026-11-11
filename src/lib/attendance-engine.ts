@@ -345,6 +345,74 @@ export async function ingestRawPunches(items: RawPunchIngestItem[]) {
   };
 }
 
+export const DHAKA_DAY_NAMES = [
+  'Sunday',
+  'Monday',
+  'Tuesday',
+  'Wednesday',
+  'Thursday',
+  'Friday',
+  'Saturday',
+] as const;
+
+export async function checkDateBlockedForAttendance(
+  dateStr?: string,
+  emp?: Partial<IEmployee> & {
+    _id?: mongoose.Types.ObjectId | string;
+    department?: string;
+    shift?: string;
+    schedule_id?: mongoose.Types.ObjectId | string | null;
+  }
+) {
+  await ensureAttendanceSeeded();
+  const { dateObj, dateString } = normalizeDhakaDate(dateStr);
+
+  const holiday = await Holiday.findOne({ date: dateObj, active: true }).lean();
+  if (holiday) {
+    const desc = holiday.description ? ` — ${holiday.description}` : '';
+    return {
+      blocked: true as const,
+      kind: 'holiday' as const,
+      dateString,
+      holiday: {
+        _id: holiday._id.toString(),
+        title: holiday.title,
+        type: holiday.type,
+        description: holiday.description || '',
+      },
+      weeklyOff: null,
+      reason: `Blocked: ${dateString} is ${holiday.title} (${holiday.type} Holiday)${desc}. Present/Late/Half-day attendance is closed on holidays.`,
+    };
+  }
+
+  const schedule = await resolveEmployeeSchedule(emp || {});
+  const dow = getDhakaDayOfWeek(dateString);
+  const workingDays = schedule.working_days || [0, 1, 2, 3, 4];
+  if (!workingDays.includes(dow)) {
+    const dayName = DHAKA_DAY_NAMES[dow] || 'Weekly Off';
+    return {
+      blocked: true as const,
+      kind: 'weekly_off' as const,
+      dateString,
+      holiday: null,
+      weeklyOff: {
+        dayName,
+        scheduleName: schedule.name,
+      },
+      reason: `Blocked: ${dateString} is a Weekly Off Day (${dayName}) under "${schedule.name}". Present attendance is disabled on off days.`,
+    };
+  }
+
+  return {
+    blocked: false as const,
+    kind: null,
+    dateString,
+    holiday: null,
+    weeklyOff: null,
+    reason: '',
+  };
+}
+
 export async function recomputeDailyAttendance(
   employeeId: string,
   dateStr?: string,
@@ -354,6 +422,8 @@ export async function recomputeDailyAttendance(
     notes?: string;
     legacyAttendanceId?: string;
     preferredSource?: AttendanceSource;
+    leaveId?: string | null;
+    leaveIsPaid?: boolean | null;
   }
 ) {
   await ensureAttendanceSeeded();
@@ -501,7 +571,17 @@ export async function recomputeDailyAttendance(
 
   let status: DailyAttendanceStatus = 'Absent';
   if (options?.explicitStatusOverride) {
-    status = options.explicitStatusOverride;
+    if (options.explicitStatusOverride === 'Present' && hasPunch) {
+      if (!missingCheckout && workedHours > 0 && workedHours < (schedule.half_day_hours || 4)) {
+        status = 'Half-day';
+      } else if (lateMinutes > 0) {
+        status = 'Late';
+      } else {
+        status = 'Present';
+      }
+    } else {
+      status = options.explicitStatusOverride;
+    }
   } else if (holiday && !hasPunch) {
     status = 'Holiday';
   } else if (!isWorkingDay && !hasPunch) {
@@ -521,11 +601,14 @@ export async function recomputeDailyAttendance(
   }
 
   const leaveMeta = approvedLeave as unknown as { is_paid?: boolean; leave_type?: string } | null;
-  const leaveIsPaid = leaveMeta
-    ? leaveMeta.is_paid !== undefined
-      ? Boolean(leaveMeta.is_paid)
-      : leaveMeta.leave_type !== 'Unpaid'
-    : null;
+  const leaveIsPaid =
+    options?.leaveIsPaid !== undefined
+      ? options.leaveIsPaid
+      : leaveMeta
+        ? leaveMeta.is_paid !== undefined
+          ? Boolean(leaveMeta.is_paid)
+          : leaveMeta.leave_type !== 'Unpaid'
+        : null;
 
   const updatePayload = {
     schedule_id: schedule._id,
@@ -541,7 +624,12 @@ export async function recomputeDailyAttendance(
     overtime_hours: overtimeHours,
     overtime_approved: schedule.overtime_needs_approval ? existing?.overtime_approved || false : true,
     status,
-    leave_id: approvedLeave ? approvedLeave._id : null,
+    leave_id:
+      options?.leaveId !== undefined
+        ? options.leaveId
+        : approvedLeave
+          ? approvedLeave._id
+          : null,
     leave_is_paid: leaveIsPaid,
     has_conflict: hasLeaveConflict || hasManualBioConflict,
     has_manual_biometric_conflict: hasManualBioConflict,

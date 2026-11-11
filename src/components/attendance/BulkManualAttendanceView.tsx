@@ -19,6 +19,7 @@ import {
   toDhakaTimeInput,
 } from '@/lib/formatters';
 import type { DailyAttendanceStatus } from '@/models/DailyAttendance';
+import type { LeaveType } from '@/models/Leave';
 
 const DEPARTMENTS = ['all', ...EMPLOYEE_DEPARTMENTS];
 const SHIFTS = ['all', 'Regular', 'Morning', 'Evening', 'Night'];
@@ -29,6 +30,13 @@ const BULK_STATUSES: DailyAttendanceStatus[] = [
   'Absent',
   'Leave',
   'Holiday',
+];
+const LEAVE_TYPE_OPTIONS: Array<{ value: LeaveType; label: string; isPaid: boolean }> = [
+  { value: 'Casual', label: 'Casual Leave (Paid)', isPaid: true },
+  { value: 'Sick', label: 'Sick Leave (Paid)', isPaid: true },
+  { value: 'Earned', label: 'Earned Leave (Paid)', isPaid: true },
+  { value: 'Emergency', label: 'Emergency Leave (Paid)', isPaid: true },
+  { value: 'Unpaid', label: 'Unpaid Leave (Salary Deducted)', isPaid: false },
 ];
 
 interface BulkRowState {
@@ -46,6 +54,7 @@ interface BulkRowState {
     name: string;
     start_time: string;
     end_time: string;
+    grace_minutes?: number;
   };
   existing: {
     _id: string;
@@ -55,9 +64,12 @@ interface BulkRowState {
     last_out?: string;
     notes?: string;
     locked?: boolean;
+    leave_type?: LeaveType | null;
+    leave_is_paid?: boolean | null;
   } | null;
   selected: boolean;
   status: DailyAttendanceStatus;
+  leave_type: LeaveType;
   check_in_time: string;
   check_out_time: string;
   remark: string;
@@ -73,6 +85,7 @@ export function BulkManualAttendanceView() {
 
   // Batch toolbar state
   const [batchStatus, setBatchStatus] = useState<DailyAttendanceStatus>('Present');
+  const [batchLeaveType, setBatchLeaveType] = useState<LeaveType>('Casual');
   const [batchInTime, setBatchInTime] = useState('09:00');
   const [batchOutTime, setBatchOutTime] = useState('18:00');
   const [reason, setReason] = useState('');
@@ -83,6 +96,11 @@ export function BulkManualAttendanceView() {
     type: string;
     description?: string;
   } | null>(null);
+  const [weeklyOffInfo, setWeeklyOffInfo] = useState<{
+    dayName: string;
+    scheduleName: string;
+  } | null>(null);
+  const [blockReason, setBlockReason] = useState('');
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   const loadRoster = async () => {
@@ -97,6 +115,8 @@ export function BulkManualAttendanceView() {
       }
 
       setHolidayInfo(json.data?.holiday || null);
+      setWeeklyOffInfo(json.data?.weeklyOff || null);
+      setBlockReason(json.data?.blockReason || '');
 
       const mapped: BulkRowState[] = (json.data?.rows || []).map((r: any) => {
         const defaultIn = r.schedule?.start_time || '09:00';
@@ -112,6 +132,7 @@ export function BulkManualAttendanceView() {
           ...r,
           selected: !r.existing && !r.existing?.locked,
           status: r.existing?.status || 'Present',
+          leave_type: r.existing?.leave_type || 'Casual',
           check_in_time: existingIn,
           check_out_time: existingOut,
           remark: r.existing?.notes || '',
@@ -180,6 +201,7 @@ export function BulkManualAttendanceView() {
           ? {
               ...row,
               status: batchStatus,
+              leave_type: batchStatus === 'Leave' ? batchLeaveType : row.leave_type,
               check_in_time: needsTimes ? batchInTime : row.check_in_time,
               check_out_time: needsTimes ? batchOutTime : row.check_out_time,
             }
@@ -188,7 +210,7 @@ export function BulkManualAttendanceView() {
     );
     setBanner({
       type: 'ok',
-      msg: `Applied "${batchStatus}"${needsTimes ? ` (${batchInTime}–${batchOutTime})` : ''} to ${selectedCount} selected row(s). Enter a reason and click Save All to persist.`,
+      msg: `Applied "${batchStatus}"${batchStatus === 'Leave' ? ` (${batchLeaveType})` : ''}${needsTimes ? ` (${batchInTime}–${batchOutTime})` : ''} to ${selectedCount} selected row(s). Enter a reason and click Save All to persist.`,
     });
   };
 
@@ -212,6 +234,7 @@ export function BulkManualAttendanceView() {
         employee_id: r.employee._id,
         date,
         status: r.status,
+        leave_type: r.status === 'Leave' ? r.leave_type : undefined,
         check_in_time: r.check_in_time,
         check_out_time: r.check_out_time,
         remark: r.remark,
@@ -240,6 +263,7 @@ export function BulkManualAttendanceView() {
     }
   };
 
+  const isDayBlocked = Boolean(holidayInfo || weeklyOffInfo);
   const selectedCount = rows.filter((r) => r.selected).length;
   const allUnlockedSelected =
     rows.some((r) => !r.existing?.locked) &&
@@ -292,15 +316,29 @@ export function BulkManualAttendanceView() {
         </div>
       </div>
 
-      {holidayInfo && (
-        <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 font-medium">
-          <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
-          <span>
-            <strong>Holiday Blocked ({date}):</strong> {holidayInfo.title} ({holidayInfo.type}{' '}
-            Holiday)
-            {holidayInfo.description ? ` — ${holidayInfo.description}` : ''}. Present / Late /
-            Half-day attendance cannot be marked on a holiday.
-          </span>
+      {isDayBlocked && (
+        <div
+          className={`p-4 rounded-xl border text-xs flex items-start gap-2.5 font-medium ${
+            holidayInfo
+              ? 'bg-rose-50 border-rose-200 text-rose-900'
+              : 'bg-amber-50 border-amber-200 text-amber-900'
+          }`}
+        >
+          <AlertTriangle
+            className={`w-4 h-4 shrink-0 mt-0.5 ${
+              holidayInfo ? 'text-rose-600' : 'text-amber-600'
+            }`}
+          />
+          <div>
+            <div className="font-bold">
+              {holidayInfo
+                ? `Holiday (${date}) — ${holidayInfo.title} (${holidayInfo.type})`
+                : `Weekly Off Day (${date}) — ${weeklyOffInfo?.dayName}`}
+            </div>
+            <p className="mt-0.5 text-[11px] opacity-90">
+              {blockReason} The Present / Late / Half-day attendance section is hidden on this date. Select a working date above to enter attendance.
+            </p>
+          </div>
         </div>
       )}
 
@@ -321,7 +359,17 @@ export function BulkManualAttendanceView() {
         </div>
       )}
 
-      {/* Batch Toolbar & Save Form */}
+      {/* Batch Toolbar & Save Form — hidden on Weekly Off Day or Holiday */}
+      {isDayBlocked ? (
+        <div className="bg-white p-8 rounded-xl border border-slate-200 shadow-xs text-center space-y-2">
+          <p className="text-sm font-bold text-slate-800">
+            Present Attendance Section Closed
+          </p>
+          <p className="text-xs text-slate-500 max-w-lg mx-auto">
+            {blockReason || `${date} is a non-working day.`} Daily Present / Late / Half-day marking is disabled automatically based on Working Schedules and Holiday Calendar.
+          </p>
+        </div>
+      ) : (
       <form
         onSubmit={handleSaveAll}
         className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs space-y-3"
@@ -344,6 +392,24 @@ export function BulkManualAttendanceView() {
                 ))}
               </select>
             </div>
+            {batchStatus === 'Leave' && (
+              <div>
+                <label className="block text-[11px] font-semibold text-purple-600 uppercase mb-1">
+                  Leave Type
+                </label>
+                <select
+                  value={batchLeaveType}
+                  onChange={(e) => setBatchLeaveType(e.target.value as LeaveType)}
+                  className="px-2.5 py-1.5 text-xs font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-lg"
+                >
+                  {LEAVE_TYPE_OPTIONS.map((opt) => (
+                    <option key={opt.value} value={opt.value}>
+                      {opt.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             <div>
               <label className="block text-[11px] font-semibold text-slate-500 uppercase mb-1">
                 In Time
@@ -368,12 +434,6 @@ export function BulkManualAttendanceView() {
             </div>
             <button
               type="button"
-              disabled={Boolean(
-                holidayInfo &&
-                  (batchStatus === 'Present' ||
-                    batchStatus === 'Late' ||
-                    batchStatus === 'Half-day')
-              )}
               onClick={handleApplyToSelected}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg disabled:opacity-45"
             >
@@ -407,18 +467,7 @@ export function BulkManualAttendanceView() {
             </label>
             <button
               type="submit"
-              disabled={
-                saving ||
-                selectedCount === 0 ||
-                Boolean(
-                  holidayInfo &&
-                    rows.some(
-                      (r) =>
-                        r.selected &&
-                        (r.status === 'Present' || r.status === 'Late' || r.status === 'Half-day')
-                    )
-                )
-              }
+              disabled={saving || selectedCount === 0}
               className="inline-flex items-center gap-1.5 px-4 py-1.5 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               {saving ? (
@@ -457,7 +506,7 @@ export function BulkManualAttendanceView() {
                   <th className="px-3 py-2.5">Employee</th>
                   <th className="px-3 py-2.5">Dept / Shift</th>
                   <th className="px-3 py-2.5">Existing Record</th>
-                  <th className="px-3 py-2.5">Mark Status</th>
+                  <th className="px-3 py-2.5">Mark Status / Leave Type</th>
                   <th className="px-3 py-2.5">Check In</th>
                   <th className="px-3 py-2.5">Check Out</th>
                   <th className="px-3 py-2.5">Remark</th>
@@ -510,7 +559,7 @@ export function BulkManualAttendanceView() {
                         <div className="font-semibold">{row.employee.department}</div>
                         <div className="text-[11px] text-slate-400">
                           {row.employee.shift || 'Regular'} ({row.schedule.start_time}–
-                          {row.schedule.end_time})
+                          {row.schedule.end_time}, grace {row.schedule.grace_minutes ?? 10}m)
                         </div>
                       </td>
                       <td className="px-3 py-2.5 whitespace-nowrap">
@@ -522,6 +571,12 @@ export function BulkManualAttendanceView() {
                                 {row.existing.source}
                               </span>
                             </div>
+                            {row.existing.status === 'Leave' && row.existing.leave_type && (
+                              <div className="text-[10px] font-semibold text-purple-700">
+                                {row.existing.leave_type} (
+                                {row.existing.leave_is_paid === false ? 'Unpaid' : 'Paid'})
+                              </div>
+                            )}
                             {row.existing.first_in && (
                               <div className="text-[10px] font-mono text-slate-400">
                                 {formatTimeDhaka(row.existing.first_in)} →{' '}
@@ -534,24 +589,46 @@ export function BulkManualAttendanceView() {
                         )}
                       </td>
                       <td className="px-3 py-2.5">
-                        <select
-                          disabled={locked}
-                          value={row.status}
-                          onChange={(e) =>
-                            updateRowField(
-                              row.employee._id,
-                              'status',
-                              e.target.value as DailyAttendanceStatus
-                            )
-                          }
-                          className="px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-md"
-                        >
-                          {BULK_STATUSES.map((st) => (
-                            <option key={st} value={st}>
-                              {st}
-                            </option>
-                          ))}
-                        </select>
+                        <div className="flex flex-col gap-1">
+                          <select
+                            disabled={locked}
+                            value={row.status}
+                            onChange={(e) =>
+                              updateRowField(
+                                row.employee._id,
+                                'status',
+                                e.target.value as DailyAttendanceStatus
+                              )
+                            }
+                            className="px-2 py-1 text-xs font-semibold bg-white border border-slate-200 rounded-md"
+                          >
+                            {BULK_STATUSES.map((st) => (
+                              <option key={st} value={st}>
+                                {st}
+                              </option>
+                            ))}
+                          </select>
+                          {row.status === 'Leave' && (
+                            <select
+                              disabled={locked}
+                              value={row.leave_type}
+                              onChange={(e) =>
+                                updateRowField(
+                                  row.employee._id,
+                                  'leave_type',
+                                  e.target.value as LeaveType
+                                )
+                              }
+                              className="px-2 py-1 text-[11px] font-semibold bg-purple-50 text-purple-900 border border-purple-200 rounded-md"
+                            >
+                              {LEAVE_TYPE_OPTIONS.map((opt) => (
+                                <option key={opt.value} value={opt.value}>
+                                  {opt.label}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+                        </div>
                       </td>
                       <td className="px-3 py-2.5">
                         <input
@@ -595,6 +672,7 @@ export function BulkManualAttendanceView() {
           )}
         </div>
       </form>
+      )}
     </div>
   );
 }

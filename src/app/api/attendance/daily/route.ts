@@ -5,9 +5,11 @@ import { Employee } from '@/models/Employee';
 import { DailyAttendance } from '@/models/DailyAttendance';
 import { AttendanceLog } from '@/models/AttendanceLog';
 import { Holiday } from '@/models/Holiday';
+import '@/models/Leave';
 import { ensureAttendanceSeeded } from '@/lib/attendance-seed';
 import {
   autoMarkAbsentForDate,
+  checkDateBlockedForAttendance,
   getDhakaDateString,
   normalizeDhakaDate,
   resolveEmployeeSchedule,
@@ -108,10 +110,7 @@ export async function GET(req: NextRequest) {
         }
       );
 
-      const todayHoliday =
-        holidays.find(
-          (h: any) => new Date(h.date).toISOString().split('T')[0] === todayStr
-        ) || null;
+      const todayBlock = await checkDateBlockedForAttendance(todayStr, myEmployee);
 
       return NextResponse.json({
         success: true,
@@ -120,7 +119,9 @@ export async function GET(req: NextRequest) {
           todayStr,
           todayRecord,
           todayLogs,
-          todayHoliday,
+          todayHoliday: todayBlock.holiday,
+          todayWeeklyOff: todayBlock.weeklyOff,
+          todayBlockReason: todayBlock.reason,
           days,
           holidays,
           schedule,
@@ -178,13 +179,15 @@ export async function GET(req: NextRequest) {
 
     // Single day Live Roster
     const { dateObj, dateString } = normalizeDhakaDate(dateParam);
-    const [dailyDocs, holiday, activeHolidays] = await Promise.all([
+    const [dailyDocs, dateBlock, activeHolidays] = await Promise.all([
       DailyAttendance.find({ date: dateObj })
         .populate('schedule_id', 'name start_time end_time')
+        .populate('leave_id', 'leave_type is_paid status')
         .lean(),
-      Holiday.findOne({ date: dateObj, active: true }).lean(),
+      checkDateBlockedForAttendance(dateString),
       Holiday.find({ active: true }).sort({ date: 1 }).lean(),
     ]);
+    const holiday = dateBlock.holiday;
 
     const docMap = new Map<string, any>();
     for (const d of dailyDocs) {
@@ -231,6 +234,8 @@ export async function GET(req: NextRequest) {
         date: dateString,
         todayStr,
         holiday,
+        weeklyOff: dateBlock.weeklyOff,
+        blockReason: dateBlock.reason,
         activeHolidays,
         roster,
         summary: {

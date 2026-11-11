@@ -3,6 +3,8 @@ import { EmployeeContract } from '@/models/EmployeeContract';
 import { SalaryStructure } from '@/models/SalaryStructure';
 import { SalaryRule, ISalaryRule } from '@/models/SalaryRule';
 import { Attendance } from '@/models/Attendance';
+import { DailyAttendance } from '@/models/DailyAttendance';
+import { resolveEmployeeSchedule } from '@/lib/attendance-engine';
 import { Leave } from '@/models/Leave';
 import { PayrollInput } from '@/models/PayrollInput';
 import { Payslip, IPayslipLine } from '@/models/Payslip';
@@ -284,8 +286,10 @@ export async function computeEmployeePayslipData({
     .sort({ sequence: 1 })
     .lean()) as unknown as ISalaryRule[];
 
-  // Attendance records for the month
-  const attendanceDocs = await Attendance.find({
+  const schedule = await resolveEmployeeSchedule(employee);
+
+  // Attendance records for the month (live DailyAttendance first, fallback to legacy Attendance if empty)
+  const dailyDocs = await DailyAttendance.find({
     employee_id: employeeId,
     date: { $gte: monthStart, $lte: monthEnd },
   }).lean();
@@ -294,12 +298,43 @@ export async function computeEmployeePayslipData({
   let absentDays = 0;
   let lateDays = 0;
   let halfDays = 0;
-  for (const a of attendanceDocs) {
-    if (a.status === 'Present') presentDays++;
-    else if (a.status === 'Late') lateDays++;
-    else if (a.status === 'Half-Day') halfDays++;
-    else if (a.status === 'Absent') absentDays++;
+  let attendanceOvertimeHours = 0;
+  let dailyPaidLeaveDays = 0;
+  let dailyUnpaidLeaveDays = 0;
+
+  if (dailyDocs.length > 0) {
+    for (const d of dailyDocs) {
+      if (d.status === 'Present') presentDays++;
+      else if (d.status === 'Late') lateDays++;
+      else if (d.status === 'Half-day') halfDays++;
+      else if (d.status === 'Absent') absentDays++;
+      else if (d.status === 'Leave') {
+        if (d.leave_is_paid === false) dailyUnpaidLeaveDays++;
+        else dailyPaidLeaveDays++;
+      }
+      if (d.overtime_approved !== false && (d.overtime_hours || 0) > 0) {
+        attendanceOvertimeHours =
+          Math.round((attendanceOvertimeHours + (d.overtime_hours || 0)) * 100) / 100;
+      }
+    }
+  } else {
+    const attendanceDocs = await Attendance.find({
+      employee_id: employeeId,
+      date: { $gte: monthStart, $lte: monthEnd },
+    }).lean();
+
+    for (const a of attendanceDocs) {
+      if (a.status === 'Present') presentDays++;
+      else if (a.status === 'Late') lateDays++;
+      else if (a.status === 'Half-Day') halfDays++;
+      else if (a.status === 'Absent') absentDays++;
+    }
   }
+
+  // Late deduction rule (e.g. every 3 lates = 1 day deduction)
+  const latePerDed = schedule.late_days_per_deduction || 3;
+  const latePenaltyDays =
+    schedule.late_rule_enabled && latePerDed > 0 ? Math.floor(lateDays / latePerDed) : 0;
 
   // Approved leaves overlapping the month
   const leaveDocs = await Leave.find({
@@ -313,12 +348,15 @@ export async function computeEmployeePayslipData({
   let unpaidLeaveDays = 0;
   for (const lv of leaveDocs) {
     const days = countOverlapDays(new Date(lv.start_date), new Date(lv.end_date), monthStart, monthEnd);
-    if (lv.leave_type === 'Unpaid') {
+    const isPaid = lv.is_paid !== undefined ? Boolean(lv.is_paid) : lv.leave_type !== 'Unpaid';
+    if (!isPaid) {
       unpaidLeaveDays += days;
     } else {
       paidLeaveDays += days;
     }
   }
+  paidLeaveDays = Math.max(paidLeaveDays, dailyPaidLeaveDays);
+  unpaidLeaveDays = Math.max(unpaidLeaveDays, dailyUnpaidLeaveDays);
 
   // Monthly variable inputs
   const inputDoc = await PayrollInput.findOne({
@@ -329,7 +367,9 @@ export async function computeEmployeePayslipData({
 
   const inputsSnapshot = {
     bonus: Math.max(0, Math.round(inputDoc?.bonus || 0)),
-    overtime_hours: Math.max(0, Number(inputDoc?.overtime_hours || 0)),
+    overtime_hours:
+      Math.round((Math.max(0, Number(inputDoc?.overtime_hours || 0)) + attendanceOvertimeHours) * 100) /
+      100,
     overtime_rate: Math.max(0, Math.round(inputDoc?.overtime_rate || 0)),
     loan_installment: Math.max(0, Math.round(inputDoc?.loan_installment || 0)),
     manual_deduction: Math.max(0, Math.round(inputDoc?.manual_deduction || 0)),
@@ -346,6 +386,7 @@ export async function computeEmployeePayslipData({
     PRESENT_DAYS: presentDays,
     ABSENT_DAYS: absentDays,
     LATE_DAYS: lateDays,
+    LATE_PENALTY_DAYS: latePenaltyDays,
     HALF_DAYS: halfDays,
     PAID_LEAVE_DAYS: paidLeaveDays,
     UNPAID_LEAVE_DAYS: unpaidLeaveDays,
@@ -440,6 +481,7 @@ export async function computeEmployeePayslipData({
       presentDays,
       absentDays,
       lateDays,
+      latePenaltyDays,
       halfDays,
       paidLeaveDays,
       unpaidLeaveDays,

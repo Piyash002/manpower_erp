@@ -24,6 +24,7 @@ export interface IPayslip extends Document {
     presentDays: number;
     absentDays: number;
     lateDays: number;
+    latePenaltyDays?: number;
     halfDays: number;
     paidLeaveDays: number;
     unpaidLeaveDays: number;
@@ -71,6 +72,7 @@ const PayslipSchema = new Schema<IPayslip>(
       presentDays: { type: Number, default: 0 },
       absentDays: { type: Number, default: 0 },
       lateDays: { type: Number, default: 0 },
+      latePenaltyDays: { type: Number, default: 0 },
       halfDays: { type: Number, default: 0 },
       paidLeaveDays: { type: Number, default: 0 },
       unpaidLeaveDays: { type: Number, default: 0 },

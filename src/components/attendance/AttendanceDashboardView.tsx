@@ -108,6 +108,7 @@ export function AttendanceDashboardView() {
     check_in_time: '09:00',
     check_out_time: '18:00',
     status_override: '',
+    leave_type: 'Casual',
     reason: '',
   });
 
@@ -261,14 +262,16 @@ export function AttendanceDashboardView() {
           employee_id: manualForm.employee_id,
           date: manualForm.date,
           check_in_time:
-            manualForm.status_override === 'Absent'
+            manualForm.status_override === 'Absent' || manualForm.status_override === 'Leave'
               ? undefined
               : manualForm.check_in_time || undefined,
           check_out_time:
-            manualForm.status_override === 'Absent'
+            manualForm.status_override === 'Absent' || manualForm.status_override === 'Leave'
               ? undefined
               : manualForm.check_out_time || undefined,
           status_override: manualForm.status_override || '',
+          leave_type:
+            manualForm.status_override === 'Leave' ? manualForm.leave_type : undefined,
           quick_status: manualForm.status_override === 'Absent' ? 'Absent' : undefined,
           reason: manualForm.reason || 'Manual HR attendance entry',
         }),
@@ -390,6 +393,7 @@ export function AttendanceDashboardView() {
       check_in_time: '09:00',
       check_out_time: '18:00',
       status_override: '',
+      leave_type: 'Casual',
       reason: 'Manual HR attendance entry',
     });
     setIsManualModalOpen(true);
@@ -526,6 +530,18 @@ export function AttendanceDashboardView() {
         </div>
 
         {myEmp && (
+          myData?.todayHoliday || myData?.todayWeeklyOff ? (
+            <div className="px-3.5 py-2 rounded-lg bg-amber-50 border border-amber-200 text-amber-900 text-xs font-semibold flex items-center gap-2">
+              <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+              <span>
+                {myData.todayBlockReason ||
+                  (myData.todayHoliday
+                    ? `Holiday: ${myData.todayHoliday.title}`
+                    : `Weekly Off Day: ${myData.todayWeeklyOff?.dayName}`)}{' '}
+                — Check-In / Out closed.
+              </span>
+            </div>
+          ) : (
           <div className="flex flex-wrap items-center gap-2">
             <div className="relative">
               <MapPin className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2" />
@@ -540,13 +556,9 @@ export function AttendanceDashboardView() {
 
             <button
               type="button"
-              disabled={busy || Boolean(myData?.todayHoliday)}
+              disabled={busy}
               onClick={() => handleSelfPunch('IN')}
-              title={
-                myData?.todayHoliday
-                  ? `Blocked: ${myData.todayHoliday.title} (${myData.todayHoliday.type} Holiday)`
-                  : 'Check In'
-              }
+              title="Check In"
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               <LogIn className="w-4 h-4" />
@@ -555,19 +567,16 @@ export function AttendanceDashboardView() {
 
             <button
               type="button"
-              disabled={busy || Boolean(myData?.todayHoliday)}
+              disabled={busy}
               onClick={() => handleSelfPunch('OUT')}
-              title={
-                myData?.todayHoliday
-                  ? `Blocked: ${myData.todayHoliday.title} (${myData.todayHoliday.type} Holiday)`
-                  : 'Check Out'
-              }
+              title="Check Out"
               className="inline-flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-white bg-amber-600 hover:bg-amber-700 rounded-lg shadow-xs disabled:opacity-50"
             >
               <LogOut className="w-4 h-4" />
               <span>Check Out</span>
             </button>
           </div>
+          )
         )}
       </div>
 
@@ -702,48 +711,76 @@ export function AttendanceDashboardView() {
               </select>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <Link
-                href="/attendance/bulk"
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
-              >
-                <CheckCheck className="w-3.5 h-3.5" />
-                <span>Bulk Entry (Multi Check-in / Late)</span>
-              </Link>
-              <button
-                type="button"
-                disabled={busy || Boolean(rosterData?.holiday)}
-                onClick={handleBulkMarkUnmarkedPresent}
-                title={
-                  rosterData?.holiday
-                    ? `Blocked: ${rosterData.holiday.title} (${rosterData.holiday.type} Holiday)`
-                    : 'Mark Unmarked Present'
-                }
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
-              >
-                <CheckCheck className="w-3.5 h-3.5" />
-                <span>Mark Unmarked Present</span>
-              </button>
-              <button
-                type="button"
-                disabled={busy}
-                onClick={handleAutoMarkAbsent}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:opacity-50"
-              >
-                <UserCheck className="w-3.5 h-3.5" />
-                <span>Auto-Mark Absent ({rosterDate})</span>
-              </button>
-            </div>
+            {!(rosterData?.holiday || rosterData?.weeklyOff) ? (
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  href="/attendance/bulk"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-blue-600 hover:bg-blue-700 rounded-lg shadow-xs"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Bulk Entry (Multi Check-in / Late)</span>
+                </Link>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleBulkMarkUnmarkedPresent}
+                  title="Mark Unmarked Present"
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
+                >
+                  <CheckCheck className="w-3.5 h-3.5" />
+                  <span>Mark Unmarked Present</span>
+                </button>
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={handleAutoMarkAbsent}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-white bg-slate-900 hover:bg-slate-800 rounded-lg disabled:opacity-50"
+                >
+                  <UserCheck className="w-3.5 h-3.5" />
+                  <span>Auto-Mark Absent ({rosterDate})</span>
+                </button>
+              </div>
+            ) : (
+              <span className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-rose-800 bg-rose-50 border border-rose-200 rounded-lg">
+                <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
+                {rosterData?.holiday
+                  ? `Holiday (${rosterData.holiday.title}) — Present Section Hidden`
+                  : `Weekly Off Day (${rosterData?.weeklyOff?.dayName}) — Present Section Hidden`}
+              </span>
+            )}
           </div>
 
-          {rosterData?.holiday && (
-            <div className="p-3.5 rounded-xl bg-rose-50 border border-rose-200 text-rose-900 text-xs flex items-center gap-2 font-medium">
-              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+          {(rosterData?.holiday || rosterData?.weeklyOff) && (
+            <div
+              className={`p-3.5 rounded-xl border text-xs flex items-center gap-2 font-medium ${
+                rosterData?.holiday
+                  ? 'bg-rose-50 border-rose-200 text-rose-900'
+                  : 'bg-amber-50 border-amber-200 text-amber-900'
+              }`}
+            >
+              <AlertTriangle
+                className={`w-4 h-4 shrink-0 ${
+                  rosterData?.holiday ? 'text-rose-600' : 'text-amber-600'
+                }`}
+              />
               <span>
-                <strong>Holiday Blocked ({rosterDate}):</strong> {rosterData.holiday.title} (
-                {rosterData.holiday.type} Holiday)
-                {rosterData.holiday.description ? ` — ${rosterData.holiday.description}` : ''}.
-                Present / Late / Half-day marking is disabled on this holiday.
+                {rosterData?.holiday ? (
+                  <>
+                    <strong>Holiday Blocked ({rosterDate}):</strong> {rosterData.holiday.title} (
+                    {rosterData.holiday.type} Holiday)
+                    {rosterData.holiday.description
+                      ? ` — ${rosterData.holiday.description}`
+                      : ''}
+                    . Present / Late / Half-day attendance section is closed on this holiday.
+                  </>
+                ) : (
+                  <>
+                    <strong>Weekly Off Day ({rosterDate} — {rosterData.weeklyOff?.dayName}):</strong>{' '}
+                    {rosterData.blockReason ||
+                      `Closed per ${rosterData.weeklyOff?.scheduleName || 'Working Schedule'}.`}{' '}
+                    Present / Late / Half-day attendance section is closed on off days.
+                  </>
+                )}
               </span>
             </div>
           )}
@@ -843,6 +880,18 @@ export function AttendanceDashboardView() {
                       <td className="px-4 py-3 text-center whitespace-nowrap">
                         <div className="flex flex-col items-center gap-1">
                           {getStatusBadge(d?.status)}
+                          {d?.status === 'Leave' && d?.leave_id?.leave_type && (
+                            <span
+                              className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                                d.leave_id.is_paid === false
+                                  ? 'bg-rose-50 text-rose-700'
+                                  : 'bg-purple-50 text-purple-700'
+                              }`}
+                            >
+                              {d.leave_id.leave_type} (
+                              {d.leave_id.is_paid === false ? 'Unpaid' : 'Paid'})
+                            </span>
+                          )}
                           {d?.source && (
                             <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">
                               {d.source}
@@ -851,21 +900,21 @@ export function AttendanceDashboardView() {
                         </div>
                       </td>
                       <td className="px-4 py-3 text-right whitespace-nowrap">
+                        {rosterData?.holiday || rosterData?.weeklyOff ? (
+                          <span className="text-[11px] font-semibold text-slate-500 bg-slate-100 px-2.5 py-1 rounded-md">
+                            {rosterData?.holiday
+                              ? `Holiday (${rosterData.holiday.title}) — Present Closed`
+                              : `Weekly Off (${rosterData?.weeklyOff?.dayName}) — Present Closed`}
+                          </span>
+                        ) : (
                         <div className="inline-flex items-center gap-1">
-                          {(['Present', 'Late', 'Half-day', 'Absent'] as const).map((st) => {
-                            const blockedOnHoliday =
-                              Boolean(rosterData?.holiday) && st !== 'Absent';
-                            return (
+                          {(['Present', 'Late', 'Half-day', 'Absent'] as const).map((st) => (
                               <button
                                 key={st}
                                 type="button"
-                                disabled={busy || blockedOnHoliday}
+                                disabled={busy}
                                 onClick={() => handleQuickManualMark(row.employee._id, st)}
-                                title={
-                                  blockedOnHoliday
-                                    ? `Blocked: ${rosterData.holiday.title} (${rosterData.holiday.type} Holiday)`
-                                    : `Mark ${st}`
-                                }
+                                title={`Mark ${st}`}
                                 className={`px-2 py-1 text-[11px] font-semibold rounded border transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
                                   d?.status === st
                                     ? 'bg-slate-900 text-white border-slate-900'
@@ -874,8 +923,7 @@ export function AttendanceDashboardView() {
                               >
                                 {st === 'Half-day' ? 'Half' : st}
                               </button>
-                            );
-                          })}
+                          ))}
                           <button
                             type="button"
                             onClick={() => {
@@ -886,6 +934,7 @@ export function AttendanceDashboardView() {
                                 check_in_time: toDhakaTimeInput(d?.first_in) || '09:00',
                                 check_out_time: toDhakaTimeInput(d?.last_out) || '18:00',
                                 status_override: '',
+                                leave_type: d?.leave_id?.leave_type || 'Casual',
                                 reason: d?.notes || 'Manual HR attendance edit',
                               });
                               setIsManualModalOpen(true);
@@ -896,6 +945,7 @@ export function AttendanceDashboardView() {
                             <Edit3 className="w-3 h-3" /> Time
                           </button>
                         </div>
+                        )}
                       </td>
                     </tr>
                   );
@@ -1211,7 +1261,22 @@ export function AttendanceDashboardView() {
                         ({lv.employee_id?.employee_id})
                       </span>
                     </td>
-                    <td className="px-4 py-3 whitespace-nowrap font-semibold">{lv.leave_type}</td>
+                    <td className="px-4 py-3 whitespace-nowrap font-semibold">
+                      <div className="flex items-center gap-1.5">
+                        <span>{lv.leave_type}</span>
+                        <span
+                          className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${
+                            lv.is_paid === false || lv.leave_type === 'Unpaid'
+                              ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                              : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                          }`}
+                        >
+                          {lv.is_paid === false || lv.leave_type === 'Unpaid'
+                            ? 'Unpaid — Salary Deducted'
+                            : 'Paid'}
+                        </span>
+                      </div>
+                    </td>
                     <td className="px-4 py-3 whitespace-nowrap">
                       {formatDate(lv.start_date)} → {formatDate(lv.end_date)}
                     </td>
@@ -1346,8 +1411,28 @@ export function AttendanceDashboardView() {
               <option value="Late">Late</option>
               <option value="Half-day">Half-day</option>
               <option value="Absent">Absent</option>
+              <option value="Leave">Leave (Specify Type)</option>
             </select>
           </div>
+
+          {manualForm.status_override === 'Leave' && (
+            <div>
+              <label className="block text-xs font-semibold text-purple-700 mb-1">
+                Leave Type *
+              </label>
+              <select
+                value={manualForm.leave_type}
+                onChange={(e) => setManualForm({ ...manualForm, leave_type: e.target.value })}
+                className="w-full px-3 py-2 text-sm bg-purple-50 border border-purple-200 rounded-lg font-medium text-purple-900"
+              >
+                <option value="Casual">Casual Leave (Paid)</option>
+                <option value="Sick">Sick Leave (Paid)</option>
+                <option value="Earned">Earned Leave (Paid)</option>
+                <option value="Emergency">Emergency Leave (Paid)</option>
+                <option value="Unpaid">Unpaid Leave (Salary Deducted)</option>
+              </select>
+            </div>
+          )}
 
           <div>
             <label className="block text-xs font-semibold text-slate-700 mb-1">
@@ -1512,12 +1597,23 @@ export function AttendanceDashboardView() {
               onChange={(e) => setLeaveForm({ ...leaveForm, leave_type: e.target.value })}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
             >
-              <option value="Casual">Casual Leave</option>
-              <option value="Sick">Sick Leave</option>
-              <option value="Earned">Earned Leave</option>
-              <option value="Emergency">Emergency Leave</option>
-              <option value="Unpaid">Unpaid Leave</option>
+              <option value="Casual">Casual Leave (Paid — No Salary Cut)</option>
+              <option value="Sick">Sick Leave (Paid — No Salary Cut)</option>
+              <option value="Earned">Earned Leave (Paid — No Salary Cut)</option>
+              <option value="Emergency">Emergency Leave (Paid — No Salary Cut)</option>
+              <option value="Unpaid">Unpaid Leave (Salary Deducted per Day)</option>
             </select>
+            <p
+              className={`mt-1.5 text-[11px] font-medium px-2.5 py-1 rounded ${
+                leaveForm.leave_type === 'Unpaid'
+                  ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                  : 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+              }`}
+            >
+              {leaveForm.leave_type === 'Unpaid'
+                ? 'Unpaid Leave: Deducts (Basic Salary / 30) per leave day in monthly Payroll.'
+                : 'Paid Leave: Employee receives full salary when approved.'}
+            </p>
           </div>
 
           <div className="grid grid-cols-2 gap-3">

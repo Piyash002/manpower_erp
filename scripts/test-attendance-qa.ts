@@ -23,6 +23,7 @@ try {
 import { connectDB } from '../src/lib/db';
 import {
   buildManualPunchPairTimestamps,
+  checkDateBlockedForAttendance,
   deduplicatePunches,
   extractFirstInLastOut,
   ingestRawPunches,
@@ -33,13 +34,22 @@ import {
   replaceManualPunchesForDate,
   resolveEmployeeSchedule,
 } from '../src/lib/attendance-engine';
-import { evaluatePayrollFormula, PayrollFormulaContext } from '../src/lib/payroll-engine';
+import {
+  computeEmployeePayslipData,
+  evaluatePayrollFormula,
+  PayrollFormulaContext,
+} from '../src/lib/payroll-engine';
+import { ensurePayrollSeeded } from '../src/lib/payroll-seed';
 import { formatTimeDhaka, toDhakaTimeInput } from '../src/lib/formatters';
 import { Employee } from '../src/models/Employee';
 import { WorkingSchedule } from '../src/models/WorkingSchedule';
 import { Holiday } from '../src/models/Holiday';
 import { AttendanceLog } from '../src/models/AttendanceLog';
 import { DailyAttendance } from '../src/models/DailyAttendance';
+import { Leave } from '../src/models/Leave';
+import { SalaryStructure } from '../src/models/SalaryStructure';
+import { SalaryRule } from '../src/models/SalaryRule';
+import { EmployeeContract } from '../src/models/EmployeeContract';
 
 let passCount = 0;
 let failCount = 0;
@@ -121,6 +131,7 @@ async function runQA() {
     PRESENT_DAYS: 22,
     ABSENT_DAYS: 1,
     LATE_DAYS: 0,
+    LATE_PENALTY_DAYS: 0,
     HALF_DAYS: 0,
     PAID_LEAVE_DAYS: 0,
     UNPAID_LEAVE_DAYS: 0,
@@ -148,7 +159,9 @@ async function runQA() {
     noBio2Id?: mongoose.Types.ObjectId;
     schedId?: mongoose.Types.ObjectId;
     holidayId?: mongoose.Types.ObjectId;
-  } = {};
+    leaveIds: mongoose.Types.ObjectId[];
+    structId?: mongoose.Types.ObjectId;
+  } = { leaveIds: [] };
 
   try {
     // Seed temporary Night Shift schedule (global, empty dept, shift='Night')
@@ -400,6 +413,133 @@ async function runQA() {
       'Night shift cross-midnight manual attendance (22:00–06:00) computes Present & 8h worked',
       `Got status=${nightDaily?.status}, worked=${nightDaily?.worked_hours}`
     );
+
+    // Test Grace Period Auto-Late (>10m): explicitStatusOverride='Present' with 09:15 punch auto-promotes to Late
+    const graceLateDate = '2099-02-01'; // Sunday (working day)
+    await replaceManualPunchesForDate({
+      employeeId: testEmp._id.toString(),
+      dateStr: graceLateDate,
+      inTime: '09:15',
+      outTime: '18:00',
+      reason: 'Grace period auto-late QA test',
+      recordedBy: 'QA',
+    });
+    const graceLateDaily = await recomputeDailyAttendance(testEmp._id.toString(), graceLateDate, {
+      explicitStatusOverride: 'Present',
+      preferredSource: 'Manual',
+      notes: 'Grace auto-late test',
+    });
+    assert(
+      graceLateDaily.status === 'Late' && graceLateDaily.late_minutes === 15,
+      'Grace period >10m (09:15 check-in) auto-promotes manual Present to Late (15m)',
+      `Got status=${graceLateDaily.status}, late_minutes=${graceLateDaily.late_minutes}`
+    );
+
+    // Test Holiday & Weekly Off blocking via checkDateBlockedForAttendance
+    const holBlock = await checkDateBlockedForAttendance(holDate, testEmp as any);
+    const friBlock = await checkDateBlockedForAttendance('2099-01-02', testEmp as any); // Friday
+    const sunOpen = await checkDateBlockedForAttendance('2099-01-04', testEmp as any); // Sunday
+    assert(
+      holBlock.blocked &&
+        holBlock.kind === 'holiday' &&
+        friBlock.blocked &&
+        friBlock.kind === 'weekly_off' &&
+        !sunOpen.blocked,
+      'checkDateBlockedForAttendance blocks Holiday and Weekly Off (Fri) and allows Sunday',
+      `hol=${holBlock.kind}, fri=${friBlock.kind}, sun=${sunOpen.blocked}`
+    );
+
+    // Test 3 Late Days = 1 Day Auto Salary Deduction + Paid vs Unpaid Leave sync into Payroll
+    await ensurePayrollSeeded();
+    const stdStruct =
+      (await SalaryStructure.findOne({ code: 'STANDARD' }).lean()) ||
+      (await SalaryStructure.findOne({ active: true }).lean());
+    if (!stdStruct) {
+      throw new Error('No seeded SalaryStructure found for Payroll QA');
+    }
+
+    const contract = await EmployeeContract.create({
+      employee_id: testEmp._id,
+      structure_id: stdStruct._id,
+      basic_salary: 30000,
+      start_date: new Date('2098-01-01T00:00:00Z'),
+      status: 'Active',
+    });
+    createdIds.structId = contract._id as mongoose.Types.ObjectId;
+
+    // Already have 1 Late on 2099-02-01; add 2 more Late days in Feb 2099 (total 3 Late = 1d deduction)
+    for (const dStr of ['2099-02-02', '2099-02-03']) {
+      await replaceManualPunchesForDate({
+        employeeId: testEmp._id.toString(),
+        dateStr: dStr,
+        inTime: '09:20',
+        outTime: '18:00',
+        reason: 'Late rule 3-for-1 test',
+        recordedBy: 'QA',
+      });
+      await recomputeDailyAttendance(testEmp._id.toString(), dStr, {
+        preferredSource: 'Manual',
+      });
+    }
+
+    // Add 1 Paid Casual Leave (2099-02-04) and 1 Unpaid Leave (2099-02-05) synced to DailyAttendance
+    const paidLeave = await Leave.create({
+      employee_id: testEmp._id,
+      leave_type: 'Casual',
+      is_paid: true,
+      start_date: normalizeDhakaDate('2099-02-04').dateObj,
+      end_date: normalizeDhakaDate('2099-02-04').dateObj,
+      reason: 'Paid casual leave QA',
+      status: 'Approved',
+      reviewed_by: 'QA',
+      reviewed_at: new Date(),
+    });
+    const unpaidLeave = await Leave.create({
+      employee_id: testEmp._id,
+      leave_type: 'Unpaid',
+      is_paid: false,
+      start_date: normalizeDhakaDate('2099-02-05').dateObj,
+      end_date: normalizeDhakaDate('2099-02-05').dateObj,
+      reason: 'Unpaid leave QA',
+      status: 'Approved',
+      reviewed_by: 'QA',
+      reviewed_at: new Date(),
+    });
+    createdIds.leaveIds.push(
+      paidLeave._id as mongoose.Types.ObjectId,
+      unpaidLeave._id as mongoose.Types.ObjectId
+    );
+    await recomputeDailyAttendance(testEmp._id.toString(), '2099-02-04', {
+      explicitStatusOverride: 'Leave',
+      preferredSource: 'Manual',
+      leaveId: paidLeave._id.toString(),
+      leaveIsPaid: true,
+    });
+    await recomputeDailyAttendance(testEmp._id.toString(), '2099-02-05', {
+      explicitStatusOverride: 'Leave',
+      preferredSource: 'Manual',
+      leaveId: unpaidLeave._id.toString(),
+      leaveIsPaid: false,
+    });
+
+    // Note: ensure ABSDED rule includes LATE_PENALTY_DAYS (auto-upgraded by ensurePayrollSeeded)
+    const absRule = await SalaryRule.findOne({ structure_id: stdStruct._id, code: 'ABSDED' }).lean();
+    const payslipData = await computeEmployeePayslipData({
+      employeeId: testEmp._id.toString(),
+      month: 2,
+      year: 2099,
+    });
+    const absDedLine = payslipData.lines.find((l) => l.code === 'ABSDED');
+    assert(
+      payslipData.attendance_summary.lateDays === 3 &&
+        payslipData.attendance_summary.latePenaltyDays === 1 &&
+        payslipData.attendance_summary.paidLeaveDays === 1 &&
+        payslipData.attendance_summary.unpaidLeaveDays === 1 &&
+        Boolean(absRule?.formula?.includes('LATE_PENALTY_DAYS')) &&
+        absDedLine?.amount === 2000,
+      '3 Late days (1d cut = 1000) + 1 Unpaid leave (1d cut = 1000) + 1 Paid Casual leave (0 cut) -> ABSDED = 2000',
+      `Got late=${payslipData.attendance_summary.lateDays}, latePenalty=${payslipData.attendance_summary.latePenaltyDays}, paidLv=${payslipData.attendance_summary.paidLeaveDays}, unpaidLv=${payslipData.attendance_summary.unpaidLeaveDays}, ABSDED=${absDedLine?.amount}`
+    );
   } finally {
     // Strict cleanup of temporary QA test data
     const empIds = [
@@ -411,7 +551,15 @@ async function runQA() {
     if (empIds.length > 0) {
       await DailyAttendance.deleteMany({ employee_id: { $in: empIds } });
       await AttendanceLog.deleteMany({ employee_id: { $in: empIds } });
+      await Leave.deleteMany({ employee_id: { $in: empIds } });
+      await EmployeeContract.deleteMany({ employee_id: { $in: empIds } });
       await Employee.deleteMany({ _id: { $in: empIds } });
+    }
+    if (createdIds.leaveIds.length > 0) {
+      await Leave.deleteMany({ _id: { $in: createdIds.leaveIds } });
+    }
+    if (createdIds.structId) {
+      await EmployeeContract.findByIdAndDelete(createdIds.structId);
     }
     await AttendanceLog.deleteMany({ biometric_id: `${tag}-UNMAPPED` });
     if (createdIds.schedId) await WorkingSchedule.findByIdAndDelete(createdIds.schedId);

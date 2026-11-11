@@ -1,12 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { requireAuth, createAuditLog } from '@/lib/auth';
+import { requireAuth, createAuditLog, isAdminOrHR } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Leave, LeaveStatus, LeaveType } from '@/models/Leave';
 import { Employee } from '@/models/Employee';
+import { getDhakaDateString, recomputeDailyAttendance } from '@/lib/attendance-engine';
 
 interface LeavePostBody {
   employee_id?: string;
   leave_type: LeaveType;
+  is_paid?: boolean;
   start_date: string;
   end_date: string;
   reason?: string;
@@ -18,7 +20,15 @@ interface LeavePutBody {
 }
 
 export async function GET(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
+  const auth = requireAuth(req, [
+    'Admin',
+    'HR',
+    'Manager',
+    'Employee',
+    'Counselor',
+    'Accountant',
+    'Viewer',
+  ]);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -26,10 +36,10 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const status = searchParams.get('status');
 
-    const filter: Record<string, any> = {};
+    const filter: Record<string, unknown> = {};
     if (status && status !== 'all') filter.status = status;
 
-    if (auth.user.role !== 'Admin') {
+    if (!isAdminOrHR(auth.user.role)) {
       const myEmp = await Employee.findOne({ userId: auth.user.userId }).select('_id').lean();
       if (!myEmp) {
         return NextResponse.json({ success: true, data: [] });
@@ -46,16 +56,22 @@ export async function GET(req: NextRequest) {
       success: true,
       data: leaves,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Failed to fetch leave requests' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Failed to fetch leave requests';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }
 
 export async function POST(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
+  const auth = requireAuth(req, [
+    'Admin',
+    'HR',
+    'Manager',
+    'Employee',
+    'Counselor',
+    'Accountant',
+    'Viewer',
+  ]);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -63,7 +79,7 @@ export async function POST(req: NextRequest) {
     await connectDB();
 
     const targetEmployee =
-      body.employee_id && auth.user.role === 'Admin'
+      body.employee_id && isAdminOrHR(auth.user.role)
         ? await Employee.findById(body.employee_id)
         : await Employee.findOne({ userId: auth.user.userId });
 
@@ -93,9 +109,13 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    const isPaid =
+      body.is_paid !== undefined ? Boolean(body.is_paid) : body.leave_type !== 'Unpaid';
+
     const leave = await Leave.create({
       employee_id: targetEmployee._id,
       leave_type: body.leave_type,
+      is_paid: isPaid,
       start_date: start,
       end_date: end,
       reason: body.reason?.trim() || '',
@@ -110,6 +130,7 @@ export async function POST(req: NextRequest) {
       newValues: {
         employee_id: targetEmployee.employee_id,
         leave_type: leave.leave_type,
+        is_paid: leave.is_paid,
         start_date: leave.start_date,
         end_date: leave.end_date,
       },
@@ -123,16 +144,14 @@ export async function POST(req: NextRequest) {
       },
       { status: 201 }
     );
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Failed to submit leave request' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Failed to submit leave request';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }
 
 export async function PUT(req: NextRequest) {
-  const auth = requireAuth(req, ['Admin']);
+  const auth = requireAuth(req, ['Admin', 'HR']);
   if (auth.errorResponse) return auth.errorResponse;
 
   try {
@@ -156,25 +175,56 @@ export async function PUT(req: NextRequest) {
     leave.reviewed_at = new Date();
     await leave.save();
 
+    // Sync Leave into DailyAttendance across all days in [start_date, end_date]
+    let syncedDays = 0;
+    if (body.status === 'Approved' || oldStatus === 'Approved') {
+      const start = new Date(leave.start_date);
+      const end = new Date(leave.end_date);
+      const cur = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth(), start.getUTCDate()));
+      const endUtc = new Date(Date.UTC(end.getUTCFullYear(), end.getUTCMonth(), end.getUTCDate()));
+
+      while (cur <= endUtc && syncedDays < 60) {
+        const dateStr = getDhakaDateString(cur);
+        try {
+          await recomputeDailyAttendance(leave.employee_id.toString(), dateStr, {
+            preferredSource: 'Manual',
+            notes:
+              body.status === 'Approved'
+                ? `${leave.leave_type} Leave (${leave.is_paid !== false ? 'Paid' : 'Unpaid'})`
+                : '',
+          });
+          syncedDays++;
+        } catch {
+          // Skip locked month day cleanly
+        }
+        cur.setUTCDate(cur.getUTCDate() + 1);
+      }
+    }
+
     await createAuditLog({
       user: auth.user,
       action: 'LEAVE_STATUS_UPDATED',
       entity: 'Leave',
       entityId: leave._id.toString(),
       oldValues: { status: oldStatus },
-      newValues: { status: leave.status, reviewed_by: leave.reviewed_by },
+      newValues: {
+        status: leave.status,
+        leave_type: leave.leave_type,
+        is_paid: leave.is_paid,
+        syncedDays,
+        reviewed_by: leave.reviewed_by,
+      },
     });
 
     return NextResponse.json({
       success: true,
-      message: `Leave request marked as ${leave.status}.`,
+      message: `Leave (${leave.leave_type}) marked as ${leave.status}${
+        syncedDays > 0 ? ` and synced across ${syncedDays} day(s)` : ''
+      }.`,
       data: leave,
     });
-  } catch (error: any) {
-    return NextResponse.json(
-      { success: false, message: error.message || 'Failed to update leave status' },
-      { status: 500 }
-    );
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : 'Failed to update leave status';
+    return NextResponse.json({ success: false, message: msg }, { status: 500 });
   }
 }
-

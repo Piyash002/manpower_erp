@@ -107,12 +107,12 @@ export const DEFAULT_REGULAR_RULES: DefaultRuleSeed[] = [
     sequence: 100,
   },
   {
-    name: 'Absent & Unpaid Leave Deduction',
+    name: 'Absent, Late & Unpaid Leave Deduction',
     code: 'ABSDED',
     category: 'DEDUCTION',
     type: 'formula',
     amount_or_percentage: 0,
-    formula: '(BASIC / 30) * (ABSENT_DAYS + UNPAID_LEAVE_DAYS + HALF_DAYS * 0.5)',
+    formula: '(BASIC / 30) * (ABSENT_DAYS + LATE_PENALTY_DAYS + UNPAID_LEAVE_DAYS + HALF_DAYS * 0.5)',
     sequence: 110,
   },
   {
@@ -181,6 +181,21 @@ export async function ensurePayrollSeeded() {
     const ruleCount = await SalaryRule.countDocuments({ structure_id: regular._id });
     if (ruleCount === 0) {
       await seedDefaultRulesForStructure(regular._id);
+    } else {
+      // Safely upgrade old default ABSDED formula to include LATE_PENALTY_DAYS (3 late = 1 day)
+      await SalaryRule.updateMany(
+        {
+          code: 'ABSDED',
+          formula: '(BASIC / 30) * (ABSENT_DAYS + UNPAID_LEAVE_DAYS + HALF_DAYS * 0.5)',
+        },
+        {
+          $set: {
+            name: 'Absent, Late & Unpaid Leave Deduction',
+            formula:
+              '(BASIC / 30) * (ABSENT_DAYS + LATE_PENALTY_DAYS + UNPAID_LEAVE_DAYS + HALF_DAYS * 0.5)',
+          },
+        }
+      );
     }
   }
 
