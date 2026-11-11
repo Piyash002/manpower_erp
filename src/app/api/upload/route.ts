@@ -3,7 +3,14 @@ import { requireAuth } from '@/lib/auth';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
-const PHOTO_MIMES = new Set(['image/jpeg', 'image/jpg', 'image/png', 'image/webp']);
+const PHOTO_MIMES = new Set([
+  'image/jpeg',
+  'image/jpg',
+  'image/pjpeg',
+  'image/png',
+  'image/x-png',
+  'image/webp',
+]);
 const DOC_MIMES = new Set([
   'application/pdf',
   'image/jpeg',
@@ -74,7 +81,7 @@ export async function POST(req: NextRequest) {
 
     await writeFile(filePath, buffer);
 
-    const relUrl = subDir ? `/uploads/${subDir}/${uniqueName}` : `/uploads/${uniqueName}`;
+    const relUrl = subDir ? `/api/uploads/${subDir}/${uniqueName}` : `/api/uploads/${uniqueName}`;
     return NextResponse.json({
       success: true,
       url: relUrl,

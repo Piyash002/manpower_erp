@@ -107,8 +107,8 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
   const [cropSrc, setCropSrc] = useState<string | null>(null);
   const [cropZoom, setCropZoom] = useState(1);
   const [uploadingPhoto, setUploadingPhoto] = useState(false);
+  const [photoStatus, setPhotoStatus] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -198,7 +198,6 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
 
     const img = new Image();
     img.onload = () => {
-      imgRef.current = img;
       const size = 240;
       canvas.width = size;
       canvas.height = size;
@@ -212,37 +211,45 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
     img.src = imageSrc;
   };
 
-  const handleSelectPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
-      setBanner({ type: 'err', msg: 'Please choose a JPG, PNG, or WebP image.' });
-      return;
+  useEffect(() => {
+    if (cropSrc) {
+      drawCropCanvas(cropSrc, cropZoom);
     }
-    if (file.size > 2 * 1024 * 1024) {
-      setBanner({ type: 'err', msg: 'Image size must be under 2 MB.' });
-      return;
-    }
-    const reader = new FileReader();
-    reader.onload = () => {
-      const src = String(reader.result || '');
-      setCropZoom(1);
-      setCropSrc(src);
-      setTimeout(() => drawCropCanvas(src, 1), 30);
-    };
-    reader.readAsDataURL(file);
-  };
+  }, [cropSrc, cropZoom]);
 
-  const handleUploadCroppedPhoto = async () => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
+  const cropAndUploadDataUrl = async (
+    imageSrc: string,
+    zoomVal: number,
+    closeEditor: boolean
+  ) => {
     setUploadingPhoto(true);
+    setPhotoStatus(null);
     setBanner(null);
     try {
-      const blob: Blob | null = await new Promise((resolve) =>
-        canvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9)
-      );
-      if (!blob) throw new Error('Failed to process cropped photo.');
+      const blob = await new Promise<Blob | null>((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+          const outCanvas = document.createElement('canvas');
+          const size = 300;
+          outCanvas.width = size;
+          outCanvas.height = size;
+          const ctx = outCanvas.getContext('2d');
+          if (!ctx) {
+            reject(new Error('Canvas context unavailable'));
+            return;
+          }
+          const minDim = Math.min(img.width, img.height);
+          const cropDim = minDim / zoomVal;
+          const sx = (img.width - cropDim) / 2;
+          const sy = (img.height - cropDim) / 2;
+          ctx.drawImage(img, sx, sy, cropDim, cropDim, 0, 0, size, size);
+          outCanvas.toBlob((b) => resolve(b), 'image/jpeg', 0.9);
+        };
+        img.onerror = () => reject(new Error('Invalid image file'));
+        img.src = imageSrc;
+      });
+
+      if (!blob) throw new Error('Failed to process photo.');
       const fd = new FormData();
       fd.append('file', new File([blob], 'avatar.jpg', { type: 'image/jpeg' }));
       fd.append('kind', 'photo');
@@ -250,14 +257,54 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
       const res = await fetch('/api/upload', { method: 'POST', body: fd });
       const json = await res.json();
       if (!res.ok || !json.success) throw new Error(json.message || 'Photo upload failed');
+
       setForm((prev) => ({ ...prev, photo_url: json.url }));
-      setCropSrc(null);
-      setBanner({ type: 'ok', msg: 'Cropped profile photo uploaded.' });
+      if (closeEditor) setCropSrc(null);
+      setPhotoStatus({ type: 'ok', msg: 'Photo uploaded! Click Save to store with employee.' });
     } catch (err: unknown) {
-      setBanner({ type: 'err', msg: err instanceof Error ? err.message : 'Upload error' });
+      const msg = err instanceof Error ? err.message : 'Photo upload error';
+      setPhotoStatus({ type: 'err', msg });
+      setBanner({ type: 'err', msg });
     } finally {
       setUploadingPhoto(false);
     }
+  };
+
+  const handleSelectPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+
+    const isImage =
+      file.type.startsWith('image/') ||
+      /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name);
+    if (!isImage) {
+      const msg = 'Please choose an image file (JPG, PNG, or WebP).';
+      setPhotoStatus({ type: 'err', msg });
+      setBanner({ type: 'err', msg });
+      return;
+    }
+    if (file.size > 10 * 1024 * 1024) {
+      const msg = 'Source image must be under 10 MB.';
+      setPhotoStatus({ type: 'err', msg });
+      setBanner({ type: 'err', msg });
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const src = String(reader.result || '');
+      setCropZoom(1);
+      setCropSrc(src);
+      // Immediately upload centered 300x300 JPEG so photo_url is ready even if user doesn't adjust zoom
+      void cropAndUploadDataUrl(src, 1, false);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const handleUploadCroppedPhoto = async () => {
+    if (!cropSrc) return;
+    await cropAndUploadDataUrl(cropSrc, cropZoom, true);
   };
 
   const handleUploadDocument = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -371,11 +418,17 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
           </Link>
           <button
             type="submit"
-            disabled={saving}
+            disabled={saving || uploadingPhoto}
             className="inline-flex items-center gap-1.5 px-5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs disabled:opacity-50"
           >
             <Save className="w-4 h-4" />
-            {saving ? 'Saving...' : isEdit ? 'Save Changes' : 'Create Employee'}
+            {uploadingPhoto
+              ? 'Uploading Photo...'
+              : saving
+              ? 'Saving...'
+              : isEdit
+              ? 'Save Changes'
+              : 'Create Employee'}
           </button>
         </div>
       </div>
@@ -411,19 +464,50 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
             size="xl"
           />
           <div className="space-y-1.5">
-            <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg cursor-pointer hover:bg-slate-100">
-              <Camera className="w-3.5 h-3.5 text-emerald-600" />
-              <span>Choose Photo (JPG/PNG/WebP, max 2MB)</span>
-              <input
-                type="file"
-                accept="image/jpeg,image/png,image/webp"
-                onChange={handleSelectPhotoFile}
-                className="hidden"
-              />
-            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg cursor-pointer hover:bg-slate-100">
+                <Camera className="w-3.5 h-3.5 text-emerald-600" />
+                <span>
+                  {uploadingPhoto
+                    ? 'Uploading Photo...'
+                    : form.photo_url
+                    ? 'Change Photo'
+                    : 'Choose Photo (JPG/PNG/WebP, max 10MB)'}
+                </span>
+                <input
+                  type="file"
+                  accept="image/*"
+                  onChange={handleSelectPhotoFile}
+                  disabled={uploadingPhoto}
+                  className="hidden"
+                />
+              </label>
+              {form.photo_url && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setForm((prev) => ({ ...prev, photo_url: '' }));
+                    setCropSrc(null);
+                    setPhotoStatus(null);
+                  }}
+                  className="px-2.5 py-1.5 text-xs font-semibold text-rose-700 bg-rose-50 hover:bg-rose-100 border border-rose-200 rounded-lg"
+                >
+                  Remove Photo
+                </button>
+              )}
+            </div>
             <p className="text-[11px] text-slate-500">
-              Includes center-square crop &amp; 240×240 resize before upload. Shows initials avatar if blank.
+              Automatically crops &amp; resizes to 300×300 JPEG on selection. Adjust zoom below if needed.
             </p>
+            {photoStatus && (
+              <p
+                className={`text-[11px] font-semibold ${
+                  photoStatus.type === 'ok' ? 'text-emerald-700' : 'text-rose-700'
+                }`}
+              >
+                {photoStatus.msg}
+              </p>
+            )}
           </div>
 
           {cropSrc && (
@@ -442,11 +526,7 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
                     max="2.5"
                     step="0.1"
                     value={cropZoom}
-                    onChange={(e) => {
-                      const z = Number(e.target.value);
-                      setCropZoom(z);
-                      drawCropCanvas(cropSrc, z);
-                    }}
+                    onChange={(e) => setCropZoom(Number(e.target.value))}
                   />
                 </div>
                 <div className="flex gap-2">
@@ -456,14 +536,14 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
                     onClick={handleUploadCroppedPhoto}
                     className="px-3 py-1.5 font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
                   >
-                    {uploadingPhoto ? 'Uploading...' : 'Crop & Upload'}
+                    {uploadingPhoto ? 'Uploading...' : 'Apply Zoom & Upload'}
                   </button>
                   <button
                     type="button"
                     onClick={() => setCropSrc(null)}
                     className="px-3 py-1.5 text-slate-600 bg-white border border-slate-200 rounded-lg"
                   >
-                    Cancel
+                    Close Cropper
                   </button>
                 </div>
               </div>

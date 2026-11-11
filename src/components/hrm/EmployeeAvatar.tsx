@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useState } from 'react';
 
 interface EmployeeAvatarProps {
   photoUrl?: string | null;
@@ -22,15 +22,22 @@ export function EmployeeAvatar({
   lastName = '',
   size = 'md',
 }: EmployeeAvatarProps) {
+  const [failedUrl, setFailedUrl] = useState<string | null>(null);
   const initials =
     `${firstName.trim().charAt(0)}${lastName.trim().charAt(0)}`.toUpperCase() || 'EM';
 
-  if (photoUrl) {
+  const normalizedUrl =
+    photoUrl && photoUrl.startsWith('/uploads/')
+      ? `/api${photoUrl}`
+      : photoUrl;
+
+  if (normalizedUrl && failedUrl !== normalizedUrl) {
     return (
       // eslint-disable-next-line @next/next/no-img-element
       <img
-        src={photoUrl}
+        src={normalizedUrl}
         alt={`${firstName} ${lastName}`}
+        onError={() => setFailedUrl(normalizedUrl)}
         className={`${SIZE_CLASSES[size]} rounded-full object-cover border border-slate-200 shrink-0 bg-slate-100`}
       />
     );
@@ -44,4 +51,3 @@ export function EmployeeAvatar({
     </div>
   );
 }
-
