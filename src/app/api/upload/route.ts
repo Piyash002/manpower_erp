@@ -35,15 +35,15 @@ export async function POST(req: NextRequest) {
     }
 
     if (kind === 'photo') {
-      if (!PHOTO_MIMES.has(file.type)) {
+      if (!PHOTO_MIMES.has(file.type) && !/\.(jpe?g|png|webp|gif)$/i.test(file.name)) {
         return NextResponse.json(
-          { success: false, message: 'Profile photo must be a JPG, PNG, or WebP image.' },
+          { success: false, message: 'Profile photo must be a JPG, PNG, WebP, or GIF image.' },
           { status: 400 }
         );
       }
-      if (file.size > 2 * 1024 * 1024) {
+      if (file.size > 5 * 1024 * 1024) {
         return NextResponse.json(
-          { success: false, message: 'Profile photo size must not exceed 2 MB.' },
+          { success: false, message: 'Profile photo size must not exceed 5 MB.' },
           { status: 400 }
         );
       }

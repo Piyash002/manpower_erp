@@ -270,34 +270,69 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
     }
   };
 
-  const handleSelectPhotoFile = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    e.target.value = '';
+  const handleSelectPhotoFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const inputEl = e.target;
+    const file = inputEl.files?.[0];
     if (!file) return;
 
     const isImage =
       file.type.startsWith('image/') ||
       /\.(jpe?g|png|webp|gif|bmp)$/i.test(file.name);
     if (!isImage) {
-      const msg = 'Please choose an image file (JPG, PNG, or WebP).';
+      const msg = 'Please choose an image file (JPG, PNG, WebP, or GIF).';
       setPhotoStatus({ type: 'err', msg });
       setBanner({ type: 'err', msg });
+      inputEl.value = '';
       return;
     }
     if (file.size > 10 * 1024 * 1024) {
-      const msg = 'Source image must be under 10 MB.';
+      const msg = 'Image size must be under 10 MB.';
       setPhotoStatus({ type: 'err', msg });
       setBanner({ type: 'err', msg });
+      inputEl.value = '';
       return;
     }
 
+    // 1. Direct FormData upload first (100% reliable across Brave/Chrome, no canvas fingerprint dependency)
+    if (file.size <= 5 * 1024 * 1024) {
+      setUploadingPhoto(true);
+      setPhotoStatus(null);
+      setBanner(null);
+      try {
+        const fd = new FormData();
+        fd.append('file', file);
+        fd.append('kind', 'photo');
+
+        const res = await fetch('/api/upload', { method: 'POST', body: fd });
+        const json = await res.json();
+        if (!res.ok || !json.success || !json.url) {
+          throw new Error(json.message || 'Photo upload failed');
+        }
+        setForm((prev) => ({ ...prev, photo_url: json.url }));
+        setPhotoStatus({
+          type: 'ok',
+          msg: `Uploaded "${file.name}". Click ${isEdit ? 'Save Changes' : 'Create Employee'} to save.`,
+        });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : 'Photo upload failed';
+        setPhotoStatus({ type: 'err', msg });
+        setBanner({ type: 'err', msg });
+      } finally {
+        setUploadingPhoto(false);
+        inputEl.value = '';
+      }
+    }
+
+    // 2. Also open optional crop/zoom preview (for >5MB auto-resize or manual zoom adjustment)
     const reader = new FileReader();
     reader.onload = () => {
       const src = String(reader.result || '');
       setCropZoom(1);
       setCropSrc(src);
-      // Immediately upload centered 300x300 JPEG so photo_url is ready even if user doesn't adjust zoom
-      void cropAndUploadDataUrl(src, 1, false);
+      if (file.size > 5 * 1024 * 1024) {
+        void cropAndUploadDataUrl(src, 1, false);
+        inputEl.value = '';
+      }
     };
     reader.readAsDataURL(file);
   };
@@ -497,7 +532,7 @@ export function EmployeeFormView({ employeeId }: { employeeId?: string }) {
               )}
             </div>
             <p className="text-[11px] text-slate-500">
-              Automatically crops &amp; resizes to 300×300 JPEG on selection. Adjust zoom below if needed.
+              Uploads directly on file selection (JPG/PNG/WebP/GIF up to 5 MB, or auto-resizes up to 10 MB). Adjust zoom below if needed.
             </p>
             {photoStatus && (
               <p
