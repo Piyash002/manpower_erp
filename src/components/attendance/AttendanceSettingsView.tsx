@@ -218,11 +218,10 @@ export function AttendanceSettingsView() {
 
       {banner && (
         <div
-          className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 border ${
-            banner.type === 'ok'
-              ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
-              : 'bg-rose-50 border-rose-200 text-rose-800'
-          }`}
+          className={`p-3 rounded-xl text-xs font-medium flex items-center gap-2 border ${banner.type === 'ok'
+            ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+            : 'bg-rose-50 border-rose-200 text-rose-800'
+            }`}
         >
           {banner.type === 'ok' ? (
             <CheckCircle2 className="w-4 h-4 shrink-0" />
@@ -303,11 +302,10 @@ export function AttendanceSettingsView() {
                     return (
                       <span
                         key={lbl}
-                        className={`px-2 py-0.5 text-[11px] rounded font-semibold ${
-                          isWork
-                            ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
-                            : 'bg-slate-100 text-slate-400'
-                        }`}
+                        className={`px-2 py-0.5 text-[11px] rounded font-semibold ${isWork
+                          ? 'bg-emerald-50 text-emerald-800 border border-emerald-200'
+                          : 'bg-slate-100 text-slate-400'
+                          }`}
                       >
                         {lbl}
                       </span>
@@ -454,11 +452,10 @@ export function AttendanceSettingsView() {
                     key={lbl}
                     type="button"
                     onClick={() => toggleDay(idx)}
-                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border ${
-                      checked
-                        ? 'bg-emerald-600 text-white border-emerald-600'
-                        : 'bg-slate-50 text-slate-600 border-slate-200'
-                    }`}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-lg border ${checked
+                      ? 'bg-emerald-600 text-white border-emerald-600'
+                      : 'bg-slate-50 text-slate-600 border-slate-200'
+                      }`}
                   >
                     {lbl}
                   </button>

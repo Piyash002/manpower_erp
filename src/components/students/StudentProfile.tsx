@@ -468,8 +468,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
       exam_date: assessment?.exam_date
         ? toInputDate(assessment.exam_date)
         : batch?.exam_date
-        ? toInputDate(batch.exam_date)
-        : new Date().toISOString().split('T')[0],
+          ? toInputDate(batch.exam_date)
+          : new Date().toISOString().split('T')[0],
       certificate_no:
         assessment?.certificate_no ||
         `CERT-${new Date().getFullYear()}-${student?.student_no?.replace(/[^0-9]/g, '')?.slice(-4) || '0001'}`,
@@ -1100,9 +1100,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 <div>
                   <span className="text-slate-400 font-medium">Expiry Date:</span>
                   <p
-                    className={`font-bold mt-0.5 ${
-                      passportExpiringSoon ? 'text-rose-600 underline' : 'text-slate-800'
-                    }`}
+                    className={`font-bold mt-0.5 ${passportExpiringSoon ? 'text-rose-600 underline' : 'text-slate-800'
+                      }`}
                   >
                     {formatDate(student.passport_expiry_date)}
                   </p>
@@ -1359,11 +1358,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 return (
                   <div
                     key={doc._id}
-                    className={`p-3 rounded-lg border transition-colors ${
-                      doc.received
-                        ? 'bg-emerald-50/40 border-emerald-200'
-                        : 'bg-slate-50 border-slate-200'
-                    }`}
+                    className={`p-3 rounded-lg border transition-colors ${doc.received
+                      ? 'bg-emerald-50/40 border-emerald-200'
+                      : 'bg-slate-50 border-slate-200'
+                      }`}
                   >
                     <div className="flex items-start justify-between gap-2">
                       <div className="flex items-start gap-2.5">
@@ -1376,9 +1374,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                         />
                         <div>
                           <p
-                            className={`text-xs font-semibold ${
-                              doc.received ? 'text-emerald-900' : 'text-slate-700'
-                            }`}
+                            className={`text-xs font-semibold ${doc.received ? 'text-emerald-900' : 'text-slate-700'
+                              }`}
                           >
                             {doc.document_type}
                           </p>
@@ -1428,8 +1425,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                               {isUploadingThis
                                 ? 'Uploading...'
                                 : docFileUrl
-                                ? 'Replace File'
-                                : 'Upload File'}
+                                  ? 'Replace File'
+                                  : 'Upload File'}
                             </span>
                             <input
                               type="file"
@@ -2088,10 +2085,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
               const newPayable = Math.max(
                 0,
                 Number(editFormData.admission_fee || 0) +
-                  Number(editFormData.course_fee || 0) +
-                  Number(editFormData.visa_cost || 0) +
-                  Number(editFormData.govt_fee || 0) -
-                  Number(editFormData.discount || 0)
+                Number(editFormData.course_fee || 0) +
+                Number(editFormData.visa_cost || 0) +
+                Number(editFormData.govt_fee || 0) -
+                Number(editFormData.discount || 0)
               );
               const newDue = Math.max(0, newPayable - (student?.total_paid || 0));
               const oldDue = student?.total_due || 0;
@@ -2280,11 +2277,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                     onClick={() =>
                       setAssessmentFormData({ ...assessmentFormData, result_status: 'Passed' })
                     }
-                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
-                      assessmentFormData.result_status === 'Passed'
-                        ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${assessmentFormData.result_status === 'Passed'
+                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
                   >
                     Passed (পাস)
                   </button>
@@ -2293,11 +2289,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                     onClick={() =>
                       setAssessmentFormData({ ...assessmentFormData, result_status: 'Failed' })
                     }
-                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
-                      assessmentFormData.result_status === 'Failed'
-                        ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${assessmentFormData.result_status === 'Failed'
+                      ? 'bg-rose-600 text-white border-rose-600 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
                   >
                     Failed (ফেল)
                   </button>
@@ -2306,11 +2301,10 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                     onClick={() =>
                       setAssessmentFormData({ ...assessmentFormData, result_status: 'Pending' })
                     }
-                    className={`py-2 text-center rounded-lg font-bold border transition-all ${
-                      assessmentFormData.result_status === 'Pending'
-                        ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
-                        : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
-                    }`}
+                    className={`py-2 text-center rounded-lg font-bold border transition-all ${assessmentFormData.result_status === 'Pending'
+                      ? 'bg-amber-500 text-white border-amber-500 shadow-xs'
+                      : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-100'
+                      }`}
                   >
                     Pending
                   </button>
