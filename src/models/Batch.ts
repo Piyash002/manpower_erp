@@ -26,7 +26,7 @@ const BatchSchema = new Schema<IBatch>(
     batch_code: { type: String, required: true, unique: true, uppercase: true, trim: true, index: true },
     trade_id: { type: Schema.Types.ObjectId, ref: 'Trade', required: true, index: true },
     trade_name: { type: String, required: true, trim: true },
-    start_date: { type: Date, required: true },
+    start_date: { type: Date, required: true, index: true },
     end_date: { type: Date, required: true },
     exam_date: { type: Date, default: null },
     instructor_id: { type: Schema.Types.ObjectId, ref: 'Employee', default: null, index: true },

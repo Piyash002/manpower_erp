@@ -10,10 +10,10 @@ export const metadata = {
 };
 
 export default async function AccountsDashboardPage() {
-  await requirePageRole(ACCOUNTS_DASHBOARD_ROLES);
+  const user = await requirePageRole(ACCOUNTS_DASHBOARD_ROLES);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout initialUser={user}>
       <AccountsModuleNav />
       <AccountsDashboardView />
     </DashboardLayout>

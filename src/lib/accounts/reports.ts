@@ -7,11 +7,16 @@ import { ensureAccountsSeeded } from '@/lib/accounts-seed';
 import { utcEndOfDay, utcStartOfDay } from '@/lib/accounts/shared';
 
 async function aggregatePostedBalancesByAccount(dateFilter: Record<string, Date>) {
+  const lineMatch: Record<string, unknown> = {
+    status: 'Posted',
+    isDeleted: false,
+  };
   const matchEntry: Record<string, unknown> = {
     'entry.status': 'Posted',
     'entry.isDeleted': false,
   };
   if (Object.keys(dateFilter).length > 0) {
+    lineMatch.entryDate = dateFilter;
     matchEntry['entry.entryDate'] = dateFilter;
   }
 
@@ -20,6 +25,7 @@ async function aggregatePostedBalancesByAccount(dateFilter: Record<string, Date>
     debitPaisa: number;
     creditPaisa: number;
   }>([
+    { $match: lineMatch },
     {
       $lookup: {
         from: 'journalentries',

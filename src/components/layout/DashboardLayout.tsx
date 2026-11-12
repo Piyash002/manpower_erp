@@ -19,9 +19,15 @@ const AuthContext = createContext<AuthContextType>({
 
 export const useAuth = () => useContext(AuthContext);
 
-export function DashboardLayout({ children }: { children: React.ReactNode }) {
-  const [user, setUser] = useState<TokenPayload | null>(null);
-  const [loading, setLoading] = useState(true);
+export function DashboardLayout({
+  children,
+  initialUser = null,
+}: {
+  children: React.ReactNode;
+  initialUser?: TokenPayload | null;
+}) {
+  const [user, setUser] = useState<TokenPayload | null>(initialUser);
+  const [loading, setLoading] = useState(!initialUser);
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [passwordModalOpen, setPasswordModalOpen] = useState(false);
   const [isMandatoryPasswordChange, setIsMandatoryPasswordChange] = useState(false);
@@ -49,8 +55,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
   };
 
   useEffect(() => {
-    fetchUser();
-  }, []);
+    if (!initialUser) {
+      fetchUser();
+    } else if (initialUser.mustChangePassword) {
+      setIsMandatoryPasswordChange(true);
+      setPasswordModalOpen(true);
+    }
+  }, [initialUser]);
 
   if (loading) {
     return (

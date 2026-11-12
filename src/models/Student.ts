@@ -146,10 +146,10 @@ const StudentSchema = new Schema<IStudent>(
 
     // Training & Destination
     trade_id: { type: Schema.Types.ObjectId, ref: 'Trade', required: true, index: true },
-    trade_name: { type: String, required: true },
+    trade_name: { type: String, required: true, index: true },
     batch: { type: String, required: true, trim: true, index: true },
     session: { type: String, required: true, trim: true },
-    admission_date: { type: Date, required: true, default: Date.now },
+    admission_date: { type: Date, required: true, default: Date.now, index: true },
     destination_country: { type: String, default: 'Not decided yet', index: true },
     destination_contract_years: { type: Number, default: 0 },
     status: {

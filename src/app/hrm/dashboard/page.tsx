@@ -9,10 +9,10 @@ export const metadata = {
 };
 
 export default async function HrmDashboardPage() {
-  await requirePageRole(HRM_DASHBOARD_ROLES);
+  const user = await requirePageRole(HRM_DASHBOARD_ROLES);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout initialUser={user}>
       <HrmDashboardView />
     </DashboardLayout>
   );

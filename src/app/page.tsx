@@ -28,7 +28,7 @@ export default async function HomePage() {
   }
 
   return (
-    <DashboardLayout>
+    <DashboardLayout initialUser={user}>
       <OverviewDashboard />
     </DashboardLayout>
   );

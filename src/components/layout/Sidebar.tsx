@@ -132,13 +132,13 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           title: 'Employees & Agents',
           href: '/hrm/employees',
           icon: UserCheck,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
           title: 'Attendance & Calendar',
           href: '/attendance',
           icon: Clock,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR', 'Counselor', 'Accountant', 'Viewer'],
         },
         {
           title: 'Payroll Runs & Payslips',

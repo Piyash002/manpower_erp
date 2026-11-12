@@ -67,8 +67,9 @@ export async function GET(req: NextRequest) {
       })
         .select('code name type')
         .lean(),
-      // Global Trial Balance & per-account posted balances
+      // Global Trial Balance & per-account posted balances (index-first $match on JournalLine)
       JournalLine.aggregate<{ _id: string; debitPaisa: number; creditPaisa: number }>([
+        { $match: { status: 'Posted', isDeleted: false } },
         {
           $lookup: {
             from: 'journalentries',
@@ -114,12 +115,19 @@ export async function GET(req: NextRequest) {
         { $sort: { _id: 1 } },
         { $limit: 14 },
       ]),
-      // Income vs Expense by month (current year)
+      // Income vs Expense by month (current year, index-first $match on JournalLine)
       JournalLine.aggregate<{
         _id: { month: number; accountType: string };
         debitPaisa: number;
         creditPaisa: number;
       }>([
+        {
+          $match: {
+            status: 'Posted',
+            isDeleted: false,
+            entryDate: { $gte: yearStart, $lte: yearEnd },
+          },
+        },
         {
           $lookup: {
             from: 'journalentries',

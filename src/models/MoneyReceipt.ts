@@ -78,6 +78,7 @@ const MoneyReceiptSchema = new Schema<IMoneyReceipt>(
 );
 
 MoneyReceiptSchema.index({ legacyPaymentId: 1 }, { unique: true, sparse: true });
+MoneyReceiptSchema.index({ status: 1, isDeleted: 1, receiptDate: 1 });
 
 export const MoneyReceipt: Model<IMoneyReceipt> =
   mongoose.models.MoneyReceipt || mongoose.model<IMoneyReceipt>('MoneyReceipt', MoneyReceiptSchema);

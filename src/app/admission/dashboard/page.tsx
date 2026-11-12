@@ -9,10 +9,10 @@ export const metadata = {
 };
 
 export default async function AdmissionDashboardPage() {
-  await requirePageRole(ADMISSION_DASHBOARD_ROLES);
+  const user = await requirePageRole(ADMISSION_DASHBOARD_ROLES);
 
   return (
-    <DashboardLayout>
+    <DashboardLayout initialUser={user}>
       <AdmissionDashboardView />
     </DashboardLayout>
   );

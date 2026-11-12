@@ -94,6 +94,13 @@ export async function GET(req: NextRequest) {
       const cashAgg = cashIds.length
         ? await JournalLine.aggregate<{ netPaisa: number }>([
             {
+              $match: {
+                accountId: { $in: cashIds },
+                status: 'Posted',
+                isDeleted: false,
+              },
+            },
+            {
               $lookup: {
                 from: 'journalentries',
                 localField: 'entryId',
@@ -104,7 +111,6 @@ export async function GET(req: NextRequest) {
             { $unwind: '$entry' },
             {
               $match: {
-                accountId: { $in: cashIds },
                 'entry.status': 'Posted',
                 'entry.isDeleted': false,
               },

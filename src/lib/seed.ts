@@ -15,7 +15,19 @@ export const DEFAULT_DOCUMENT_CHECKLIST = [
   { document_type: 'Visa copy', needs_expiry: true },
 ];
 
+let seedPromise: Promise<void> | null = null;
+
 export async function seedDatabase() {
+  if (!seedPromise) {
+    seedPromise = runSeedDatabase().catch((err) => {
+      seedPromise = null;
+      throw err;
+    });
+  }
+  return seedPromise;
+}
+
+async function runSeedDatabase() {
   await connectDB();
 
   // Read admin credentials from .env if provided
