@@ -1,4 +1,4 @@
-import { Account, AccountType, getNormalBalanceForType } from '@/models/Account';
+import { Account, AccountType, NormalBalance, getNormalBalanceForType } from '@/models/Account';
 import { Journal, JournalTypeCode } from '@/models/Journal';
 import { FiscalYear } from '@/models/FiscalYear';
 import { AccountingPeriod } from '@/models/AccountingPeriod';
@@ -8,6 +8,7 @@ export interface SeedAccountDef {
   code: string;
   name: string;
   type: AccountType;
+  normalBalance?: NormalBalance;
   parentCode?: string;
   isGroup: boolean;
   systemTag?: string;
@@ -27,6 +28,12 @@ export const DEFAULT_MANPOWER_COA: SeedAccountDef[] = [
   { code: '1210', name: 'Student Fee Receivable', type: 'Asset', parentCode: '1200', isGroup: false, systemTag: 'STUDENT_RECEIVABLE' },
   { code: '1220', name: 'Staff Salary Advance', type: 'Asset', parentCode: '1200', isGroup: false, systemTag: 'STAFF_ADVANCE' },
   { code: '1230', name: 'Security Deposits & Prepayments', type: 'Asset', parentCode: '1200', isGroup: false, systemTag: 'PREPAYMENTS' },
+  { code: '1300', name: 'Fixed Assets', type: 'Asset', parentCode: '1000', isGroup: true, description: 'Long-term tangible fixed assets' },
+  { code: '1310', name: 'Training Equipment', type: 'Asset', parentCode: '1300', isGroup: false, systemTag: 'FA_TRAINING_EQUIPMENT' },
+  { code: '1320', name: 'Furniture & Fixtures', type: 'Asset', parentCode: '1300', isGroup: false, systemTag: 'FA_FURNITURE' },
+  { code: '1330', name: 'Computer & Electronics', type: 'Asset', parentCode: '1300', isGroup: false, systemTag: 'FA_COMPUTER' },
+  { code: '1340', name: 'Lease/Building Improvements', type: 'Asset', parentCode: '1300', isGroup: false, systemTag: 'FA_LEASEHOLD' },
+  { code: '1390', name: 'Accumulated Depreciation', type: 'Asset', normalBalance: 'Credit', parentCode: '1300', isGroup: false, systemTag: 'ACCUM_DEPRECIATION', description: 'Contra-asset account for accumulated depreciation' },
 
   // 2000 Liabilities
   { code: '2000', name: 'Liabilities', type: 'Liability', isGroup: true, description: 'Root Liabilities group' },
@@ -38,6 +45,9 @@ export const DEFAULT_MANPOWER_COA: SeedAccountDef[] = [
   { code: '2200', name: 'Statutory & Deferred Liabilities', type: 'Liability', parentCode: '2000', isGroup: true },
   { code: '2210', name: 'TDS / Tax Payable', type: 'Liability', parentCode: '2200', isGroup: false, systemTag: 'TAX_PAYABLE' },
   { code: '2220', name: 'Unearned Candidate Advances', type: 'Liability', parentCode: '2200', isGroup: false, systemTag: 'UNEARNED_FEE' },
+  { code: '2300', name: 'Loans & Borrowings', type: 'Liability', parentCode: '2000', isGroup: true, description: 'Bank and other borrowings' },
+  { code: '2310', name: 'Bank Loan', type: 'Liability', parentCode: '2300', isGroup: false, systemTag: 'LOAN_BANK' },
+  { code: '2320', name: 'Other Loans', type: 'Liability', parentCode: '2300', isGroup: false, systemTag: 'LOAN_OTHER' },
 
   // 3000 Equity
   { code: '3000', name: 'Equity', type: 'Equity', isGroup: true, description: 'Root Equity group' },
@@ -65,6 +75,15 @@ export const DEFAULT_MANPOWER_COA: SeedAccountDef[] = [
   { code: '5220', name: 'Office Rent & Utilities', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'RENT_UTILITIES' },
   { code: '5230', name: 'Training Lab & Consumables', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'TRAINING_EXPENSE' },
   { code: '5240', name: 'Marketing & Admin Expense', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'ADMIN_EXPENSE' },
+  { code: '5250', name: 'Electricity', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_ELECTRICITY' },
+  { code: '5255', name: 'Gas', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_GAS' },
+  { code: '5260', name: 'Office/House Rent', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_RENT' },
+  { code: '5265', name: 'Transport & Conveyance', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_TRANSPORT' },
+  { code: '5270', name: 'Internet & Phone', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_INTERNET' },
+  { code: '5275', name: 'Repairs & Maintenance', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_REPAIRS' },
+  { code: '5280', name: 'Stationery & Office Supplies', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_STATIONERY' },
+  { code: '5290', name: 'Depreciation Expense', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'DEPRECIATION_EXPENSE' },
+  { code: '5299', name: 'Miscellaneous Expense', type: 'Expense', parentCode: '5200', isGroup: false, systemTag: 'EXP_MISC' },
 ];
 
 export const DEFAULT_JOURNALS: Array<{ code: JournalTypeCode; name: string; description: string }> = [
@@ -132,21 +151,26 @@ export async function ensureAccountsSeeded(): Promise<void> {
         // Ignore if collection does not exist yet
       }
 
-      // 1. Seed COA in tree order
+      // 1. Seed COA in tree order (reuse existing code or systemTag)
       const idByCode = new Map<string, any>();
-      const existingAccounts = await Account.find({ isDeleted: { $ne: true } }).select('_id code').lean();
+      const existingTags = new Set<string>();
+      const existingAccounts = await Account.find({ isDeleted: { $ne: true } })
+        .select('_id code systemTag')
+        .lean();
       for (const acc of existingAccounts) {
         idByCode.set(acc.code, acc._id);
+        if (acc.systemTag) existingTags.add(String(acc.systemTag).toUpperCase());
       }
 
       for (const item of DEFAULT_MANPOWER_COA) {
         if (idByCode.has(item.code)) continue;
+        if (item.systemTag && existingTags.has(item.systemTag.toUpperCase())) continue;
         const parentId = item.parentCode ? idByCode.get(item.parentCode) || null : null;
         const created = await Account.create({
           code: item.code,
           name: item.name,
           type: item.type,
-          normalBalance: getNormalBalanceForType(item.type),
+          normalBalance: item.normalBalance || getNormalBalanceForType(item.type),
           parentId,
           isGroup: item.isGroup,
           systemTag: item.systemTag || undefined,
@@ -155,6 +179,7 @@ export async function ensureAccountsSeeded(): Promise<void> {
           createdBy: 'System',
         });
         idByCode.set(created.code, created._id);
+        if (created.systemTag) existingTags.add(String(created.systemTag).toUpperCase());
       }
 
       // 2. Seed Journals (JV, RV, PV, CV)

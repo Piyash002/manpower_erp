@@ -28,6 +28,10 @@ import {
   Layers,
   Wallet,
   ClockAlert,
+  Building2,
+  ReceiptText,
+  CreditCard,
+  BarChart3,
 } from 'lucide-react';
 import { TokenPayload } from '@/lib/jwt';
 import { Badge } from '@/components/ui/Badge';
@@ -73,16 +77,22 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
       heading: 'Main',
       items: [
         {
-          title: 'Dashboard',
+          title: 'Overview',
           href: '/',
           icon: LayoutDashboard,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer', 'HR'],
         },
       ],
     },
     {
       heading: 'Student Admission',
       items: [
+        {
+          title: 'Admission Dashboard',
+          href: '/admission/dashboard',
+          icon: LayoutDashboard,
+          allowed: ['Admin', 'Counselor'],
+        },
         {
           title: 'New Admission',
           href: '/admissions/new',
@@ -112,6 +122,12 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
     {
       heading: 'HRM',
       items: [
+        {
+          title: 'HRM Dashboard',
+          href: '/hrm/dashboard',
+          icon: LayoutDashboard,
+          allowed: ['Admin', 'HR'],
+        },
         {
           title: 'Employees & Agents',
           href: '/hrm/employees',
@@ -148,6 +164,12 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
       heading: 'Accounts',
       items: [
         {
+          title: 'Accounts Dashboard',
+          href: '/accounts/dashboard',
+          icon: LayoutDashboard,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
           title: 'Fee Templates',
           href: '/accounts/fee-templates',
           icon: Layers,
@@ -175,6 +197,30 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           title: 'Salary Disbursement',
           href: '/accounts/payroll',
           icon: Wallet,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Fixed Assets',
+          href: '/accounts/assets',
+          icon: Building2,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Expenses',
+          href: '/accounts/expenses',
+          icon: ReceiptText,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Liabilities & Bills',
+          href: '/accounts/liabilities',
+          icon: CreditCard,
+          allowed: ['Admin', 'Accountant', 'Viewer'],
+        },
+        {
+          title: 'Balance Sheet',
+          href: '/accounts/balance-sheet',
+          icon: BarChart3,
           allowed: ['Admin', 'Accountant', 'Viewer'],
         },
         {
@@ -214,6 +260,7 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
   const roleBadgeVariants: Record<string, 'purple' | 'info' | 'warning' | 'gray'> = {
     Admin: 'purple',
     Counselor: 'info',
+    HR: 'info',
     Accountant: 'warning',
     Viewer: 'gray',
   };

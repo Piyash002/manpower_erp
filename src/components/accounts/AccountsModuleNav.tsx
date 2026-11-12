@@ -4,6 +4,7 @@ import React from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import {
+  LayoutDashboard,
   BookOpen,
   FileSpreadsheet,
   BookMarked,
@@ -14,6 +15,10 @@ import {
   Banknote,
   Clock,
   Wallet,
+  Building2,
+  ReceiptText,
+  CreditCard,
+  BarChart3,
 } from 'lucide-react';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
@@ -37,6 +42,13 @@ export function AccountsModuleNav() {
   }
 
   const tabs: AccountsTab[] = [
+    {
+      label: 'Dashboard',
+      href: '/accounts/dashboard',
+      icon: LayoutDashboard,
+      group: 'ops',
+      hint: 'Accounts KPIs, cash & bank balances, trends, and pending actions.',
+    },
     {
       label: 'Fee Templates',
       href: '/accounts/fee-templates',
@@ -71,6 +83,34 @@ export function AccountsModuleNav() {
       icon: Wallet,
       group: 'ops',
       hint: 'View Confirmed payroll runs for disbursement in Accounts.',
+    },
+    {
+      label: 'Fixed Assets',
+      href: '/accounts/assets',
+      icon: Building2,
+      group: 'ops',
+      hint: 'Register fixed assets, run monthly depreciation, and process disposals.',
+    },
+    {
+      label: 'Expenses',
+      href: '/accounts/expenses',
+      icon: ReceiptText,
+      group: 'ops',
+      hint: 'Record Paid, Unpaid, and Prepaid operating expenses by category.',
+    },
+    {
+      label: 'Payables & Loans',
+      href: '/accounts/liabilities',
+      icon: CreditCard,
+      group: 'ops',
+      hint: 'Manage vendor bills, bill payments, aging, and loans.',
+    },
+    {
+      label: 'Balance Sheet',
+      href: '/accounts/balance-sheet',
+      icon: BarChart3,
+      group: 'ledger',
+      hint: 'Balance Sheet, Fixed Asset Register, and Expense Summary reports.',
     },
     {
       label: 'COA',

@@ -1,15 +1,35 @@
+import { cookies } from 'next/headers';
+import { redirect } from 'next/navigation';
 import { DashboardLayout } from '@/components/layout/DashboardLayout';
-import { DashboardOverview } from '@/components/dashboard/DashboardOverview';
+import { OverviewDashboard } from '@/components/dashboard/OverviewDashboard';
+import { verifyToken } from '@/lib/jwt';
+import { getAllowedDashboards, getDefaultDashboardHref } from '@/lib/dashboard-helpers';
 
 export const metadata = {
-  title: 'Dashboard | CodeZenX ERP',
-  description: 'Operations, candidate registration, and financial management',
+  title: 'Overview | CodeZenX ERP',
+  description: 'Role-aware overview across Admission, HRM, and Accounts dashboards',
 };
 
-export default function HomePage() {
+export default async function HomePage() {
+  const cookieStore = await cookies();
+  const token = cookieStore.get('auth_token')?.value;
+  if (!token) {
+    redirect('/login');
+  }
+
+  const user = verifyToken(token);
+  if (!user) {
+    redirect('/login');
+  }
+
+  const allowed = getAllowedDashboards(user.role);
+  if (allowed.length <= 1) {
+    redirect(getDefaultDashboardHref(user.role));
+  }
+
   return (
     <DashboardLayout>
-      <DashboardOverview />
+      <OverviewDashboard />
     </DashboardLayout>
   );
 }
