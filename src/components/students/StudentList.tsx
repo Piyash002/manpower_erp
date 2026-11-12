@@ -804,7 +804,7 @@ export function StudentList() {
         {/* Footer info */}
         <div className="px-5 py-3 border-t border-slate-200 bg-slate-50 flex items-center justify-between text-xs text-slate-500">
           <span>Showing {students.length} of {totalStudents} candidate(s)</span>
-          <span className="font-mono">BD Manpower Training & Recruitment ERP</span>
+          <span className="font-mono">CodeZenX ERP</span>
         </div>
       </div>
 

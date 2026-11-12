@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { ContractsView } from '@/components/payroll/ContractsView';
 
 export const metadata = {
-  title: 'Employee Contracts | Dreams ERP Payroll',
+  title: 'Employee Contracts | CodeZenX ERP',
   description: 'Assign salary structures and basic pay contracts to employees',
 };
 

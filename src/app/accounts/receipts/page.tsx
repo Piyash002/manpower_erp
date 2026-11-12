@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { MoneyReceiptsView } from '@/components/accounts/MoneyReceiptsView';
 
 export const metadata = {
-  title: 'Money Receipts | Dreams ERP',
+  title: 'Money Receipts | CodeZenX ERP',
   description: 'Collect student fees and post Receipt Vouchers in Accounts',
 };
 

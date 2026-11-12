@@ -3,7 +3,7 @@ import { AttendanceModuleNav } from '@/components/attendance/AttendanceModuleNav
 import { AttendanceSettingsView } from '@/components/attendance/AttendanceSettingsView';
 
 export const metadata = {
-  title: 'Attendance Settings | Dreams ERP',
+  title: 'Attendance Settings | CodeZenX ERP',
   description: 'Working schedules, grace periods, overtime/late rules, and holidays',
 };
 

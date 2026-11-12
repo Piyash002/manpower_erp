@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { GeneralLedgerView } from '@/components/accounts/GeneralLedgerView';
 
 export const metadata = {
-  title: 'General Ledger | Dreams ERP',
+  title: 'General Ledger | CodeZenX ERP',
   description: 'Account-by-account General Ledger with running balance and exports',
 };
 

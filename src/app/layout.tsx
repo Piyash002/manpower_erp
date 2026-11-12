@@ -2,8 +2,12 @@ import type { Metadata } from 'next';
 import './globals.css';
 
 export const metadata: Metadata = {
-  title: 'Manpower Training & Recruitment ERP',
-  description: 'Enterprise ERP for technical training institutes and overseas recruitment agencies',
+  title: 'CodeZenX ERP — Manpower Training & Recruitment',
+  description: 'CodeZenX ERP for technical training institutes and overseas recruitment agencies',
+  icons: {
+    icon: '/images/codezenx-logo.jpg',
+    apple: '/images/codezenx-logo.jpg',
+  },
 };
 
 export default function RootLayout({

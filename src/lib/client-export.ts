@@ -225,10 +225,13 @@ export function printTableReport(opts: {
     <button class="btn" onclick="window.close()">Close</button>
   </div>
   <div class="header">
-    <div>
-      <div class="org">Manpower Training Academy — ERP Report</div>
-      <h1>${escapeHtml(opts.title)}</h1>
-      ${opts.subtitle ? `<div class="sub">${escapeHtml(opts.subtitle)}</div>` : ''}
+    <div style="display:flex;align-items:center;gap:12px;">
+      <img src="/images/codezenx-logo.jpg" alt="CodeZenX ERP" style="width:40px;height:40px;border-radius:8px;object-fit:cover;" />
+      <div>
+        <div class="org">CodeZenX ERP — Official Report</div>
+        <h1>${escapeHtml(opts.title)}</h1>
+        ${opts.subtitle ? `<div class="sub">${escapeHtml(opts.subtitle)}</div>` : ''}
+      </div>
     </div>
     <div class="meta">
       <div>Printed: ${escapeHtml(nowStr)}</div>

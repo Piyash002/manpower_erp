@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { StudentFeesView } from '@/components/accounts/StudentFeesView';
 
 export const metadata = {
-  title: 'Student Fees & Plans | Dreams ERP',
+  title: 'Student Fees & Plans | CodeZenX ERP',
   description: 'Candidate fee plans, stages, and receivable balances',
 };
 

@@ -3,7 +3,7 @@ import { AttendanceModuleNav } from '@/components/attendance/AttendanceModuleNav
 import { AttendanceImportView } from '@/components/attendance/AttendanceImportView';
 
 export const metadata = {
-  title: 'Biometric & CSV Import | Dreams ERP',
+  title: 'Biometric & CSV Import | CodeZenX ERP',
   description: 'Import CSV attendance punches and configure ZKTeco push endpoint',
 };
 

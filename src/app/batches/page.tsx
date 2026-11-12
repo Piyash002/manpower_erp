@@ -3,7 +3,7 @@ import { BatchList } from '@/components/batches/BatchList';
 import { AdmissionModuleNav } from '@/components/admissions/AdmissionModuleNav';
 
 export const metadata = {
-  title: 'Training Batches & Assessments | Manpower ERP',
+  title: 'Training Batches & Assessments | CodeZenX ERP',
   description: 'Manage training batches, exam schedules, marks and certificates',
 };
 

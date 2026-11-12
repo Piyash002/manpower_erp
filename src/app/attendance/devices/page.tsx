@@ -3,7 +3,7 @@ import { AttendanceModuleNav } from '@/components/attendance/AttendanceModuleNav
 import { BiometricDevicesView } from '@/components/attendance/BiometricDevicesView';
 
 export const metadata = {
-  title: 'Biometric Devices & Punch Logs | Dreams ERP',
+  title: 'Biometric Devices & Punch Logs | CodeZenX ERP',
   description: 'Manage ZKTeco/Hikvision biometric devices, raw punch logs, unmatched IDs, and sync logs',
 };
 

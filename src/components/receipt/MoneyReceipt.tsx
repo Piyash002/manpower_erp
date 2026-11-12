@@ -93,9 +93,16 @@ export function MoneyReceipt({ receipt, onClose }: MoneyReceiptProps) {
             </div>
           </div>
 
-          <h2 className="text-xl font-black uppercase tracking-tight text-slate-900 mt-2">
-            BANGLADESH MANPOWER TRAINING & RECRUITMENT AGENCY
-          </h2>
+          <div className="flex items-center justify-center gap-3 mt-2">
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX ERP"
+              className="w-10 h-10 rounded-lg object-cover"
+            />
+            <h2 className="text-xl font-black uppercase tracking-tight text-slate-900">
+              CODEZENX ERP — MANPOWER TRAINING &amp; RECRUITMENT
+            </h2>
+          </div>
           <p className="text-xs text-slate-600 mt-0.5">
             Technical Trade Training Center & Overseas Employment Bureau
           </p>
@@ -248,7 +255,7 @@ export function MoneyReceipt({ receipt, onClose }: MoneyReceiptProps) {
 
         {/* Footer Note */}
         <div className="text-[10px] text-center text-slate-400 border-t border-slate-200 pt-3 mt-4">
-          * This is a computer-generated money receipt from Manpower Training & Recruitment ERP. Fees once paid are non-refundable.
+          * This is a computer-generated money receipt from CodeZenX ERP. Fees once paid are non-refundable.
         </div>
       </div>
     </div>

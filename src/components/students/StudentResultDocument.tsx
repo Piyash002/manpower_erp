@@ -55,9 +55,16 @@ export function StudentResultDocument({
             <Award className="w-3.5 h-3.5" />
             <span>Govt. Approved Technical Training &amp; Recruitment Center • RL-1845</span>
           </div>
-          <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 uppercase">
-            Bangladesh Manpower Training &amp; Recruitment Agency
-          </h1>
+          <div className="inline-flex items-center justify-center gap-3">
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX ERP"
+              className="w-11 h-11 rounded-lg object-cover"
+            />
+            <h1 className="text-2xl sm:text-3xl font-black tracking-tight text-slate-900 uppercase">
+              CodeZenX ERP — Manpower Training &amp; Recruitment
+            </h1>
+          </div>
           <p className="text-xs sm:text-sm font-semibold text-emerald-800 tracking-widest uppercase mt-2">
             Certificate of Skill Competency &amp; Trade Completion
           </p>
@@ -160,9 +167,16 @@ export function StudentResultDocument({
           <span>TRANSCRIPT / MARKSHEET</span>
           <span>RL-1845 • GOVT APPROVED</span>
         </div>
-        <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900">
-          Bangladesh Manpower Training &amp; Recruitment Agency
-        </h1>
+        <div className="inline-flex items-center justify-center gap-3">
+          <img
+            src="/images/codezenx-logo.jpg"
+            alt="CodeZenX ERP"
+            className="w-10 h-10 rounded-lg object-cover"
+          />
+          <h1 className="text-xl sm:text-2xl font-black uppercase tracking-tight text-slate-900">
+            CodeZenX ERP — Manpower Training &amp; Recruitment
+          </h1>
+        </div>
         <p className="text-xs font-bold uppercase tracking-widest text-slate-600 mt-1">
           Official Trade Examination Marksheet &amp; Assessment Report
         </p>

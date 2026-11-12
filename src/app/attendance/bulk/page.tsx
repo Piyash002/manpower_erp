@@ -3,7 +3,7 @@ import { AttendanceModuleNav } from '@/components/attendance/AttendanceModuleNav
 import { BulkManualAttendanceView } from '@/components/attendance/BulkManualAttendanceView';
 
 export const metadata = {
-  title: 'Bulk Manual Attendance | Dreams ERP',
+  title: 'Bulk Manual Attendance | CodeZenX ERP',
   description: 'Multi-employee manual attendance marking, prefilled by working schedules',
 };
 

@@ -4,7 +4,7 @@ import { StudentProfile } from '@/components/students/StudentProfile';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Candidate Profile | Manpower ERP',
+  title: 'Candidate Profile | CodeZenX ERP',
   description: 'Detailed candidate record, installments, and documents checklist',
 };
 

@@ -2,7 +2,7 @@ import { DashboardLayout } from '@/components/layout/DashboardLayout';
 import { BatchDetail } from '@/components/batches/BatchDetail';
 
 export const metadata = {
-  title: 'Batch Trainees & Examination | Manpower ERP',
+  title: 'Batch Trainees & Examination | CodeZenX ERP',
   description: 'Evaluate candidate exam scores, result status, and upload certificates',
 };
 

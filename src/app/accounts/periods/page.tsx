@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { PeriodsLockView } from '@/components/accounts/PeriodsLockView';
 
 export const metadata = {
-  title: 'Period Lock & Fiscal Years | Dreams ERP',
+  title: 'Period Lock & Fiscal Years | CodeZenX ERP',
   description: 'Manage fiscal years and lock or unlock accounting periods',
 };
 

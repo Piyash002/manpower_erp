@@ -3,7 +3,7 @@ import { HrmModuleNav } from '@/components/layout/HrmModuleNav';
 import { EmployeeImportView } from '@/components/hrm/EmployeeImportView';
 
 export const metadata = {
-  title: 'Import Employees | Dreams ERP HRM',
+  title: 'Import Employees | CodeZenX ERP',
   description: 'Bulk import employees from Excel/CSV with preview and row-wise error validation',
 };
 

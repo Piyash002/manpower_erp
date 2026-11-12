@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { PayslipsDesk } from '@/components/payroll/PayslipsDesk';
 
 export const metadata = {
-  title: 'Payslips | Dreams ERP Payroll',
+  title: 'Payslips | CodeZenX ERP',
   description: 'Search, review, bulk confirm/pay, and download employee payslips',
 };
 

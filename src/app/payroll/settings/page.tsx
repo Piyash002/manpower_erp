@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { PayrollSettingsView } from '@/components/payroll/PayrollSettingsView';
 
 export const metadata = {
-  title: 'Payroll Settings | Dreams ERP Payroll',
+  title: 'Payroll Settings | CodeZenX ERP',
   description: 'Versioned deduction rules, days basis, late grace period, sandwich rule, and overtime settings',
 };
 

@@ -91,9 +91,16 @@ export default function StudentAdmissionPadPage() {
             <div className="inline-flex items-center gap-2 px-2 py-0.5 bg-slate-900 text-white text-[10px] font-bold uppercase tracking-widest rounded">
               Govt. Approved • RL-1845
             </div>
-            <h1 className="text-xl sm:text-2xl font-black tracking-tight uppercase text-slate-900 pt-1">
-              Bangladesh Manpower Training &amp; Recruitment Agency
-            </h1>
+            <div className="flex items-center gap-3 pt-1">
+              <img
+                src="/images/codezenx-logo.jpg"
+                alt="CodeZenX ERP"
+                className="w-10 h-10 rounded-lg object-cover shrink-0"
+              />
+              <h1 className="text-xl sm:text-2xl font-black tracking-tight uppercase text-slate-900">
+                CodeZenX ERP — Manpower Training &amp; Recruitment
+              </h1>
+            </div>
             <p className="text-[11px] text-slate-600">
               Technical Trade Training Academy &amp; Overseas Employment Bureau • Dhaka Campus, Bangladesh
             </p>

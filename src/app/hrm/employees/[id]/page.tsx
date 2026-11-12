@@ -3,7 +3,7 @@ import { HrmModuleNav } from '@/components/layout/HrmModuleNav';
 import { EmployeeProfileView } from '@/components/hrm/EmployeeProfileView';
 
 export const metadata = {
-  title: 'Employee Profile | Dreams ERP HRM',
+  title: 'Employee Profile | CodeZenX ERP',
   description: 'Complete employee overview, live attendance history, payslips, leaves, and documents',
 };
 

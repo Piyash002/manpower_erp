@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { PayrollReportsView } from '@/components/payroll/PayrollReportsView';
 
 export const metadata = {
-  title: 'Payroll Reports | Dreams ERP Payroll',
+  title: 'Payroll Reports | CodeZenX ERP',
   description: 'Payroll register, department summary, TDS summary, and bank transfer CSV export',
 };
 

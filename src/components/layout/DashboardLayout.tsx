@@ -56,8 +56,13 @@ export function DashboardLayout({ children }: { children: React.ReactNode }) {
     return (
       <div className="flex items-center justify-center min-h-screen bg-slate-50">
         <div className="flex flex-col items-center gap-3">
-          <Loader2 className="w-8 h-8 text-blue-600 animate-spin" />
-          <p className="text-sm font-medium text-slate-600">Loading Manpower ERP...</p>
+          <img
+            src="/images/codezenx-logo.jpg"
+            alt="CodeZenX ERP"
+            className="w-12 h-12 rounded-xl object-cover shadow-md"
+          />
+          <Loader2 className="w-6 h-6 text-sky-600 animate-spin" />
+          <p className="text-sm font-medium text-slate-600">Loading CodeZenX ERP...</p>
         </div>
       </div>
     );

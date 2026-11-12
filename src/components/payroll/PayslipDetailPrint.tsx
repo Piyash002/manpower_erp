@@ -175,9 +175,16 @@ export function PayslipDetailPrint({ payslipId }: { payslipId: string }) {
       <div className="max-w-3xl mx-auto bg-white border border-slate-300 rounded-xl p-6 sm:p-8 shadow-sm print:shadow-none print:border-slate-400 print:rounded-none">
         {/* Letterhead */}
         <div className="text-center border-b-2 border-slate-900 pb-4 mb-5">
-          <p className="text-[10px] font-bold tracking-widest text-emerald-700 uppercase">
-            Dreams ERP • Manpower Training &amp; Recruitment Academy
-          </p>
+          <div className="inline-flex items-center justify-center gap-2 mb-1">
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX ERP"
+              className="w-7 h-7 rounded-md object-cover"
+            />
+            <p className="text-[11px] font-bold tracking-widest text-sky-700 uppercase">
+              CodeZenX ERP &bull; Manpower Training &amp; Recruitment
+            </p>
+          </div>
           <h1 className="text-xl font-black text-slate-900 mt-0.5 uppercase tracking-tight">
             Employee Salary Payslip
           </h1>

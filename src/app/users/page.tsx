@@ -3,7 +3,7 @@ import { UserManagement } from '@/components/users/UserManagement';
 import { HrmModuleNav } from '@/components/layout/HrmModuleNav';
 
 export const metadata = {
-  title: 'Users & Staff | Manpower ERP',
+  title: 'Users & Staff | CodeZenX ERP',
   description: 'Manage staff user access, security roles and credentials',
 };
 

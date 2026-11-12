@@ -3,7 +3,7 @@ import { HrmModuleNav } from '@/components/layout/HrmModuleNav';
 import { EmployeeManagement } from '@/components/hrm/EmployeeManagement';
 
 export const metadata = {
-  title: 'Employees & Agents | Dreams ERP HRM',
+  title: 'Employees & Agents | CodeZenX ERP',
   description: 'Manage staff roster, batch trainers, and referral agents',
 };
 

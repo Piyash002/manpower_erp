@@ -3,7 +3,7 @@ import { AttendanceModuleNav } from '@/components/attendance/AttendanceModuleNav
 import { AttendanceDashboardView } from '@/components/attendance/AttendanceDashboardView';
 
 export const metadata = {
-  title: 'Attendance & Daily Roster | Dreams ERP',
+  title: 'Attendance & Daily Roster | CodeZenX ERP',
   description: 'Employee check-in/out, calendar, live roster, and corrections',
 };
 

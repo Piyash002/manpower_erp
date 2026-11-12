@@ -3,7 +3,7 @@ import { StudentList } from '@/components/students/StudentList';
 import { AdmissionModuleNav } from '@/components/admissions/AdmissionModuleNav';
 
 export const metadata = {
-  title: 'Students Directory | Manpower ERP',
+  title: 'Students Directory | CodeZenX ERP',
   description: 'Search, filter, and review candidate profiles',
 };
 

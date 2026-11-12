@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { PayrollRunsView } from '@/components/payroll/PayrollRunsView';
 
 export const metadata = {
-  title: 'Payroll Runs | Dreams ERP',
+  title: 'Payroll Runs | CodeZenX ERP',
   description: 'Batch-first monthly payroll generation, verification, confirmation, and disbursement',
 };
 

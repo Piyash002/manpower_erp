@@ -135,11 +135,13 @@ export default function LoginPage() {
       <div className="sm:mx-auto sm:w-full sm:max-w-[400px] relative z-10">
         {/* Clean Brand Header */}
         <div className="flex flex-col items-center text-center mb-7">
-          <div className="flex items-center justify-center w-12 h-12 rounded-2xl bg-emerald-600 text-white font-extrabold text-xl shadow-lg shadow-emerald-600/20 mb-3.5">
-            D
-          </div>
+          <img
+            src="/images/codezenx-logo.jpg"
+            alt="CodeZenX ERP"
+            className="w-16 h-16 rounded-2xl object-cover shadow-lg mb-3.5"
+          />
           <h1 className="text-xl font-bold tracking-tight text-slate-900">
-            Dreams ERP
+            CodeZenX ERP
           </h1>
           <p className="mt-0.5 text-xs font-medium text-slate-500">
             Manpower Training &amp; Recruitment Portal

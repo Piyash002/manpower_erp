@@ -28,12 +28,12 @@ export function Header({ user, onOpenSidebar, title }: HeaderProps) {
   const canAdmit = user?.role === 'Admin' || user?.role === 'Counselor';
   const [showOrgDropdown, setShowOrgDropdown] = useState(false);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [selectedOrg, setSelectedOrg] = useState('Manpower Training Academy (Dhaka Campus)');
+  const [selectedOrg, setSelectedOrg] = useState('CodeZenX ERP (Dhaka Campus)');
 
   const organizations = [
-    'Manpower Training Academy (Dhaka Campus)',
-    'Falcon Technical Institute (Chattogram)',
-    'Gulf Recruitment & Testing Center (Sylhet)',
+    'CodeZenX ERP (Dhaka Campus)',
+    'CodeZenX Technical Institute (Chattogram)',
+    'CodeZenX Recruitment Center (Sylhet)',
   ];
 
   return (
@@ -47,15 +47,17 @@ export function Header({ user, onOpenSidebar, title }: HeaderProps) {
           <Menu className="w-5 h-5" />
         </button>
 
-        {/* Dreams ERP Organization Pill */}
+        {/* CodeZenX ERP Organization Pill */}
         <div className="relative">
           <button
             onClick={() => setShowOrgDropdown(!showOrgDropdown)}
             className="flex items-center gap-2 px-3 py-1.5 bg-slate-100 hover:bg-slate-200/80 rounded-lg text-xs font-semibold text-slate-800 transition-colors"
           >
-            <span className="w-5 h-5 rounded bg-emerald-600 text-white text-[11px] font-bold flex items-center justify-center shrink-0">
-              M
-            </span>
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX"
+              className="w-5 h-5 rounded object-cover shrink-0"
+            />
             <span className="max-w-[180px] sm:max-w-xs truncate">{selectedOrg}</span>
             <ChevronDown className="w-3.5 h-3.5 text-slate-500 shrink-0" />
           </button>

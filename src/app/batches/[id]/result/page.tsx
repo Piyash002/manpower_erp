@@ -105,9 +105,16 @@ export default function BatchResultPrintPage() {
       <div className="max-w-5xl mx-auto bg-white border border-slate-300 rounded-xl p-4 sm:p-8 shadow-sm print:shadow-none print:border-none print:p-2 text-slate-900">
         {/* Official Header */}
         <div className="text-center pb-4 border-b-2 border-slate-800">
-          <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tight text-slate-900">
-            Bangladesh Manpower Training &amp; Recruitment Agency
-          </h1>
+          <div className="inline-flex items-center justify-center gap-3">
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX ERP"
+              className="w-10 h-10 rounded-lg object-cover"
+            />
+            <h1 className="text-lg sm:text-2xl font-black uppercase tracking-tight text-slate-900">
+              CodeZenX ERP — Manpower Training &amp; Recruitment
+            </h1>
+          </div>
           <p className="text-xs font-bold uppercase tracking-widest text-blue-800 mt-1">
             Batch Exam Result Sheet • {batch.batch_code}
           </p>

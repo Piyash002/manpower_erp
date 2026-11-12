@@ -368,7 +368,7 @@ function formatPdfMoney(n: number | null | undefined): string {
 /**
  * Generates a print-friendly single-page PDF 1.4 buffer for an employee payslip.
  */
-export function buildPayslipPdfBuffer(payslip: any, companyName = 'Dreams ERP — Manpower & Recruitment'): Buffer {
+export function buildPayslipPdfBuffer(payslip: any, companyName = 'CodeZenX ERP — Manpower & Recruitment'): Buffer {
   const emp = payslip.employee_id || {};
   const contract = payslip.contract_id || {};
   const monthNames = [
@@ -485,7 +485,7 @@ export function buildPayslipPdfBuffer(payslip: any, companyName = 'Dreams ERP �
     );
     y -= 16;
   }
-  text(40, 48, `Generated on: ${formatDateDMY(new Date())}  |  System-generated payslip (Dreams ERP Payroll)`, 8, false);
+  text(40, 48, `Generated on: ${formatDateDMY(new Date())}  |  System-generated payslip (CodeZenX ERP Payroll)`, 8, false);
   text(430, 48, 'Authorized Signature', 8.5, true);
   line(415, 62, 545, 62);
 
@@ -569,7 +569,7 @@ export function buildMoneyReceiptPdfBuffer(receipt: {
   // Header
   rect(40, 748, 515, 58, '0.07 0.11 0.18');
   cmds.push('1 1 1 rg');
-  text(54, 782, 'DREAMS MANPOWER & TRAINING ACADEMY', 14, true);
+  text(54, 782, 'CODEZENX ERP — MANPOWER & TRAINING', 14, true);
   text(54, 764, 'Accounts Department - Official Money Receipt', 9, false);
   text(415, 782, receipt.receiptNo, 12, true);
   text(415, 764, receipt.voucherNo ? `JV/RV: ${receipt.voucherNo}` : 'Posted Receipt', 8.5, false);

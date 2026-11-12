@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { VouchersView } from '@/components/accounts/VouchersView';
 
 export const metadata = {
-  title: 'Journal Vouchers | Dreams ERP',
+  title: 'Journal Vouchers | CodeZenX ERP',
   description: 'Create, post, and reverse balanced double-entry journal vouchers',
 };
 

@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { FeeTemplatesView } from '@/components/accounts/FeeTemplatesView';
 
 export const metadata = {
-  title: 'Fee Templates | Dreams ERP',
+  title: 'Fee Templates | CodeZenX ERP',
   description: 'Stage-wise course and visa fee packages owned by Accounts',
 };
 

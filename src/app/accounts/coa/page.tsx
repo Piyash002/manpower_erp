@@ -3,8 +3,8 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { CoaTreeView } from '@/components/accounts/CoaTreeView';
 
 export const metadata = {
-  title: 'Chart of Accounts | Dreams ERP',
-  description: 'Manpower ERP Chart of Accounts tree and live ledger balances',
+  title: 'Chart of Accounts | CodeZenX ERP',
+  description: 'CodeZenX ERP Chart of Accounts tree and live ledger balances',
 };
 
 export default function ChartOfAccountsPage() {

@@ -3,7 +3,7 @@ import { HrmModuleNav } from '@/components/layout/HrmModuleNav';
 import { EmployeeFormView } from '@/components/hrm/EmployeeFormView';
 
 export const metadata = {
-  title: 'Edit Employee | Dreams ERP HRM',
+  title: 'Edit Employee | CodeZenX ERP',
   description: 'Update employee details, schedule, banking, and uploaded documents',
 };
 

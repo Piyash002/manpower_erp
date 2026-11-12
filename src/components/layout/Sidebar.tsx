@@ -228,25 +228,27 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
         />
       )}
 
-      {/* Dreams ERP Sidebar container */}
+      {/* CodeZenX ERP Sidebar container */}
       <aside
         className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col w-64 bg-white border-r border-slate-200/90 text-slate-700 transition-transform duration-200 ease-in-out md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
       >
-        {/* Dreams ERP Brand Header */}
+        {/* CodeZenX ERP Brand Header */}
         <div className="flex items-center justify-between px-5 h-16 border-b border-slate-100">
           <Link href="/" className="flex items-center gap-2.5">
-            <div className="flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-600 text-white shadow-sm shadow-emerald-500/20">
-              <Sparkles className="w-4 h-4 fill-white" />
-            </div>
+            <img
+              src="/images/codezenx-logo.jpg"
+              alt="CodeZenX ERP"
+              className="w-9 h-9 rounded-lg object-cover shadow-sm shrink-0"
+            />
             <div>
               <div className="flex items-center gap-1">
                 <span className="text-base font-bold tracking-tight text-slate-900 font-sans">
-                  Dreams <span className="text-emerald-600">ERP</span>
+                  CodeZenX <span className="text-sky-600">ERP</span>
                 </span>
               </div>
-              <p className="text-[10px] text-slate-400 font-medium -mt-1">Manpower Academy</p>
+              <p className="text-[10px] text-slate-400 font-medium -mt-1">Manpower &amp; Recruitment</p>
             </div>
           </Link>
 

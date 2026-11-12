@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { SalaryStructuresView } from '@/components/payroll/SalaryStructuresView';
 
 export const metadata = {
-  title: 'Salary Structures & Rules | Dreams ERP Payroll',
+  title: 'Salary Structures & Rules | CodeZenX ERP',
   description: 'Configure salary structures and calculation rules',
 };
 

@@ -1,7 +1,7 @@
 import { PayslipDetailPrint } from '@/components/payroll/PayslipDetailPrint';
 
 export const metadata = {
-  title: 'Payslip Details | Dreams ERP Payroll',
+  title: 'Payslip Details | CodeZenX ERP',
   description: 'Printable employee payslip breakdown',
 };
 

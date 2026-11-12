@@ -3,7 +3,7 @@ import { PayrollModuleNav } from '@/components/payroll/PayrollModuleNav';
 import { MonthlyInputsView } from '@/components/payroll/MonthlyInputsView';
 
 export const metadata = {
-  title: 'Monthly Payroll Inputs | Dreams ERP Payroll',
+  title: 'Monthly Payroll Inputs | CodeZenX ERP',
   description: 'Manage monthly bonuses, overtime, loan recoveries, and deductions',
 };
 

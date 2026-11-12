@@ -3,7 +3,7 @@ import { AccountsModuleNav } from '@/components/accounts/AccountsModuleNav';
 import { OpeningBalancesView } from '@/components/accounts/OpeningBalancesView';
 
 export const metadata = {
-  title: 'Opening Balances | Dreams ERP',
+  title: 'Opening Balances | CodeZenX ERP',
   description: 'Post initial cutover opening balances for Chart of Accounts',
 };
 

@@ -3,7 +3,7 @@ import { TradeCountryManager } from '@/components/trades/TradeCountryManager';
 import { AdmissionModuleNav } from '@/components/admissions/AdmissionModuleNav';
 
 export const metadata = {
-  title: 'Trades & Visa Costs | Manpower ERP',
+  title: 'Trades & Visa Costs | CodeZenX ERP',
   description: 'Manage training trades, countries, and visa cost breakdown',
 };
 

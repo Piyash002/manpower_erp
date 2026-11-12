@@ -4,7 +4,7 @@ import StandaloneReceiptClient from './receipt-client';
 export const dynamic = 'force-dynamic';
 
 export const metadata = {
-  title: 'Print Money Receipt | Manpower ERP',
+  title: 'Print Money Receipt | CodeZenX ERP',
   description: 'Official money receipt voucher for candidate payment',
 };
 
