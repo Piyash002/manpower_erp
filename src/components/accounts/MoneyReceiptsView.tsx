@@ -1,12 +1,32 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
-import { Banknote, Plus, RefreshCw, CheckCircle2, AlertCircle, Printer, RotateCcw } from 'lucide-react';
+import {
+  Banknote,
+  Plus,
+  RefreshCw,
+  CheckCircle2,
+  AlertCircle,
+  Printer,
+  RotateCcw,
+  Upload,
+  Paperclip,
+  X,
+  Landmark,
+} from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatDateDMY } from '@/lib/formatters';
 import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const PAYMENT_METHODS = ['Cash', 'bKash', 'Nagad', 'Rocket', 'Bank transfer', 'Cheque', 'Card'] as const;
 
@@ -19,8 +39,15 @@ export function MoneyReceiptsView() {
 
   const [receipts, setReceipts] = useState<any[]>([]);
   const [duePlans, setDuePlans] = useState<any[]>([]);
+  const [depositAccounts, setDepositAccounts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [previewProof, setPreviewProof] = useState<{ url: string; receiptNo: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [methodFilter, setMethodFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Posted' | 'Reversed'>('all');
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const [reverseReceipt, setReverseReceipt] = useState<any | null>(null);
   const [reverseReason, setReverseReason] = useState('');
@@ -29,28 +56,42 @@ export function MoneyReceiptsView() {
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [uploadingProof, setUploadingProof] = useState(false);
   const [modalErr, setModalErr] = useState('');
-  const [form, setForm] = useState({
+  const emptyForm = () => ({
     studentId: '',
     amountTaka: '',
     method: 'Cash' as (typeof PAYMENT_METHODS)[number],
+    depositAccountId: '',
+    bankName: '',
+    chequeNo: '',
+    chequeDate: '',
+    proofUrl: '',
     reference: '',
     receiptDate: new Date().toISOString().split('T')[0],
     note: '',
   });
+  const [form, setForm] = useState(emptyForm);
 
   const loadData = async () => {
     setLoading(true);
     try {
-      const [rRes, pRes] = await Promise.all([
+      const [rRes, pRes, coaRes] = await Promise.all([
         fetch('/api/accounts/receipts'),
         fetch('/api/accounts/student-fees?status=Active'),
+        fetch('/api/accounts/coa?leafOnly=true'),
       ]);
-      const [rJson, pJson] = await Promise.all([rRes.json(), pRes.json()]);
+      const [rJson, pJson, coaJson] = await Promise.all([rRes.json(), pRes.json(), coaRes.json()]);
       if (rJson.success) setReceipts(rJson.data || []);
       if (pJson.success) {
         const list = (pJson.data || []).filter((p: any) => (p.totalDuePaisa || 0) > 0);
         setDuePlans(list);
+      }
+      if (coaJson.success) {
+        const cashBankAccs = (coaJson.data || []).filter(
+          (a: any) => a.type === 'Asset' && String(a.code || '').startsWith('11')
+        );
+        setDepositAccounts(cashBankAccs);
       }
     } finally {
       setLoading(false);
@@ -71,12 +112,9 @@ export function MoneyReceiptsView() {
       if (matched) {
         setModalErr('');
         setForm({
+          ...emptyForm(),
           studentId: preStudentId,
           amountTaka: String(paisaToTaka(matched.totalDuePaisa)),
-          method: 'Cash',
-          reference: '',
-          receiptDate: new Date().toISOString().split('T')[0],
-          note: '',
         });
         setIsModalOpen(true);
       }
@@ -96,14 +134,34 @@ export function MoneyReceiptsView() {
     setModalErr('');
     const firstPlan = duePlans[0];
     setForm({
+      ...emptyForm(),
       studentId: firstPlan?.studentId?._id || firstPlan?.studentId || '',
       amountTaka: firstPlan ? String(paisaToTaka(firstPlan.totalDuePaisa)) : '',
-      method: 'Cash',
-      reference: '',
-      receiptDate: new Date().toISOString().split('T')[0],
-      note: '',
     });
     setIsModalOpen(true);
+  };
+
+  const handleProofUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploadingProof(true);
+    setModalErr('');
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      fd.append('kind', 'receipt_proof');
+      const res = await fetch('/api/upload', { method: 'POST', body: fd });
+      const json = await res.json();
+      if (!res.ok || !json.success || !json.url) {
+        throw new Error(json.message || 'Proof upload failed');
+      }
+      setForm((prev) => ({ ...prev, proofUrl: json.url }));
+    } catch (err: any) {
+      setModalErr(err.message || 'Failed to upload proof image');
+    } finally {
+      setUploadingProof(false);
+      e.target.value = '';
+    }
   };
 
   const handleCollect = async (e: React.FormEvent) => {
@@ -119,6 +177,11 @@ export function MoneyReceiptsView() {
           studentId: form.studentId,
           amountPaisa: takaToPaisa(form.amountTaka),
           method: form.method,
+          depositAccountId: form.depositAccountId || undefined,
+          bankName: form.bankName || undefined,
+          chequeNo: form.chequeNo || undefined,
+          chequeDate: form.chequeDate || undefined,
+          proofUrl: form.proofUrl || undefined,
           reference: form.reference,
           receiptDate: form.receiptDate,
           note: form.note,
@@ -208,6 +271,128 @@ export function MoneyReceiptsView() {
         </div>
       )}
 
+      {(() => {
+        const filtered = receipts.filter((r) => {
+          if (methodFilter !== 'all' && r.method !== methodFilter) return false;
+          if (statusFilter !== 'all' && r.status !== statusFilter) return false;
+          return matchesSearch(search, [
+            r.receiptNo,
+            r.journalEntryId?.voucherNo,
+            r.studentId?.name,
+            r.studentId?.student_no,
+            r.method,
+            r.bankName,
+            r.chequeNo,
+            r.reference,
+            r.depositAccountId?.name,
+          ]);
+        });
+        const sortedReceipts = sortTableItems(filtered, sortKey, sortDir, {
+          date: (r) => new Date(r.receiptDate || 0),
+          receiptNo: (r) => r.receiptNo || '',
+          student: (r) => r.studentId?.name || '',
+          method: (r) => r.method || '',
+          amount: (r) => Number(r.amountPaisa || 0),
+          status: (r) => r.status || '',
+        });
+        const headers = [
+          'Receipt No',
+          'Voucher',
+          'Date',
+          'Student ID',
+          'Student Name',
+          'Method',
+          'Deposit Account',
+          'Bank / Cheque / Ref',
+          'Amount (BDT)',
+          'Status',
+        ];
+        const rows = sortedReceipts.map((r) => [
+          r.receiptNo,
+          r.journalEntryId?.voucherNo || '',
+          formatDateDMY(r.receiptDate),
+          r.studentId?.student_no || '',
+          r.studentId?.name || '',
+          r.method,
+          `${r.depositAccountId?.code || ''} ${r.depositAccountId?.name || ''}`.trim(),
+          [r.bankName, r.chequeNo ? `Cheque: ${r.chequeNo}` : '', r.reference].filter(Boolean).join(' | '),
+          paisaToTaka(r.amountPaisa || 0),
+          r.status,
+        ]);
+
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search receipt no, voucher, student, bank, cheque, ref..."
+              filters={
+                <>
+                  <select
+                    value={methodFilter}
+                    onChange={(e) => setMethodFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Methods</option>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value as any)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="Posted">Posted</option>
+                    <option value="Reversed">Reversed</option>
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'date', label: 'Receipt Date' },
+                { value: 'receiptNo', label: 'Receipt No' },
+                { value: 'amount', label: 'Amount' },
+                { value: 'student', label: 'Student' },
+                { value: 'method', label: 'Method' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={receipts.length}
+              filteredCount={sortedReceipts.length}
+              hasActiveFilters={methodFilter !== 'all' || statusFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setMethodFilter('all');
+                setStatusFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'money-receipts-register',
+                  sheetName: 'Money Receipts',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Money Receipts Register',
+                  meta: `Method: ${methodFilter} | Status: ${statusFilter}`,
+                  headers,
+                  rows,
+                  rightAlignCols: [8],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -230,14 +415,14 @@ export function MoneyReceiptsView() {
                     Loading Money Receipts...
                   </td>
                 </tr>
-              ) : receipts.length === 0 ? (
+              ) : sortedReceipts.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    No receipts posted yet.
+                    No matching receipts found.
                   </td>
                 </tr>
               ) : (
-                receipts.map((r) => (
+                sortedReceipts.map((r) => (
                   <tr key={r._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
                       {r.receiptNo}
@@ -259,6 +444,27 @@ export function MoneyReceiptsView() {
                       <span className="block text-[11px] text-slate-400">
                         {r.depositAccountId?.code} — {r.depositAccountId?.name}
                       </span>
+                      {(r.bankName || r.chequeNo || r.reference) && (
+                        <span className="block text-[11px] text-slate-600 mt-0.5">
+                          {[
+                            r.bankName,
+                            r.chequeNo ? `Cheque: ${r.chequeNo}` : '',
+                            !r.chequeNo && r.reference ? `Ref: ${r.reference}` : '',
+                            r.chequeDate ? `Dt: ${formatDateDMY(r.chequeDate)}` : '',
+                          ]
+                            .filter(Boolean)
+                            .join(' • ')}
+                        </span>
+                      )}
+                      {r.proofUrl && (
+                        <button
+                          type="button"
+                          onClick={() => setPreviewProof({ url: r.proofUrl, receiptNo: r.receiptNo })}
+                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-semibold text-blue-700 hover:text-blue-900 bg-blue-50 px-1.5 py-0.5 rounded"
+                        >
+                          <Paperclip className="w-3 h-3" /> View Slip / Photo
+                        </button>
+                      )}
                     </td>
                     <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-700">
                       {formatPaisaBDT(r.amountPaisa)}
@@ -300,6 +506,9 @@ export function MoneyReceiptsView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       <Modal
         isOpen={isModalOpen}
@@ -383,15 +592,171 @@ export function MoneyReceiptsView() {
               />
             </div>
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Ref / TrxID</label>
+              <label className="block font-semibold text-slate-700 mb-1">
+                {form.method === 'Bank transfer' || form.method === 'Cheque'
+                  ? 'Advice / TrxID'
+                  : 'Ref / TrxID'}
+              </label>
               <input
                 type="text"
                 value={form.reference}
                 onChange={(e) => setForm({ ...form, reference: e.target.value })}
+                placeholder={
+                  form.method === 'Bank transfer'
+                    ? 'e.g. NPSB / BEFTN / Deposit Ref'
+                    : form.method === 'Cheque'
+                    ? 'e.g. Clearing Ref'
+                    : 'Optional TrxID'
+                }
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
               />
             </div>
           </div>
+
+          {(form.method === 'Bank transfer' || form.method === 'Cheque') && (
+            <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 space-y-3">
+              <div className="flex items-center gap-1.5 text-xs font-bold text-blue-900">
+                <Landmark className="w-3.5 h-3.5 text-blue-700" />
+                <span>
+                  {form.method === 'Cheque'
+                    ? 'Cheque & Bank Details'
+                    : 'Bank Transfer & Deposit Slip Details'}
+                </span>
+              </div>
+
+              {depositAccounts.length > 0 && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Deposit Bank / COA Account
+                  </label>
+                  <select
+                    value={form.depositAccountId}
+                    onChange={(e) => setForm({ ...form, depositAccountId: e.target.value })}
+                    className="w-full px-3 py-2 text-xs bg-white border border-slate-300 rounded-lg"
+                  >
+                    <option value="">Auto-route to Default Bank Account</option>
+                    {depositAccounts.map((acc) => (
+                      <option key={acc._id} value={acc._id}>
+                        {acc.code} — {acc.name}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    Bank Name / Branch
+                  </label>
+                  <input
+                    type="text"
+                    value={form.bankName}
+                    onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+                    placeholder="e.g. Dutch-Bangla Bank, Banani"
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">
+                    {form.method === 'Cheque' ? 'Cheque Number *' : 'Transfer / Slip No.'}
+                  </label>
+                  <input
+                    type="text"
+                    required={form.method === 'Cheque'}
+                    value={form.chequeNo}
+                    onChange={(e) => setForm({ ...form, chequeNo: e.target.value })}
+                    placeholder={form.method === 'Cheque' ? 'e.g. CHQ-482910' : 'e.g. SLIP-10293'}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg font-mono"
+                  />
+                </div>
+              </div>
+
+              {form.method === 'Cheque' && (
+                <div>
+                  <label className="block font-semibold text-slate-700 mb-1">Cheque Date</label>
+                  <input
+                    type="date"
+                    value={form.chequeDate}
+                    onChange={(e) => setForm({ ...form, chequeDate: e.target.value })}
+                    className="w-full px-3 py-1.5 text-xs bg-white border border-slate-300 rounded-lg"
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
+          {form.method !== 'Cash' && (
+            <div className="p-3 rounded-xl bg-slate-50 border border-slate-200 space-y-2">
+              <div className="flex items-center justify-between">
+                <label className="font-semibold text-slate-700 flex items-center gap-1.5">
+                  <Paperclip className="w-3.5 h-3.5 text-slate-500" />
+                  <span>
+                    {form.method === 'Cheque'
+                      ? 'Cheque Photo / Scan'
+                      : form.method === 'Bank transfer'
+                      ? 'Bank Deposit Slip / Screenshot'
+                      : 'Payment Screenshot / Slip (Optional)'}
+                  </span>
+                </label>
+                <span className="text-[10px] text-slate-400">JPG, PNG, WebP, PDF (max 5MB)</span>
+              </div>
+
+              {form.proofUrl ? (
+                <div className="flex items-center justify-between gap-3 p-2 bg-white border border-slate-200 rounded-lg">
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    {form.proofUrl.toLowerCase().endsWith('.pdf') ? (
+                      <div className="w-10 h-10 rounded bg-rose-50 text-rose-700 flex items-center justify-center font-bold text-[10px] shrink-0">
+                        PDF
+                      </div>
+                    ) : (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img
+                        src={form.proofUrl}
+                        alt="Uploaded proof"
+                        className="w-10 h-10 object-cover rounded border border-slate-200 shrink-0"
+                      />
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-[11px] font-semibold text-emerald-700">Proof uploaded</p>
+                      <a
+                        href={form.proofUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="text-[11px] text-blue-600 hover:underline truncate block"
+                      >
+                        Preview full file
+                      </a>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, proofUrl: '' })}
+                    className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                    title="Remove photo"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              ) : (
+                <label className="flex items-center justify-center gap-2 px-3 py-2.5 bg-white border border-dashed border-slate-300 hover:border-blue-400 hover:bg-blue-50/40 rounded-lg cursor-pointer transition-colors">
+                  <Upload className="w-4 h-4 text-slate-500" />
+                  <span className="text-xs font-medium text-slate-700">
+                    {uploadingProof
+                      ? 'Uploading photo...'
+                      : 'Choose Cheque / Deposit Slip Photo'}
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                    disabled={uploadingProof}
+                    onChange={handleProofUpload}
+                    className="hidden"
+                  />
+                </label>
+              )}
+            </div>
+          )}
 
           <div>
             <label className="block font-semibold text-slate-700 mb-1">Note</label>
@@ -413,13 +778,57 @@ export function MoneyReceiptsView() {
             </button>
             <button
               type="submit"
-              disabled={saving}
+              disabled={saving || uploadingProof}
               className="px-4 py-2 text-xs font-semibold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg disabled:opacity-50"
             >
               {saving ? 'Posting Receipt...' : 'Post Money Receipt'}
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Proof Slip / Cheque Photo Lightbox Modal */}
+      <Modal
+        isOpen={Boolean(previewProof)}
+        onClose={() => setPreviewProof(null)}
+        title={`Payment Proof (${previewProof?.receiptNo || ''})`}
+        maxWidth="lg"
+      >
+        {previewProof && (
+          <div className="space-y-3">
+            {previewProof.url.toLowerCase().endsWith('.pdf') ? (
+              <iframe
+                src={previewProof.url}
+                title={`Proof ${previewProof.receiptNo}`}
+                className="w-full h-[65vh] rounded-lg border border-slate-200"
+              />
+            ) : (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={previewProof.url}
+                alt={`Proof ${previewProof.receiptNo}`}
+                className="max-h-[70vh] w-auto mx-auto rounded-lg border border-slate-200 object-contain"
+              />
+            )}
+            <div className="flex justify-end gap-2 pt-2 border-t border-slate-200">
+              <a
+                href={previewProof.url}
+                target="_blank"
+                rel="noreferrer"
+                className="px-3.5 py-1.5 text-xs font-semibold text-blue-700 bg-blue-50 hover:bg-blue-100 rounded-lg"
+              >
+                Open Original
+              </a>
+              <button
+                type="button"
+                onClick={() => setPreviewProof(null)}
+                className="px-3.5 py-1.5 text-xs font-medium text-slate-600 hover:bg-slate-100 rounded-lg"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        )}
       </Modal>
 
       {/* Reverse Receipt Modal (Admin only) */}

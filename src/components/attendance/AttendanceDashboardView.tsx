@@ -28,6 +28,8 @@ import {
 } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 const MONTHS = [
@@ -98,6 +100,31 @@ export function AttendanceDashboardView() {
     end_date: todayDhaka,
     reason: '',
   });
+
+  // Search / Filter / Sort per tab
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [rosterSortKey, setRosterSortKey] = useState('name');
+  const [rosterSortDir, setRosterSortDir] = useState<SortDir>('asc');
+
+  const [myStatusFilter, setMyStatusFilter] = useState('all');
+  const [mySortKey, setMySortKey] = useState('date');
+  const [mySortDir, setMySortDir] = useState<SortDir>('desc');
+
+  const [rangeSearch, setRangeSearch] = useState('');
+  const [rangeStatusFilter, setRangeStatusFilter] = useState('all');
+  const [rangeSortKey, setRangeSortKey] = useState('date');
+  const [rangeSortDir, setRangeSortDir] = useState<SortDir>('desc');
+
+  const [corrSearch, setCorrSearch] = useState('');
+  const [corrStatusFilter, setCorrStatusFilter] = useState('all');
+  const [corrSortKey, setCorrSortKey] = useState('date');
+  const [corrSortDir, setCorrSortDir] = useState<SortDir>('desc');
+
+  const [leaveSearch, setLeaveSearch] = useState('');
+  const [leaveStatusFilter, setLeaveStatusFilter] = useState('all');
+  const [leaveTypeFilter, setLeaveTypeFilter] = useState('all');
+  const [leaveSortKey, setLeaveSortKey] = useState('start_date');
+  const [leaveSortDir, setLeaveSortDir] = useState<SortDir>('desc');
 
   // HR Manual Entry Modal
   const [isManualModalOpen, setIsManualModalOpen] = useState(false);
@@ -801,21 +828,107 @@ export function AttendanceDashboardView() {
                 </div>
               </div>
 
-              {/* Roster Table with 1-Click Manual Mark + Custom Edit */}
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-                <table className="w-full text-left text-sm">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                    <tr>
-                      <th className="px-4 py-3">Employee</th>
-                      <th className="px-4 py-3">Department</th>
-                      <th className="px-4 py-3">First In / Last Out</th>
-                      <th className="px-4 py-3 text-right">Worked / OT</th>
-                      <th className="px-4 py-3 text-center">Status</th>
-                      <th className="px-4 py-3 text-right">Manual Attendance</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {(rosterData?.roster || []).map((row: any) => {
+              {/* Roster Search, Sort, Excel & Print + Table */}
+              {(() => {
+                const rawRoster = rosterData?.roster || [];
+                const filteredRoster = sortTableItems(
+                  rawRoster.filter((row: any) =>
+                    matchesSearch(rosterSearch, [
+                      row.employee?.firstName,
+                      row.employee?.lastName,
+                      row.employee?.employee_id,
+                      row.employee?.department,
+                      row.employee?.designation,
+                      row.daily?.status || 'Unmarked',
+                      row.daily?.source,
+                    ])
+                  ),
+                  rosterSortKey,
+                  rosterSortDir,
+                  {
+                    name: (r: any) => `${r.employee?.firstName || ''} ${r.employee?.lastName || ''}`.trim(),
+                    employee_id: (r: any) => r.employee?.employee_id || '',
+                    department: (r: any) => r.employee?.department || '',
+                    worked: (r: any) => Number(r.daily?.worked_hours || 0),
+                    status: (r: any) => r.daily?.status || 'Unmarked',
+                  }
+                );
+                return (
+                  <>
+                    <TableToolbar
+                      search={rosterSearch}
+                      onSearchChange={setRosterSearch}
+                      searchPlaceholder="Search employee name, ID, department or status..."
+                      sortKey={rosterSortKey}
+                      sortDir={rosterSortDir}
+                      onSortChange={(k, d) => {
+                        setRosterSortKey(k);
+                        setRosterSortDir(d);
+                      }}
+                      sortOptions={[
+                        { value: 'name', label: 'Employee Name' },
+                        { value: 'employee_id', label: 'Employee ID' },
+                        { value: 'department', label: 'Department' },
+                        { value: 'worked', label: 'Worked Hours' },
+                        { value: 'status', label: 'Status' },
+                      ]}
+                      totalCount={rawRoster.length}
+                      filteredCount={filteredRoster.length}
+                      hasActiveFilters={rosterSearch !== ''}
+                      onReset={() => setRosterSearch('')}
+                      onExportExcel={() =>
+                        downloadExcel({
+                          filename: `Daily-Roster-${rosterDate}`,
+                          sheetName: 'DailyRoster',
+                          headers: ['Employee ID', 'Employee Name', 'Department', 'Designation', 'First In', 'Last Out', 'Worked Hours', 'OT Hours', 'Status', 'Source'],
+                          rows: filteredRoster.map((row: any) => [
+                            row.employee?.employee_id || '',
+                            `${row.employee?.firstName || ''} ${row.employee?.lastName || ''}`.trim(),
+                            row.employee?.department || '',
+                            row.employee?.designation || '',
+                            formatTimeDhaka(row.daily?.first_in),
+                            formatTimeDhaka(row.daily?.last_out),
+                            Number(row.daily?.worked_hours || 0),
+                            Number(row.daily?.overtime_hours || 0),
+                            row.daily?.status || 'Unmarked',
+                            row.daily?.source || '-',
+                          ]),
+                        })
+                      }
+                      onPrint={() =>
+                        printTableReport({
+                          title: `Daily Attendance Roster — ${rosterDate}`,
+                          subtitle: `Dept: ${rosterDept} | Status: ${rosterStatus} | Source: ${rosterSource}`,
+                          meta: `Present: ${rosterSummary.present} | Late: ${rosterSummary.late} | Absent: ${rosterSummary.absent} | Leave: ${rosterSummary.onLeave} | Rows: ${filteredRoster.length}`,
+                          headers: ['Emp ID', 'Employee', 'Department', 'First In', 'Last Out', 'Worked / OT', 'Status', 'Source'],
+                          rows: filteredRoster.map((row: any) => [
+                            row.employee?.employee_id || '',
+                            `${row.employee?.firstName || ''} ${row.employee?.lastName || ''}`.trim(),
+                            row.employee?.department || '',
+                            formatTimeDhaka(row.daily?.first_in),
+                            formatTimeDhaka(row.daily?.last_out),
+                            `${row.daily?.worked_hours || 0}h${row.daily?.overtime_hours > 0 ? ` (+${row.daily.overtime_hours}h OT)` : ''}`,
+                            row.daily?.status || 'Unmarked',
+                            row.daily?.source || '-',
+                          ]),
+                          landscape: true,
+                        })
+                      }
+                    />
+                    <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+                      <table className="w-full text-left text-sm">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                          <tr>
+                            <th className="px-4 py-3">Employee</th>
+                            <th className="px-4 py-3">Department</th>
+                            <th className="px-4 py-3">First In / Last Out</th>
+                            <th className="px-4 py-3 text-right">Worked / OT</th>
+                            <th className="px-4 py-3 text-center">Status</th>
+                            <th className="px-4 py-3 text-right">Manual Attendance</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredRoster.map((row: any) => {
                       const d = row.daily;
                       return (
                         <tr key={row.employee._id} className="hover:bg-slate-50/70">
@@ -943,11 +1056,26 @@ export function AttendanceDashboardView() {
                   </tbody>
                 </table>
               </div>
+                  </>
+                );
+              })()}
             </div>
           )}
 
           {/* TAB 2: MY ATTENDANCE CALENDAR & MONTHLY SUMMARY */}
-          {activeTab === 'my' && (
+          {activeTab === 'my' && (() => {
+            const rawDays = myData?.days || [];
+            const filteredDays = sortTableItems(
+              rawDays.filter((d: any) => myStatusFilter === 'all' || d.status === myStatusFilter),
+              mySortKey,
+              mySortDir,
+              {
+                date: (d: any) => (d.date ? new Date(d.date).getTime() : 0),
+                worked: (d: any) => Number(d.worked_hours || 0),
+                status: (d: any) => d.status || '',
+              }
+            );
+            return (
             <div className="space-y-4">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex items-center gap-2">
@@ -988,6 +1116,69 @@ export function AttendanceDashboardView() {
                 )}
               </div>
 
+              <TableToolbar
+                sortKey={mySortKey}
+                sortDir={mySortDir}
+                onSortChange={(k, d) => {
+                  setMySortKey(k);
+                  setMySortDir(d);
+                }}
+                sortOptions={[
+                  { value: 'date', label: 'Date' },
+                  { value: 'worked', label: 'Worked Hours' },
+                  { value: 'status', label: 'Status' },
+                ]}
+                filters={
+                  <select
+                    value={myStatusFilter}
+                    onChange={(e) => setMyStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="Present">Present</option>
+                    <option value="Late">Late</option>
+                    <option value="Half-day">Half-day</option>
+                    <option value="Absent">Absent</option>
+                    <option value="Leave">Leave</option>
+                  </select>
+                }
+                totalCount={rawDays.length}
+                filteredCount={filteredDays.length}
+                hasActiveFilters={myStatusFilter !== 'all'}
+                onReset={() => setMyStatusFilter('all')}
+                onExportExcel={() =>
+                  downloadExcel({
+                    filename: `My-Attendance-${MONTHS[myMonth - 1]}-${myYear}`,
+                    sheetName: 'MyAttendance',
+                    headers: ['Date', 'First In', 'Last Out', 'Worked Hours', 'Late (min)', 'OT Hours', 'Status'],
+                    rows: filteredDays.map((d: any) => [
+                      formatDate(d.date),
+                      formatTimeDhaka(d.first_in),
+                      formatTimeDhaka(d.last_out),
+                      Number(d.worked_hours || 0),
+                      Number(d.late_minutes || 0),
+                      Number(d.overtime_hours || 0),
+                      d.status || '',
+                    ]),
+                  })
+                }
+                onPrint={() =>
+                  printTableReport({
+                    title: `My Attendance — ${MONTHS[myMonth - 1]} ${myYear}`,
+                    meta: `Records: ${filteredDays.length}`,
+                    headers: ['Date', 'First In', 'Last Out', 'Worked', 'Late / OT', 'Status'],
+                    rows: filteredDays.map((d: any) => [
+                      formatDate(d.date),
+                      formatTimeDhaka(d.first_in),
+                      formatTimeDhaka(d.last_out),
+                      `${d.worked_hours || 0}h`,
+                      `${d.late_minutes > 0 ? `${d.late_minutes}m late ` : ''}${d.overtime_hours > 0 ? `+${d.overtime_hours}h OT` : !d.late_minutes ? '-' : ''}`,
+                      d.status || '',
+                    ]),
+                  })
+                }
+              />
+
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
@@ -1001,14 +1192,14 @@ export function AttendanceDashboardView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {(myData?.days || []).length === 0 ? (
+                    {filteredDays.length === 0 ? (
                       <tr>
                         <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
                           No daily attendance records for {MONTHS[myMonth - 1]} {myYear}.
                         </td>
                       </tr>
                     ) : (
-                      (myData?.days || []).map((d: any) => (
+                      filteredDays.map((d: any) => (
                         <tr key={d._id} className="hover:bg-slate-50/70">
                           <td className="px-4 py-3 font-semibold text-slate-800 text-xs">
                             {formatDate(d.date)}
@@ -1035,10 +1226,34 @@ export function AttendanceDashboardView() {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* TAB 3: DATE-RANGE & DEPT LOG */}
-          {activeTab === 'range' && isAdmin && (
+          {activeTab === 'range' && isAdmin && (() => {
+            const filteredRange = sortTableItems(
+              rangeRecords.filter((rec) => {
+                if (rangeStatusFilter !== 'all' && rec.status !== rangeStatusFilter) return false;
+                return matchesSearch(rangeSearch, [
+                  rec.employee_id?.firstName,
+                  rec.employee_id?.lastName,
+                  rec.employee_id?.employee_id,
+                  rec.employee_id?.department,
+                  rec.status,
+                  rec.source,
+                ]);
+              }),
+              rangeSortKey,
+              rangeSortDir,
+              {
+                date: (r) => (r.date ? new Date(r.date).getTime() : 0),
+                employee: (r) => `${r.employee_id?.firstName || ''} ${r.employee_id?.lastName || ''}`.trim(),
+                department: (r) => r.employee_id?.department || '',
+                worked: (r) => Number(r.worked_hours || 0),
+                status: (r) => r.status || '',
+              }
+            );
+            return (
             <div className="space-y-4">
               <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center gap-3">
                 <div className="flex items-center gap-1.5 text-xs">
@@ -1083,6 +1298,83 @@ export function AttendanceDashboardView() {
                 </select>
               </div>
 
+              <TableToolbar
+                search={rangeSearch}
+                onSearchChange={setRangeSearch}
+                searchPlaceholder="Search employee name, ID, department or source..."
+                sortKey={rangeSortKey}
+                sortDir={rangeSortDir}
+                onSortChange={(k, d) => {
+                  setRangeSortKey(k);
+                  setRangeSortDir(d);
+                }}
+                sortOptions={[
+                  { value: 'date', label: 'Date' },
+                  { value: 'employee', label: 'Employee Name' },
+                  { value: 'department', label: 'Department' },
+                  { value: 'worked', label: 'Worked Hours' },
+                  { value: 'status', label: 'Status' },
+                ]}
+                filters={
+                  <select
+                    value={rangeStatusFilter}
+                    onChange={(e) => setRangeStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="Present">Present</option>
+                    <option value="Late">Late</option>
+                    <option value="Half-day">Half-day</option>
+                    <option value="Absent">Absent</option>
+                    <option value="Leave">Leave</option>
+                  </select>
+                }
+                totalCount={rangeRecords.length}
+                filteredCount={filteredRange.length}
+                hasActiveFilters={rangeSearch !== '' || rangeStatusFilter !== 'all'}
+                onReset={() => {
+                  setRangeSearch('');
+                  setRangeStatusFilter('all');
+                }}
+                onExportExcel={() =>
+                  downloadExcel({
+                    filename: `Attendance-Log-${rangeStart}-to-${rangeEnd}`,
+                    sheetName: 'AttendanceLog',
+                    headers: ['Date', 'Employee ID', 'Employee Name', 'Department', 'First In', 'Last Out', 'Worked Hours', 'Status', 'Source'],
+                    rows: filteredRange.map((rec) => [
+                      formatDate(rec.date),
+                      rec.employee_id?.employee_id || '',
+                      `${rec.employee_id?.firstName || ''} ${rec.employee_id?.lastName || ''}`.trim(),
+                      rec.employee_id?.department || '',
+                      formatTimeDhaka(rec.first_in),
+                      formatTimeDhaka(rec.last_out),
+                      Number(rec.worked_hours || 0),
+                      rec.status || '',
+                      rec.source || '',
+                    ]),
+                  })
+                }
+                onPrint={() =>
+                  printTableReport({
+                    title: `Attendance Log (${rangeStart} to ${rangeEnd})`,
+                    subtitle: `Dept: ${rosterDept} | Source: ${rosterSource}`,
+                    meta: `Records: ${filteredRange.length}`,
+                    headers: ['Date', 'Emp ID', 'Employee', 'Department', 'In / Out', 'Worked', 'Status', 'Source'],
+                    rows: filteredRange.map((rec) => [
+                      formatDate(rec.date),
+                      rec.employee_id?.employee_id || '',
+                      `${rec.employee_id?.firstName || ''} ${rec.employee_id?.lastName || ''}`.trim(),
+                      rec.employee_id?.department || '',
+                      `${formatTimeDhaka(rec.first_in)} → ${formatTimeDhaka(rec.last_out)}`,
+                      `${rec.worked_hours || 0}h`,
+                      rec.status || '',
+                      rec.source || '-',
+                    ]),
+                    landscape: true,
+                  })
+                }
+              />
+
               <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
@@ -1096,7 +1388,7 @@ export function AttendanceDashboardView() {
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100">
-                    {rangeRecords.map((rec) => (
+                    {filteredRange.map((rec) => (
                       <tr key={rec._id} className="hover:bg-slate-50/70 text-xs">
                         <td className="px-4 py-3 font-medium">{formatDate(rec.date)}</td>
                         <td className="px-4 py-3 font-semibold text-slate-900">
@@ -1144,10 +1436,98 @@ export function AttendanceDashboardView() {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* TAB 4: CORRECTIONS QUEUE */}
-          {activeTab === 'corrections' && (
+          {activeTab === 'corrections' && (() => {
+            const filteredCorrections = sortTableItems(
+              corrections.filter((c) => {
+                if (corrStatusFilter !== 'all' && c.status !== corrStatusFilter) return false;
+                return matchesSearch(corrSearch, [
+                  c.employee_id?.firstName,
+                  c.employee_id?.lastName,
+                  c.employee_id?.employee_id,
+                  c.reason,
+                  c.status,
+                ]);
+              }),
+              corrSortKey,
+              corrSortDir,
+              {
+                date: (c) => (c.date ? new Date(c.date).getTime() : 0),
+                employee: (c) => `${c.employee_id?.firstName || ''} ${c.employee_id?.lastName || ''}`.trim(),
+                status: (c) => c.status || '',
+              }
+            );
+            return (
+            <div className="space-y-4">
+              <TableToolbar
+                search={corrSearch}
+                onSearchChange={setCorrSearch}
+                searchPlaceholder="Search employee or correction reason..."
+                sortKey={corrSortKey}
+                sortDir={corrSortDir}
+                onSortChange={(k, d) => {
+                  setCorrSortKey(k);
+                  setCorrSortDir(d);
+                }}
+                sortOptions={[
+                  { value: 'date', label: 'Date' },
+                  { value: 'employee', label: 'Employee Name' },
+                  { value: 'status', label: 'Status' },
+                ]}
+                filters={
+                  <select
+                    value={corrStatusFilter}
+                    onChange={(e) => setCorrStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="Pending">Pending</option>
+                    <option value="Approved">Approved</option>
+                    <option value="Rejected">Rejected</option>
+                  </select>
+                }
+                totalCount={corrections.length}
+                filteredCount={filteredCorrections.length}
+                hasActiveFilters={corrSearch !== '' || corrStatusFilter !== 'all'}
+                onReset={() => {
+                  setCorrSearch('');
+                  setCorrStatusFilter('all');
+                }}
+                onExportExcel={() =>
+                  downloadExcel({
+                    filename: 'Attendance-Corrections',
+                    sheetName: 'Corrections',
+                    headers: ['Employee', 'Date', 'Requested In', 'Requested Out', 'Reason', 'Status', 'Reviewed By'],
+                    rows: filteredCorrections.map((c) => [
+                      `${c.employee_id?.firstName || ''} ${c.employee_id?.lastName || ''}`.trim(),
+                      formatDate(c.date),
+                      formatTimeDhaka(c.requested_in),
+                      formatTimeDhaka(c.requested_out),
+                      c.reason || '',
+                      c.status || '',
+                      c.reviewed_by || '',
+                    ]),
+                  })
+                }
+                onPrint={() =>
+                  printTableReport({
+                    title: 'Attendance Correction Requests',
+                    meta: `Requests: ${filteredCorrections.length}`,
+                    headers: ['Employee', 'Date', 'Requested In/Out', 'Reason', 'Status', 'Reviewed By'],
+                    rows: filteredCorrections.map((c) => [
+                      `${c.employee_id?.firstName || ''} ${c.employee_id?.lastName || ''}`.trim(),
+                      formatDate(c.date),
+                      `${formatTimeDhaka(c.requested_in)} / ${formatTimeDhaka(c.requested_out)}`,
+                      c.reason || '',
+                      c.status || '',
+                      c.reviewed_by || '-',
+                    ]),
+                  })
+                }
+              />
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
@@ -1161,14 +1541,14 @@ export function AttendanceDashboardView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100">
-                  {corrections.length === 0 ? (
+                  {filteredCorrections.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-xs text-slate-400">
                         No attendance correction requests.
                       </td>
                     </tr>
                   ) : (
-                    corrections.map((c) => (
+                    filteredCorrections.map((c) => (
                       <tr key={c._id} className="hover:bg-slate-50/70 text-xs">
                         <td className="px-4 py-3 font-semibold text-slate-900">
                           {c.employee_id?.firstName} {c.employee_id?.lastName}
@@ -1219,10 +1599,122 @@ export function AttendanceDashboardView() {
                 </tbody>
               </table>
             </div>
-          )}
+            </div>
+            );
+          })()}
 
           {/* TAB 5: LEAVE REQUESTS */}
-          {activeTab === 'leaves' && (
+          {activeTab === 'leaves' && (() => {
+            const filteredLeaves = sortTableItems(
+              leaves.filter((lv) => {
+                if (leaveStatusFilter !== 'all' && lv.status !== leaveStatusFilter) return false;
+                if (leaveTypeFilter !== 'all' && lv.leave_type !== leaveTypeFilter) return false;
+                return matchesSearch(leaveSearch, [
+                  lv.employee_id?.firstName,
+                  lv.employee_id?.lastName,
+                  lv.employee_id?.employee_id,
+                  lv.leave_type,
+                  lv.reason,
+                  lv.status,
+                ]);
+              }),
+              leaveSortKey,
+              leaveSortDir,
+              {
+                start_date: (l) => (l.start_date ? new Date(l.start_date).getTime() : 0),
+                employee: (l) => `${l.employee_id?.firstName || ''} ${l.employee_id?.lastName || ''}`.trim(),
+                leave_type: (l) => l.leave_type || '',
+                status: (l) => l.status || '',
+              }
+            );
+            return (
+            <div className="space-y-4">
+              <TableToolbar
+                search={leaveSearch}
+                onSearchChange={setLeaveSearch}
+                searchPlaceholder="Search employee, ID, leave type or reason..."
+                sortKey={leaveSortKey}
+                sortDir={leaveSortDir}
+                onSortChange={(k, d) => {
+                  setLeaveSortKey(k);
+                  setLeaveSortDir(d);
+                }}
+                sortOptions={[
+                  { value: 'start_date', label: 'Start Date' },
+                  { value: 'employee', label: 'Employee Name' },
+                  { value: 'leave_type', label: 'Leave Type' },
+                  { value: 'status', label: 'Status' },
+                ]}
+                filters={
+                  <>
+                    <select
+                      value={leaveTypeFilter}
+                      onChange={(e) => setLeaveTypeFilter(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                    >
+                      <option value="all">All Types</option>
+                      <option value="Casual">Casual</option>
+                      <option value="Sick">Sick</option>
+                      <option value="Earned">Earned</option>
+                      <option value="Emergency">Emergency</option>
+                      <option value="Unpaid">Unpaid</option>
+                    </select>
+                    <select
+                      value={leaveStatusFilter}
+                      onChange={(e) => setLeaveStatusFilter(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="Pending">Pending</option>
+                      <option value="Approved">Approved</option>
+                      <option value="Rejected">Rejected</option>
+                    </select>
+                  </>
+                }
+                totalCount={leaves.length}
+                filteredCount={filteredLeaves.length}
+                hasActiveFilters={leaveSearch !== '' || leaveStatusFilter !== 'all' || leaveTypeFilter !== 'all'}
+                onReset={() => {
+                  setLeaveSearch('');
+                  setLeaveStatusFilter('all');
+                  setLeaveTypeFilter('all');
+                }}
+                onExportExcel={() =>
+                  downloadExcel({
+                    filename: 'Leave-Requests',
+                    sheetName: 'LeaveRequests',
+                    headers: ['Employee ID', 'Employee Name', 'Leave Type', 'Paid / Unpaid', 'Start Date', 'End Date', 'Reason', 'Status', 'Reviewed By'],
+                    rows: filteredLeaves.map((lv) => [
+                      lv.employee_id?.employee_id || '',
+                      `${lv.employee_id?.firstName || ''} ${lv.employee_id?.lastName || ''}`.trim(),
+                      lv.leave_type || '',
+                      lv.is_paid === false || lv.leave_type === 'Unpaid' ? 'Unpaid' : 'Paid',
+                      formatDate(lv.start_date),
+                      formatDate(lv.end_date),
+                      lv.reason || '',
+                      lv.status || '',
+                      lv.reviewed_by || '',
+                    ]),
+                  })
+                }
+                onPrint={() =>
+                  printTableReport({
+                    title: 'Employee Leave Requests',
+                    meta: `Requests: ${filteredLeaves.length}`,
+                    headers: ['Emp ID', 'Employee', 'Leave Type', 'Duration', 'Reason', 'Status', 'Reviewed By'],
+                    rows: filteredLeaves.map((lv) => [
+                      lv.employee_id?.employee_id || '',
+                      `${lv.employee_id?.firstName || ''} ${lv.employee_id?.lastName || ''}`.trim(),
+                      `${lv.leave_type} (${lv.is_paid === false || lv.leave_type === 'Unpaid' ? 'Unpaid' : 'Paid'})`,
+                      `${formatDate(lv.start_date)} → ${formatDate(lv.end_date)}`,
+                      lv.reason || '-',
+                      lv.status || '',
+                      lv.reviewed_by || '-',
+                    ]),
+                    landscape: true,
+                  })
+                }
+              />
             <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
               <table className="w-full text-left text-sm">
                 <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
@@ -1236,14 +1728,14 @@ export function AttendanceDashboardView() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 text-xs">
-                  {leaves.length === 0 ? (
+                  {filteredLeaves.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="py-12 text-center text-slate-400">
                         No leave requests recorded yet.
                       </td>
                     </tr>
                   ) : (
-                    leaves.map((lv) => (
+                    filteredLeaves.map((lv) => (
                       <tr key={lv._id} className="hover:bg-slate-50/70">
                         <td className="px-4 py-3 whitespace-nowrap font-semibold text-slate-900">
                           {lv.employee_id?.firstName} {lv.employee_id?.lastName}{' '}
@@ -1313,7 +1805,9 @@ export function AttendanceDashboardView() {
                 </tbody>
               </table>
             </div>
-          )}
+            </div>
+            );
+          })()}
 
           {/* HR Manual Entry / Edit Modal (Supports any Employee & Date) */}
           <Modal

@@ -13,12 +13,18 @@ import {
   BookMarked,
   CheckCircle2,
   AlertCircle,
-  Search,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
-import { formatPaisaBDT } from '@/lib/accounts-money';
+import { formatPaisaBDT, paisaToTaka } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const ACCOUNT_TYPES = ['Asset', 'Liability', 'Equity', 'Income', 'Expense'] as const;
 
@@ -34,6 +40,8 @@ export function CoaTreeView() {
   const [search, setSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<string>('all');
   const [showInactive, setShowInactive] = useState(false);
+  const [sortKey, setSortKey] = useState('tree');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({});
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
@@ -271,43 +279,102 @@ export function CoaTreeView() {
         </div>
       )}
 
-      {/* Filter Bar */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-wrap items-center gap-2 flex-1">
-          <div className="relative min-w-[200px] max-w-xs flex-1">
-            <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-            <input
-              type="text"
-              placeholder="Search code or name..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-            />
-          </div>
-          <select
-            value={typeFilter}
-            onChange={(e) => setTypeFilter(e.target.value)}
-            className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
-          >
-            <option value="all">All Types</option>
-            {ACCOUNT_TYPES.map((t) => (
-              <option key={t} value={t}>
-                {t}
-              </option>
-            ))}
-          </select>
-        </div>
-        <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={showInactive}
-            onChange={(e) => setShowInactive(e.target.checked)}
-          />
-          <span>Show inactive</span>
-        </label>
-      </div>
+      {/* Filter Bar & Tree Table */}
+      {(() => {
+        const displayRows =
+          sortKey === 'tree'
+            ? sortDir === 'asc'
+              ? treeRows
+              : [...treeRows].reverse()
+            : sortTableItems(treeRows, sortKey, sortDir, {
+                code: (r) => r.acc.code || '',
+                name: (r) => r.acc.name || '',
+                type: (r) => r.acc.type || '',
+                balance: (r) => Number(r.rollupBalancePaisa || 0),
+              });
+        const headers = ['Code', 'Account Name', 'Type', 'Normal', 'Group', 'Balance (BDT)', 'Status'];
+        const exportRows = displayRows.map(({ acc, rollupBalancePaisa }) => [
+          acc.code,
+          acc.name,
+          acc.type,
+          acc.normalBalance,
+          acc.isGroup ? 'Group' : 'Ledger',
+          paisaToTaka(rollupBalancePaisa || 0),
+          acc.active ? 'Active' : 'Inactive',
+        ]);
 
-      {/* Tree Table */}
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search COA code, account name, tag..."
+              filters={
+                <>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Types</option>
+                    {ACCOUNT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {t}
+                      </option>
+                    ))}
+                  </select>
+                  <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer px-2 py-1">
+                    <input
+                      type="checkbox"
+                      checked={showInactive}
+                      onChange={(e) => setShowInactive(e.target.checked)}
+                    />
+                    <span>Show inactive</span>
+                  </label>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'tree', label: 'Hierarchy Order' },
+                { value: 'code', label: 'Code' },
+                { value: 'name', label: 'Account Name' },
+                { value: 'type', label: 'Type' },
+                { value: 'balance', label: 'Balance' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={accounts.length}
+              filteredCount={displayRows.length}
+              hasActiveFilters={typeFilter !== 'all' || showInactive}
+              onReset={() => {
+                setSearch('');
+                setTypeFilter('all');
+                setShowInactive(false);
+                setSortKey('tree');
+                setSortDir('asc');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'chart-of-accounts',
+                  sheetName: 'Chart of Accounts',
+                  headers,
+                  rows: exportRows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Chart of Accounts (COA)',
+                  meta: `Type: ${typeFilter} | Include Inactive: ${showInactive}`,
+                  headers,
+                  rows: exportRows,
+                  rightAlignCols: [5],
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -328,14 +395,14 @@ export function CoaTreeView() {
                     Loading Chart of Accounts...
                   </td>
                 </tr>
-              ) : treeRows.length === 0 ? (
+              ) : displayRows.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
                     No matching accounts.
                   </td>
                 </tr>
               ) : (
-                treeRows.map(({ acc, depth, rollupBalancePaisa }) => (
+                displayRows.map(({ acc, depth, rollupBalancePaisa }) => (
                   <tr
                     key={acc._id}
                     className={`${acc.isGroup ? 'bg-slate-50/70 font-semibold' : 'hover:bg-slate-50/60'}`}
@@ -426,6 +493,9 @@ export function CoaTreeView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       {/* Add / Edit Account Modal */}
       <Modal

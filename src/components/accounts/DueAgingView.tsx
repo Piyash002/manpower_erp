@@ -16,9 +16,17 @@ import {
 } from 'lucide-react';
 import { Badge, StatusBadge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
 import { formatDateDMY } from '@/lib/formatters';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const REFUND_RULES = [
   { code: 'VISA_REJECTED', label: 'Visa Rejected by Embassy' },
@@ -41,6 +49,13 @@ export function DueAgingView() {
   const [allPlans, setAllPlans] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+
+  // Search / Filter / Sort
+  const [search, setSearch] = useState('');
+  const [bucketFilter, setBucketFilter] = useState<'all' | 'current' | '1-30' | '31-60' | '61-90' | '90+'>('all');
+  const [tradeFilter, setTradeFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('due');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Refund / Credit Note Modal
   const [isRefundModalOpen, setIsRefundModalOpen] = useState(false);
@@ -255,6 +270,143 @@ export function DueAgingView() {
         </div>
       </div>
 
+      {(() => {
+        const tradeOptions = Array.from(
+          new Set(
+            items
+              .map((it: any) => it.student?.trade_name || it.student?.trade)
+              .filter(Boolean)
+          )
+        ).sort() as string[];
+
+        const filtered = items.filter((it: any) => {
+          const days = Number(it.maxOverdueDays || 0);
+          if (bucketFilter === 'current' && days > 0) return false;
+          if (bucketFilter === '1-30' && (days < 1 || days > 30)) return false;
+          if (bucketFilter === '31-60' && (days < 31 || days > 60)) return false;
+          if (bucketFilter === '61-90' && (days < 61 || days > 90)) return false;
+          if (bucketFilter === '90+' && days <= 90) return false;
+          const tr = it.student?.trade_name || it.student?.trade || '';
+          if (tradeFilter !== 'all' && tr !== tradeFilter) return false;
+          return matchesSearch(search, [
+            it.student?.name,
+            it.student?.student_no,
+            it.student?.mobile,
+            it.student?.phone,
+            tr,
+            it.student?.destination_country || it.student?.country_of_interest,
+          ]);
+        });
+
+        const sortedItems = sortTableItems(filtered, sortKey, sortDir, {
+          student: (it: any) => it.student?.name || '',
+          code: (it: any) => it.student?.student_no || '',
+          netPayable: (it: any) => Number(it.netPayablePaisa || 0),
+          paid: (it: any) => Number(it.totalPaidPaisa || 0),
+          due: (it: any) => Number(it.totalDuePaisa || 0),
+          overdueDays: (it: any) => Number(it.maxOverdueDays || 0),
+        });
+
+        const headers = [
+          'Student ID',
+          'Student Name',
+          'Phone',
+          'Trade',
+          'Country',
+          'Net Payable (BDT)',
+          'Paid (BDT)',
+          'Total Due (BDT)',
+          'Overdue Days',
+        ];
+        const rows = sortedItems.map((it: any) => [
+          it.student?.student_no || '',
+          it.student?.name || '',
+          it.student?.mobile || it.student?.phone || '',
+          it.student?.trade_name || it.student?.trade || '',
+          it.student?.destination_country || it.student?.country_of_interest || '',
+          paisaToTaka(it.netPayablePaisa || 0),
+          paisaToTaka(it.totalPaidPaisa || 0),
+          paisaToTaka(it.totalDuePaisa || 0),
+          Number(it.maxOverdueDays || 0),
+        ]);
+
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search student name, ID, phone, trade, country..."
+              filters={
+                <>
+                  <select
+                    value={bucketFilter}
+                    onChange={(e) => setBucketFilter(e.target.value as any)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Aging Buckets</option>
+                    <option value="current">Current (Not Overdue)</option>
+                    <option value="1-30">1–30 Days Overdue</option>
+                    <option value="31-60">31–60 Days Overdue</option>
+                    <option value="61-90">61–90 Days Overdue</option>
+                    <option value="90+">90+ Days Overdue</option>
+                  </select>
+                  <select
+                    value={tradeFilter}
+                    onChange={(e) => setTradeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Trades</option>
+                    {tradeOptions.map((tr) => (
+                      <option key={tr} value={tr}>
+                        {tr}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'due', label: 'Total Due' },
+                { value: 'overdueDays', label: 'Overdue Days' },
+                { value: 'netPayable', label: 'Net Payable' },
+                { value: 'paid', label: 'Total Paid' },
+                { value: 'student', label: 'Student Name' },
+                { value: 'code', label: 'Student ID' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={items.length}
+              filteredCount={sortedItems.length}
+              hasActiveFilters={bucketFilter !== 'all' || tradeFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setBucketFilter('all');
+                setTradeFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'student-due-aging-filtered',
+                  sheetName: 'Due Aging',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Due & Receivable Aging Report',
+                  subtitle: 'Outstanding Student Installments',
+                  meta: `Aging: ${bucketFilter} | Trade: ${tradeFilter}`,
+                  headers,
+                  rows,
+                  rightAlignCols: [5, 6, 7, 8],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -276,14 +428,14 @@ export function DueAgingView() {
                     Calculating aging buckets...
                   </td>
                 </tr>
-              ) : items.length === 0 ? (
+              ) : sortedItems.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                    No overdue or outstanding student receivables.
+                    No matching overdue or outstanding student receivables.
                   </td>
                 </tr>
               ) : (
-                items.map((item: any) => (
+                sortedItems.map((item: any) => (
                   <tr key={item._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-2.5">
                       <span className="font-semibold text-slate-900 block">
@@ -338,6 +490,9 @@ export function DueAgingView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       {/* REFUNDS & CREDIT NOTES DESK */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">

@@ -17,6 +17,8 @@ import { formatBDT, formatDateDMY } from '@/lib/formatters';
 import { calculatePayslipPure } from '@/lib/payroll-calc';
 import type { PayrollSettingsSnapshot } from '@/models/PayrollSettings';
 import { Badge } from '@/components/ui/Badge';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 const MONTHS = [
@@ -41,6 +43,10 @@ export function PayrollSettingsView() {
   >([]);
   const [inspectedVersionNum, setInspectedVersionNum] = useState<number | null>(null);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [verSearch, setVerSearch] = useState('');
+  const [verBasisFilter, setVerBasisFilter] = useState('all');
+  const [verSortKey, setVerSortKey] = useState('version');
+  const [verSortDir, setVerSortDir] = useState<SortDir>('desc');
 
   // Sample inputs for live Example calculator box
   const [sampleBasic, setSampleBasic] = useState<string>('20000');
@@ -823,65 +829,164 @@ export function PayrollSettingsView() {
             Settings Version History ({versions.length})
           </h3>
         </div>
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
-            <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-              <tr>
-                <th className="px-4 py-2.5">Version</th>
-                <th className="px-4 py-2.5">Effective From</th>
-                <th className="px-4 py-2.5">Absence / Days</th>
-                <th className="px-4 py-2.5">Late / Grace / Sandwich</th>
-                <th className="px-4 py-2.5">Overtime</th>
-                <th className="px-4 py-2.5">Saved By / Date</th>
-                <th className="px-4 py-2.5 text-right">Load</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {versions.map((v) => (
-                <tr
-                  key={v._id}
-                  className={
-                    inspectedVersionNum === v.version ? 'bg-blue-50/60' : 'hover:bg-slate-50/70'
-                  }
-                >
-                  <td className="px-4 py-2.5 font-mono font-bold">
-                    v{v.version}{' '}
-                    {v.is_default_seeded && <Badge variant="warning">Default</Badge>}
-                  </td>
-                  <td className="px-4 py-2.5 font-semibold">
-                    {MONTHS[(v.effective_from_month || 1) - 1]} {v.effective_from_year}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {v.absence_deduction_basis} / {v.days_basis}
-                    {v.days_basis === 'working_days' ? ` (${v.working_days_per_month})` : ''}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {v.late_rule_enabled ? `${v.late_count_per_absent}=1d` : 'Off'} • Grace{' '}
-                    {v.grace_minutes}m • Sandwich {v.sandwich_rule_enabled ? 'On' : 'Off'}
-                  </td>
-                  <td className="px-4 py-2.5">
-                    {v.overtime_basis} × {v.overtime_multiplier}x ({v.overtime_hours_per_day}h/d)
-                  </td>
-                  <td className="px-4 py-2.5 text-slate-500">
-                    {v.updated_by} · {formatDateDMY(v.createdAt)}
-                  </td>
-                  <td className="px-4 py-2.5 text-right">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setInspectedVersionNum(v.version);
-                        applySnapshotToForm(v);
-                      }}
-                      className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+        {(() => {
+          const filteredVersions = sortTableItems(
+            versions.filter((v) => {
+              if (verBasisFilter !== 'all' && v.days_basis !== verBasisFilter) return false;
+              return matchesSearch(verSearch, [
+                `v${v.version}`,
+                MONTHS[(v.effective_from_month || 1) - 1],
+                String(v.effective_from_year || ''),
+                v.absence_deduction_basis,
+                v.days_basis,
+                v.overtime_basis,
+                v.updated_by,
+              ]);
+            }),
+            verSortKey,
+            verSortDir,
+            {
+              version: (v) => Number(v.version || 0),
+              effective: (v) => (v.effective_from_year || 0) * 100 + (v.effective_from_month || 0),
+              updated_by: (v) => v.updated_by || '',
+              created: (v) => (v.createdAt ? new Date(v.createdAt).getTime() : 0),
+            }
+          );
+          return (
+            <>
+              <div className="p-3 border-b border-slate-100 bg-slate-50/40">
+                <TableToolbar
+                  search={verSearch}
+                  onSearchChange={setVerSearch}
+                  searchPlaceholder="Search version, month, rule basis or user..."
+                  sortKey={verSortKey}
+                  sortDir={verSortDir}
+                  onSortChange={(k, d) => {
+                    setVerSortKey(k);
+                    setVerSortDir(d);
+                  }}
+                  sortOptions={[
+                    { value: 'version', label: 'Version #' },
+                    { value: 'effective', label: 'Effective From' },
+                    { value: 'updated_by', label: 'Saved By' },
+                    { value: 'created', label: 'Saved Date' },
+                  ]}
+                  filters={
+                    <select
+                      value={verBasisFilter}
+                      onChange={(e) => setVerBasisFilter(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
                     >
-                      Inspect
-                    </button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+                      <option value="all">All Days Basis</option>
+                      <option value="fixed_30">fixed_30</option>
+                      <option value="calendar">calendar</option>
+                      <option value="working_days">working_days</option>
+                    </select>
+                  }
+                  totalCount={versions.length}
+                  filteredCount={filteredVersions.length}
+                  hasActiveFilters={verSearch !== '' || verBasisFilter !== 'all'}
+                  onReset={() => {
+                    setVerSearch('');
+                    setVerBasisFilter('all');
+                  }}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: 'Payroll-Settings-Versions',
+                      sheetName: 'SettingsVersions',
+                      headers: ['Version', 'Effective From', 'Absence Basis', 'Days Basis', 'Late / Grace / Sandwich', 'Overtime', 'Saved By', 'Saved Date'],
+                      rows: filteredVersions.map((v) => [
+                        `v${v.version}`,
+                        `${MONTHS[(v.effective_from_month || 1) - 1]} ${v.effective_from_year}`,
+                        v.absence_deduction_basis || '',
+                        v.days_basis || '',
+                        `${v.late_rule_enabled ? `${v.late_count_per_absent}=1d` : 'Off'} / ${v.grace_minutes}m / ${v.sandwich_rule_enabled ? 'On' : 'Off'}`,
+                        `${v.overtime_basis} x ${v.overtime_multiplier}x (${v.overtime_hours_per_day}h/d)`,
+                        v.updated_by || '',
+                        formatDateDMY(v.createdAt),
+                      ]),
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: 'Payroll Settings Version History',
+                      meta: `Versions: ${filteredVersions.length}`,
+                      headers: ['Version', 'Effective From', 'Absence / Days', 'Late / Grace / Sandwich', 'Overtime', 'Saved By / Date'],
+                      rows: filteredVersions.map((v) => [
+                        `v${v.version}`,
+                        `${MONTHS[(v.effective_from_month || 1) - 1]} ${v.effective_from_year}`,
+                        `${v.absence_deduction_basis} / ${v.days_basis}`,
+                        `${v.late_rule_enabled ? `${v.late_count_per_absent}=1d` : 'Off'} • ${v.grace_minutes}m • Sandwich ${v.sandwich_rule_enabled ? 'On' : 'Off'}`,
+                        `${v.overtime_basis} x ${v.overtime_multiplier}x`,
+                        `${v.updated_by} · ${formatDateDMY(v.createdAt)}`,
+                      ]),
+                      landscape: true,
+                    })
+                  }
+                />
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left text-xs">
+                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                    <tr>
+                      <th className="px-4 py-2.5">Version</th>
+                      <th className="px-4 py-2.5">Effective From</th>
+                      <th className="px-4 py-2.5">Absence / Days</th>
+                      <th className="px-4 py-2.5">Late / Grace / Sandwich</th>
+                      <th className="px-4 py-2.5">Overtime</th>
+                      <th className="px-4 py-2.5">Saved By / Date</th>
+                      <th className="px-4 py-2.5 text-right">Load</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {filteredVersions.map((v) => (
+                      <tr
+                        key={v._id}
+                        className={
+                          inspectedVersionNum === v.version ? 'bg-blue-50/60' : 'hover:bg-slate-50/70'
+                        }
+                      >
+                        <td className="px-4 py-2.5 font-mono font-bold">
+                          v{v.version}{' '}
+                          {v.is_default_seeded && <Badge variant="warning">Default</Badge>}
+                        </td>
+                        <td className="px-4 py-2.5 font-semibold">
+                          {MONTHS[(v.effective_from_month || 1) - 1]} {v.effective_from_year}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {v.absence_deduction_basis} / {v.days_basis}
+                          {v.days_basis === 'working_days' ? ` (${v.working_days_per_month})` : ''}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {v.late_rule_enabled ? `${v.late_count_per_absent}=1d` : 'Off'} • Grace{' '}
+                          {v.grace_minutes}m • Sandwich {v.sandwich_rule_enabled ? 'On' : 'Off'}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          {v.overtime_basis} × {v.overtime_multiplier}x ({v.overtime_hours_per_day}h/d)
+                        </td>
+                        <td className="px-4 py-2.5 text-slate-500">
+                          {v.updated_by} · {formatDateDMY(v.createdAt)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setInspectedVersionNum(v.version);
+                              applySnapshotToForm(v);
+                            }}
+                            className="px-2.5 py-1 text-[11px] font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 rounded"
+                          >
+                            Inspect
+                          </button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </>
+          );
+        })()}
       </div>
     </div>
   );

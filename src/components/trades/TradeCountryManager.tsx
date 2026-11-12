@@ -15,6 +15,14 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 /**
  * Purely descriptive Trade & Destination Country catalog owned by Admission.
@@ -27,6 +35,17 @@ export function TradeCountryManager() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Trade & Country Search/Filter/Sort
+  const [tradeSearch, setTradeSearch] = useState('');
+  const [tradeStatusFilter, setTradeStatusFilter] = useState<'all' | 'active' | 'hidden'>('all');
+  const [tradeSortKey, setTradeSortKey] = useState('name');
+  const [tradeSortDir, setTradeSortDir] = useState<SortDir>('asc');
+
+  const [countrySearch, setCountrySearch] = useState('');
+  const [countryTradeFilter, setCountryTradeFilter] = useState('all');
+  const [countrySortKey, setCountrySortKey] = useState('country');
+  const [countrySortDir, setCountrySortDir] = useState<SortDir>('asc');
 
   // Trade Modal State (descriptive only)
   const [isTradeModalOpen, setIsTradeModalOpen] = useState(false);
@@ -273,7 +292,61 @@ export function TradeCountryManager() {
         </button>
       </div>
 
-      {activeTab === 'trades' && (
+      {activeTab === 'trades' && (() => {
+        const filteredTrades = trades.filter((t) => {
+          if (tradeStatusFilter === 'active' && !t.active) return false;
+          if (tradeStatusFilter === 'hidden' && t.active) return false;
+          return matchesSearch(tradeSearch, [t.name, t.course_days]);
+        });
+        const sortedTrades = sortTableItems(filteredTrades, tradeSortKey, tradeSortDir, {
+          name: (t) => t.name || '',
+          days: (t) => Number(t.course_days || 0),
+          status: (t) => (t.active ? 'Active' : 'Hidden'),
+        });
+        const headers = ['Trade Name', 'Course Duration (Days)', 'Status'];
+        const rows = sortedTrades.map((t) => [t.name, Number(t.course_days || 0), t.active ? 'Active' : 'Hidden']);
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={tradeSearch}
+              onSearchChange={setTradeSearch}
+              searchPlaceholder="Search trade name..."
+              filters={
+                <select
+                  value={tradeStatusFilter}
+                  onChange={(e) => setTradeStatusFilter(e.target.value as any)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="hidden">Hidden</option>
+                </select>
+              }
+              sortKey={tradeSortKey}
+              sortDir={tradeSortDir}
+              sortOptions={[
+                { value: 'name', label: 'Trade Name' },
+                { value: 'days', label: 'Course Days' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setTradeSortKey(k);
+                setTradeSortDir(d);
+              }}
+              totalCount={trades.length}
+              filteredCount={sortedTrades.length}
+              hasActiveFilters={tradeStatusFilter !== 'all'}
+              onReset={() => {
+                setTradeSearch('');
+                setTradeStatusFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({ filename: 'training-trades', sheetName: 'Trades', headers, rows })
+              }
+              onPrint={() =>
+                printTableReport({ title: 'Training Trades Catalog', headers, rows, rightAlignCols: [1] })
+              }
+            />
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -286,7 +359,7 @@ export function TradeCountryManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {trades.map((trade) => (
+                {sortedTrades.map((trade) => (
                   <tr key={trade._id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-3.5 font-semibold text-slate-900">{trade.name}</td>
                     <td className="px-5 py-3.5 text-center text-slate-600 font-mono">
@@ -323,9 +396,86 @@ export function TradeCountryManager() {
             </table>
           </div>
         </div>
-      )}
+          </div>
+        );
+      })()}
 
-      {activeTab === 'countries' && (
+      {activeTab === 'countries' && (() => {
+        const filteredCountries = countryPackages.filter((pkg) => {
+          const tid = typeof pkg.trade_id === 'object' ? pkg.trade_id?._id : pkg.trade_id;
+          if (countryTradeFilter !== 'all' && String(tid) !== countryTradeFilter) return false;
+          const tradeName = typeof pkg.trade_id === 'object' ? pkg.trade_id?.name : '';
+          return matchesSearch(countrySearch, [pkg.country, tradeName, pkg.visa_days, pkg.contract_years]);
+        });
+        const sortedCountries = sortTableItems(filteredCountries, countrySortKey, countrySortDir, {
+          country: (pkg) => pkg.country || '',
+          trade: (pkg) => (typeof pkg.trade_id === 'object' ? pkg.trade_id?.name || '' : ''),
+          visaDays: (pkg) => Number(pkg.visa_days || 0),
+          contract: (pkg) => Number(pkg.contract_years || 0),
+        });
+        const headers = ['Destination Country', 'Applicable Trade', 'Est. Visa Days', 'Contract Years'];
+        const rows = sortedCountries.map((pkg) => [
+          pkg.country,
+          typeof pkg.trade_id === 'object' ? pkg.trade_id?.name || '' : 'Trade',
+          Number(pkg.visa_days || 0),
+          Number(pkg.contract_years || 0),
+        ]);
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={countrySearch}
+              onSearchChange={setCountrySearch}
+              searchPlaceholder="Search destination country or trade..."
+              filters={
+                <select
+                  value={countryTradeFilter}
+                  onChange={(e) => setCountryTradeFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                >
+                  <option value="all">All Trades</option>
+                  {trades.map((tr) => (
+                    <option key={tr._id} value={tr._id}>
+                      {tr.name}
+                    </option>
+                  ))}
+                </select>
+              }
+              sortKey={countrySortKey}
+              sortDir={countrySortDir}
+              sortOptions={[
+                { value: 'country', label: 'Country' },
+                { value: 'trade', label: 'Trade' },
+                { value: 'visaDays', label: 'Visa Days' },
+                { value: 'contract', label: 'Contract Years' },
+              ]}
+              onSortChange={(k, d) => {
+                setCountrySortKey(k);
+                setCountrySortDir(d);
+              }}
+              totalCount={countryPackages.length}
+              filteredCount={sortedCountries.length}
+              hasActiveFilters={countryTradeFilter !== 'all'}
+              onReset={() => {
+                setCountrySearch('');
+                setCountryTradeFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'destination-countries',
+                  sheetName: 'Countries',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Destination Countries & Visa Packages',
+                  headers,
+                  rows,
+                  rightAlignCols: [2, 3],
+                })
+              }
+            />
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
@@ -339,7 +489,7 @@ export function TradeCountryManager() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {countryPackages.map((pkg) => (
+                {sortedCountries.map((pkg) => (
                   <tr key={pkg._id} className="hover:bg-slate-50/80">
                     <td className="px-5 py-3.5 font-semibold text-slate-900">{pkg.country}</td>
                     <td className="px-5 py-3.5 text-slate-700">
@@ -371,7 +521,9 @@ export function TradeCountryManager() {
             </table>
           </div>
         </div>
-      )}
+          </div>
+        );
+      })()}
 
       {/* TRADE MODAL */}
       <Modal

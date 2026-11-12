@@ -5,7 +5,6 @@ import Link from 'next/link';
 import {
   Users2,
   RefreshCw,
-  Search,
   Plus,
   FileText,
   Percent,
@@ -16,9 +15,17 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
 import { formatDateDMY } from '@/lib/formatters';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 export function StudentFeesView() {
   const { user } = useAuth();
@@ -31,6 +38,9 @@ export function StudentFeesView() {
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [tradeFilter, setTradeFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('createdAt');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   // Assign Plan modal state
@@ -246,35 +256,125 @@ export function StudentFeesView() {
         </div>
       </div>
 
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center gap-2.5">
-        <div className="relative min-w-[220px] flex-1 max-w-xs">
-          <Search className="w-3.5 h-3.5 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search student ID, name, plan no..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            onKeyDown={(e) => e.key === 'Enter' && loadPlans()}
-            className="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg"
-          />
-        </div>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
-        >
-          <option value="all">All Statuses</option>
-          <option value="Active">Active (Due)</option>
-          <option value="Paid">Paid</option>
-        </select>
-        <button
-          type="button"
-          onClick={loadPlans}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-900 text-white rounded-lg"
-        >
-          Search
-        </button>
-      </div>
+      {(() => {
+        const tradeOptions = Array.from(
+          new Set(plans.map((p) => p.studentId?.trade_name).filter(Boolean))
+        ).sort() as string[];
+        const filteredPlans = plans.filter((p) => {
+          if (tradeFilter !== 'all' && p.studentId?.trade_name !== tradeFilter) return false;
+          return matchesSearch(search, [
+            p.planNo,
+            p.invoiceVoucherId?.voucherNo,
+            p.studentId?.name,
+            p.studentId?.student_no,
+            p.studentId?.trade_name,
+            p.studentId?.destination_country,
+            p.templateId?.name,
+          ]);
+        });
+        const sortedPlans = sortTableItems(filteredPlans, sortKey, sortDir, {
+          createdAt: (p) => new Date(p.createdAt || 0),
+          planNo: (p) => p.planNo || '',
+          student: (p) => p.studentId?.name || '',
+          net: (p) => Number(p.netPayablePaisa || 0),
+          paid: (p) => Number(p.totalPaidPaisa || 0),
+          due: (p) => Number(p.totalDuePaisa || 0),
+        });
+        const headers = [
+          'Plan No',
+          'Invoice JV',
+          'Student ID',
+          'Student Name',
+          'Trade & Country',
+          'Net Payable (BDT)',
+          'Paid (BDT)',
+          'Due (BDT)',
+          'Status',
+        ];
+        const rows = sortedPlans.map((p) => [
+          p.planNo,
+          p.invoiceVoucherId?.voucherNo || '',
+          p.studentId?.student_no || '',
+          p.studentId?.name || '',
+          `${p.studentId?.trade_name || ''} / ${p.studentId?.destination_country || ''}`,
+          paisaToTaka(p.netPayablePaisa || 0),
+          paisaToTaka(p.totalPaidPaisa || 0),
+          paisaToTaka(p.totalDuePaisa || 0),
+          p.status,
+        ]);
+
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search student ID, name, plan no, trade, JV..."
+              filters={
+                <>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Active">Active (Due)</option>
+                    <option value="Paid">Paid</option>
+                  </select>
+                  <select
+                    value={tradeFilter}
+                    onChange={(e) => setTradeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Trades</option>
+                    {tradeOptions.map((tr) => (
+                      <option key={tr} value={tr}>
+                        {tr}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'createdAt', label: 'Recent' },
+                { value: 'due', label: 'Due Balance' },
+                { value: 'net', label: 'Net Payable' },
+                { value: 'paid', label: 'Paid Amount' },
+                { value: 'student', label: 'Student Name' },
+                { value: 'planNo', label: 'Plan No' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={plans.length}
+              filteredCount={sortedPlans.length}
+              hasActiveFilters={statusFilter !== 'all' || tradeFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setStatusFilter('all');
+                setTradeFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'student-fee-plans',
+                  sheetName: 'Student Fees',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Student Fees & Plans Report',
+                  meta: `Status: ${statusFilter} | Trade: ${tradeFilter}`,
+                  headers,
+                  rows,
+                  rightAlignCols: [5, 6, 7],
+                  landscape: true,
+                })
+              }
+            />
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
@@ -298,14 +398,14 @@ export function StudentFeesView() {
                     Loading Student Fee Plans...
                   </td>
                 </tr>
-              ) : plans.length === 0 ? (
+              ) : sortedPlans.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="px-4 py-8 text-center text-slate-400">
-                    No Student Fee Plans found.
+                    No matching Student Fee Plans found.
                   </td>
                 </tr>
               ) : (
-                plans.map((p) => (
+                sortedPlans.map((p) => (
                   <tr key={p._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-3 whitespace-nowrap">
                       <span className="font-mono font-bold text-slate-900 block">{p.planNo}</span>
@@ -418,6 +518,9 @@ export function StudentFeesView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       {/* Assign Fee Plan Modal */}
       <Modal

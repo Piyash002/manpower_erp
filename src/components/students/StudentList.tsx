@@ -23,8 +23,10 @@ import {
   ArrowUpDown,
   Printer,
   ExternalLink,
+  FileSpreadsheet,
 } from 'lucide-react';
 import { formatBDT } from '@/lib/formatters';
+import { downloadExcel, printTableReport } from '@/lib/client-export';
 import { StatusBadge, Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
@@ -336,8 +338,96 @@ export function StudentList() {
         <div className="flex flex-wrap items-center gap-2.5">
           <button
             type="button"
+            onClick={() => {
+              const headers = [
+                'Student ID',
+                'Name',
+                'Mobile',
+                'Passport No',
+                'Trade',
+                'Batch',
+                'Country',
+                'Total Payable (BDT)',
+                'Paid (BDT)',
+                'Due (BDT)',
+                'Status',
+                'Exam Result',
+              ];
+              const rows = students.map((s) => [
+                s.student_no,
+                s.name,
+                s.mobile,
+                s.passport_no || '',
+                s.trade_name,
+                s.batch || '',
+                s.destination_country,
+                s.fee_snapshot?.total_payable || 0,
+                s.total_paid || 0,
+                s.total_due || 0,
+                s.status,
+                s.assessment?.result_status || 'Pending',
+              ]);
+              downloadExcel({
+                filename: 'students-directory',
+                sheetName: 'Students',
+                headers,
+                rows,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg shadow-xs transition-colors"
+            title="Export filtered students as Excel (.xlsx)"
+          >
+            <FileSpreadsheet className="w-4 h-4" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const headers = [
+                'Student ID',
+                'Name',
+                'Mobile',
+                'Trade',
+                'Batch',
+                'Country',
+                'Payable',
+                'Paid',
+                'Due',
+                'Status',
+              ];
+              const rows = students.map((s) => [
+                s.student_no,
+                s.name,
+                s.mobile,
+                s.trade_name,
+                s.batch || '—',
+                s.destination_country,
+                s.fee_snapshot?.total_payable || 0,
+                s.total_paid || 0,
+                s.total_due || 0,
+                s.status,
+              ]);
+              printTableReport({
+                title: 'Students Directory Report',
+                meta: `Trade: ${selectedTrade} | Batch: ${selectedBatch} | Country: ${selectedCountry} | Status: ${selectedStatus}`,
+                headers,
+                rows,
+                rightAlignCols: [6, 7, 8],
+                landscape: true,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white hover:bg-slate-100 border border-slate-300 rounded-lg shadow-xs transition-colors"
+            title="Print filtered student directory"
+          >
+            <Printer className="w-4 h-4" />
+            <span>Print</span>
+          </button>
+
+          <button
+            type="button"
             onClick={handleDownloadExamResultsCSV}
-            className="inline-flex items-center gap-2 px-4 py-2 text-sm font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 rounded-lg shadow-xs transition-colors"
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-semibold text-emerald-700 bg-emerald-50 hover:bg-emerald-600 hover:text-white border border-emerald-200 rounded-lg shadow-xs transition-colors"
             title="Download Batch, Trade & Country-wise Exam Results CSV"
           >
             <Download className="w-4 h-4" />

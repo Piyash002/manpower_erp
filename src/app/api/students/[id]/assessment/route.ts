@@ -55,29 +55,42 @@ export async function PUT(
       return NextResponse.json({ success: false, message: 'Student not found' }, { status: 404 });
     }
 
-    // Find the batch for this student
+    // Find the batch for this student (matching student's batch or trade only — never an unrelated trade's batch)
     let batch = null;
     if (body.batch_id) {
       batch = await Batch.findById(body.batch_id);
+      if (batch && batch.trade_id?.toString() !== student.trade_id?.toString()) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Selected batch (${batch.batch_code}) belongs to trade ${batch.trade_name}, not ${student.trade_name}.`,
+          },
+          { status: 400 }
+        );
+      }
     } else if (student.batch) {
       batch = await Batch.findOne({
         $or: [{ batch_code: student.batch }, { name: student.batch }],
       });
     }
 
-    // If still no batch found, find any batch with matching trade or create/pick one
-    if (!batch) {
-      batch = await Batch.findOne({ trade_name: student.trade_name });
-      if (!batch) {
-        batch = await Batch.findOne({});
-      }
+    if (!batch && student.trade_id) {
+      batch = await Batch.findOne({ trade_id: student.trade_id }).sort({ start_date: -1 });
     }
 
     if (!batch) {
       return NextResponse.json(
-        { success: false, message: 'Please create or assign a batch before grading student' },
+        {
+          success: false,
+          message: `No training batch exists for trade "${student.trade_name}". Please create or assign a batch for this trade before grading.`,
+        },
         { status: 400 }
       );
+    }
+
+    // Align student batch string if it wasn't matching a real batch yet
+    if (student.batch !== batch.batch_code && (!student.batch || student.batch.startsWith('B-'))) {
+      student.batch = batch.batch_code;
     }
 
     // Compute theory and practical scores
@@ -141,12 +154,17 @@ export async function PUT(
 
     await assessment.save();
 
-    // If requested or if status is Passed/Failed, sync with student.status
+    // Sync result status back to student profile cleanly (including reverting Pending -> Active)
     if (body.sync_student_status !== false) {
       if (resultStatus === 'Passed') {
         student.status = 'Passed';
       } else if (resultStatus === 'Failed') {
         student.status = 'Failed';
+      } else if (
+        resultStatus === 'Pending' &&
+        (student.status === 'Passed' || student.status === 'Failed')
+      ) {
+        student.status = 'Active';
       }
       await student.save();
     }

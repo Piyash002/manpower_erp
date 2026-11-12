@@ -13,12 +13,24 @@ import {
 import { formatBDT } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 export function SalaryStructuresView() {
   const [structures, setStructures] = useState<any[]>([]);
   const [selectedId, setSelectedId] = useState<string>('');
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [ruleSearch, setRuleSearch] = useState('');
+  const [ruleCategoryFilter, setRuleCategoryFilter] = useState('all');
+  const [ruleSortKey, setRuleSortKey] = useState('sequence');
+  const [ruleSortDir, setRuleSortDir] = useState<SortDir>('asc');
 
   // Structure Modal
   const [isStructModalOpen, setIsStructModalOpen] = useState(false);
@@ -328,7 +340,30 @@ export function SalaryStructuresView() {
 
           {/* Rules Table */}
           <div className="lg:col-span-8 bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">
-            {selectedStruct && (
+            {selectedStruct && (() => {
+              const allRules: any[] = selectedStruct.rules || [];
+              const filteredRules = allRules.filter((r) => {
+                if (ruleCategoryFilter !== 'all' && r.category !== ruleCategoryFilter) return false;
+                return matchesSearch(ruleSearch, [r.name, r.code, r.category, r.type, r.formula]);
+              });
+              const sortedRules = sortTableItems(filteredRules, ruleSortKey, ruleSortDir, {
+                sequence: (r) => Number(r.sequence || 0),
+                name: (r) => r.name || '',
+                code: (r) => r.code || '',
+                category: (r) => r.category || '',
+              });
+              const headers = ['Seq', 'Rule Name', 'Code', 'Category', 'Type', 'Value / Formula', 'Active'];
+              const rows = sortedRules.map((r) => [
+                r.sequence,
+                r.name,
+                r.code,
+                r.category,
+                r.type,
+                r.type === 'formula' ? r.formula : r.amount_or_percentage,
+                r.active ? 'Yes' : 'Off',
+              ]);
+
+              return (
               <>
                 <div className="px-5 py-4 border-b border-slate-200 flex items-center justify-between bg-slate-50/60">
                   <div>
@@ -349,6 +384,63 @@ export function SalaryStructuresView() {
                   </button>
                 </div>
 
+                <div className="p-3 border-b border-slate-200 bg-slate-50/30">
+                  <TableToolbar
+                    search={ruleSearch}
+                    onSearchChange={setRuleSearch}
+                    searchPlaceholder="Search rule name, code, formula..."
+                    filters={
+                      <select
+                        value={ruleCategoryFilter}
+                        onChange={(e) => setRuleCategoryFilter(e.target.value)}
+                        className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                      >
+                        <option value="all">All Categories</option>
+                        <option value="BASIC">BASIC</option>
+                        <option value="ALLOWANCE">ALLOWANCE</option>
+                        <option value="GROSS">GROSS</option>
+                        <option value="DEDUCTION">DEDUCTION</option>
+                        <option value="NET">NET</option>
+                      </select>
+                    }
+                    sortKey={ruleSortKey}
+                    sortDir={ruleSortDir}
+                    sortOptions={[
+                      { value: 'sequence', label: 'Sequence' },
+                      { value: 'name', label: 'Rule Name' },
+                      { value: 'code', label: 'Code' },
+                      { value: 'category', label: 'Category' },
+                    ]}
+                    onSortChange={(k, d) => {
+                      setRuleSortKey(k);
+                      setRuleSortDir(d);
+                    }}
+                    totalCount={allRules.length}
+                    filteredCount={sortedRules.length}
+                    hasActiveFilters={ruleCategoryFilter !== 'all'}
+                    onReset={() => {
+                      setRuleSearch('');
+                      setRuleCategoryFilter('all');
+                    }}
+                    onExportExcel={() =>
+                      downloadExcel({
+                        filename: `salary-rules-${selectedStruct.code}`,
+                        sheetName: selectedStruct.code,
+                        headers,
+                        rows,
+                      })
+                    }
+                    onPrint={() =>
+                      printTableReport({
+                        title: `${selectedStruct.name} — Salary Rules`,
+                        subtitle: `Structure Code: ${selectedStruct.code}`,
+                        headers,
+                        rows,
+                      })
+                    }
+                  />
+                </div>
+
                 <div className="overflow-x-auto">
                   <table className="w-full text-left text-sm">
                     <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
@@ -362,7 +454,7 @@ export function SalaryStructuresView() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {(selectedStruct.rules || []).map((rule: any) => (
+                      {sortedRules.map((rule: any) => (
                         <tr key={rule._id} className="hover:bg-slate-50/70">
                           <td className="px-4 py-3 font-mono text-xs text-slate-500">
                             {rule.sequence}
@@ -420,7 +512,8 @@ export function SalaryStructuresView() {
                   </table>
                 </div>
               </>
-            )}
+              );
+            })()}
           </div>
         </div>
       )}

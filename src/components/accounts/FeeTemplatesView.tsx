@@ -4,8 +4,16 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Layers, Plus, RefreshCw, CheckCircle2, AlertCircle, X, Pencil, Trash2, Power } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const COMMON_COUNTRIES = [
   'All',
@@ -47,6 +55,14 @@ export function FeeTemplatesView() {
   const [countryFilter, setCountryFilter] = useState('');
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+
+  // Table search / filter / sort
+  const [search, setSearch] = useState('');
+  const [filterTradeId, setFilterTradeId] = useState('all');
+  const [filterCountry, setFilterCountry] = useState('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'active' | 'inactive'>('all');
+  const [sortKey, setSortKey] = useState('code');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -328,6 +344,124 @@ export function FeeTemplatesView() {
         </div>
       )}
 
+      {(() => {
+        const countriesInList = Array.from(
+          new Set(templates.map((t) => t.country).filter(Boolean))
+        ).sort();
+        const filtered = templates.filter((t) => {
+          const tid = String(t.tradeId?._id || t.tradeId || '');
+          if (filterTradeId !== 'all' && tid !== filterTradeId) return false;
+          if (filterCountry !== 'all' && t.country !== filterCountry) return false;
+          if (filterStatus === 'active' && !t.active) return false;
+          if (filterStatus === 'inactive' && t.active) return false;
+          const stageTxt = (t.stages || []).map((s: any) => s.label).join(' ');
+          return matchesSearch(search, [t.code, t.name, t.tradeId?.name || t.tradeName, t.country, stageTxt]);
+        });
+        const sortedTemplates = sortTableItems(filtered, sortKey, sortDir, {
+          code: (t) => t.code || '',
+          name: (t) => t.name || '',
+          trade: (t) => t.tradeId?.name || t.tradeName || '',
+          country: (t) => t.country || '',
+          total: (t) => Number(t.totalAmountPaisa || 0),
+        });
+        const headers = ['Code', 'Template Name', 'Trade', 'Country', 'Stages Breakdown', 'Total (BDT)', 'Status'];
+        const rows = sortedTemplates.map((t) => [
+          t.code,
+          t.name,
+          t.tradeId?.name || t.tradeName || 'All',
+          t.country || 'All',
+          (t.stages || []).map((s: any) => `${s.label}: ${paisaToTaka(s.amountPaisa)}`).join(' | '),
+          paisaToTaka(t.totalAmountPaisa || 0),
+          t.active ? 'Active' : 'Inactive',
+        ]);
+
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search template code, name, trade, country..."
+              filters={
+                <>
+                  <select
+                    value={filterTradeId}
+                    onChange={(e) => setFilterTradeId(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Trades</option>
+                    {trades.map((tr) => (
+                      <option key={tr._id} value={tr._id}>
+                        {tr.name}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={filterCountry}
+                    onChange={(e) => setFilterCountry(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Countries</option>
+                    {countriesInList.map((c) => (
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={filterStatus}
+                    onChange={(e) => setFilterStatus(e.target.value as any)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'code', label: 'Code' },
+                { value: 'name', label: 'Template Name' },
+                { value: 'trade', label: 'Trade' },
+                { value: 'country', label: 'Country' },
+                { value: 'total', label: 'Total Amount' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={templates.length}
+              filteredCount={sortedTemplates.length}
+              hasActiveFilters={
+                filterTradeId !== 'all' || filterCountry !== 'all' || filterStatus !== 'all'
+              }
+              onReset={() => {
+                setSearch('');
+                setFilterTradeId('all');
+                setFilterCountry('all');
+                setFilterStatus('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'fee-templates',
+                  sheetName: 'Fee Templates',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Stage-Wise Fee Templates',
+                  subtitle: 'Trade & Destination Country Fee Packages',
+                  headers,
+                  rows,
+                  rightAlignCols: [5],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -349,14 +483,14 @@ export function FeeTemplatesView() {
                     Loading Fee Templates...
                   </td>
                 </tr>
-              ) : templates.length === 0 ? (
+              ) : sortedTemplates.length === 0 ? (
                 <tr>
                   <td colSpan={canWrite ? 7 : 6} className="px-4 py-8 text-center text-slate-400">
-                    No Fee Templates created yet. Run the fee migration or create a new template.
+                    No matching Fee Templates found.
                   </td>
                 </tr>
               ) : (
-                templates.map((tpl) => (
+                sortedTemplates.map((tpl) => (
                   <tr key={tpl._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-3">
                       <span className="font-mono text-[11px] font-bold text-slate-500">{tpl.code}</span>
@@ -419,12 +553,15 @@ export function FeeTemplatesView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
         title={editingId ? `Edit Fee Template (${form.code})` : 'New Stage-Wise Fee Template'}
-        maxWidth="2xl"
+        maxWidth="4xl"
       >
         <form onSubmit={handleSave} className="space-y-4 text-xs">
           {modalErr && (
@@ -540,9 +677,16 @@ export function FeeTemplatesView() {
             </div>
           </div>
 
-          <div className="border border-slate-200 rounded-xl p-3 space-y-2">
-            <div className="flex items-center justify-between">
-              <span className="font-bold text-slate-700 uppercase">Fee Stages</span>
+          <div className="border border-slate-200 rounded-xl p-3.5 space-y-2.5 bg-slate-50/50">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-1 border-b border-slate-200">
+              <div>
+                <span className="font-bold text-slate-800 uppercase tracking-wide">
+                  Fee Stages (Installment Schedule)
+                </span>
+                <p className="text-[11px] text-slate-500 mt-0.5">
+                  Define each payment step: pick a category, label for receipts, fee in BDT, and due days from admission (<code className="font-mono text-slate-700">0</code> = due on admission day).
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() =>
@@ -554,78 +698,164 @@ export function FeeTemplatesView() {
                     ],
                   })
                 }
-                className="px-2.5 py-1 text-[11px] font-semibold bg-slate-100 rounded hover:bg-slate-200"
+                className="shrink-0 px-2.5 py-1.5 text-[11px] font-semibold bg-white border border-slate-300 text-slate-700 rounded-lg hover:bg-slate-100"
               >
                 + Add Stage
               </button>
             </div>
+
+            {/* Column Titles so every input's purpose is immediately clear */}
+            <div className="hidden sm:grid grid-cols-12 gap-2 px-1 text-[10px] font-bold uppercase tracking-wider text-slate-500">
+              <div className="col-span-3">
+                Stage Category *
+                <span className="block font-normal normal-case tracking-normal text-slate-400">
+                  Booking / Training / Visa
+                </span>
+              </div>
+              <div className="col-span-4">
+                Installment Title *
+                <span className="block font-normal normal-case tracking-normal text-slate-400">
+                  Shown on Student Fee Plan &amp; Receipt
+                </span>
+              </div>
+              <div className="col-span-2 text-right">
+                Amount (BDT) *
+                <span className="block font-normal normal-case tracking-normal text-slate-400">
+                  Stage fee in Taka
+                </span>
+              </div>
+              <div className="col-span-2 text-center">
+                Due After (Days) *
+                <span className="block font-normal normal-case tracking-normal text-slate-400">
+                  Days after admission (0 = today)
+                </span>
+              </div>
+              <div className="col-span-1 text-center">Del</div>
+            </div>
+
             {form.stages.map((st, idx) => (
-              <div key={idx} className="grid grid-cols-12 gap-2 items-center">
-                <select
-                  value={st.stageCode}
-                  onChange={(e) => {
-                    const next = [...form.stages];
-                    next[idx].stageCode = e.target.value;
-                    setForm({ ...form, stages: next });
-                  }}
-                  className="col-span-3 px-2 py-1.5 border border-slate-300 rounded"
-                >
-                  {STAGE_CODES.map((sc) => (
-                    <option key={sc.code} value={sc.code}>
-                      {sc.label}
-                    </option>
-                  ))}
-                </select>
-                <input
-                  type="text"
-                  required
-                  value={st.label}
-                  onChange={(e) => {
-                    const next = [...form.stages];
-                    next[idx].label = e.target.value;
-                    setForm({ ...form, stages: next });
-                  }}
-                  placeholder="Stage Label"
-                  className="col-span-4 px-2 py-1.5 border border-slate-300 rounded"
-                />
-                <input
-                  type="number"
-                  required
-                  min={0}
-                  value={st.amountTaka}
-                  onChange={(e) => {
-                    const next = [...form.stages];
-                    next[idx].amountTaka = e.target.value;
-                    setForm({ ...form, stages: next });
-                  }}
-                  placeholder="BDT"
-                  className="col-span-3 px-2 py-1.5 border border-slate-300 rounded text-right font-mono"
-                />
-                <input
-                  type="number"
-                  min={0}
-                  value={st.dueOffsetDays}
-                  onChange={(e) => {
-                    const next = [...form.stages];
-                    next[idx].dueOffsetDays = e.target.value;
-                    setForm({ ...form, stages: next });
-                  }}
-                  title="Due offset days"
-                  className="col-span-1 px-1.5 py-1.5 border border-slate-300 rounded text-center font-mono"
-                />
-                {form.stages.length > 1 && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setForm({ ...form, stages: form.stages.filter((_, i) => i !== idx) })
-                    }
-                    className="col-span-1 text-slate-400 hover:text-rose-600 flex justify-center"
+              <div key={idx} className="grid grid-cols-1 sm:grid-cols-12 gap-2 items-center bg-white sm:bg-transparent p-2 sm:p-0 rounded-lg border sm:border-0 border-slate-200">
+                <div className="sm:col-span-3">
+                  <span className="sm:hidden block text-[10px] font-semibold text-slate-500 mb-0.5">
+                    Stage Category *
+                  </span>
+                  <select
+                    aria-label="Stage Category"
+                    value={st.stageCode}
+                    onChange={(e) => {
+                      const next = [...form.stages];
+                      next[idx].stageCode = e.target.value;
+                      setForm({ ...form, stages: next });
+                    }}
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
                   >
-                    <X className="w-4 h-4" />
-                  </button>
-                )}
+                    {STAGE_CODES.map((sc) => (
+                      <option key={sc.code} value={sc.code}>
+                        {sc.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="sm:col-span-4">
+                  <span className="sm:hidden block text-[10px] font-semibold text-slate-500 mb-0.5">
+                    Installment Title *
+                  </span>
+                  <input
+                    type="text"
+                    required
+                    aria-label="Installment Title"
+                    value={st.label}
+                    onChange={(e) => {
+                      const next = [...form.stages];
+                      next[idx].label = e.target.value;
+                      setForm({ ...form, stages: next });
+                    }}
+                    placeholder="e.g. Admission & Booking Fee"
+                    className="w-full px-2.5 py-1.5 bg-white border border-slate-300 rounded-lg text-xs"
+                  />
+                </div>
+
+                <div className="sm:col-span-2">
+                  <span className="sm:hidden block text-[10px] font-semibold text-slate-500 mb-0.5">
+                    Amount (BDT) *
+                  </span>
+                  <div className="relative">
+                    <span className="absolute left-2 top-1/2 -translate-y-1/2 text-[11px] font-semibold text-slate-400">
+                      ৳
+                    </span>
+                    <input
+                      type="number"
+                      required
+                      min={0}
+                      aria-label="Amount in BDT"
+                      value={st.amountTaka}
+                      onChange={(e) => {
+                        const next = [...form.stages];
+                        next[idx].amountTaka = e.target.value;
+                        setForm({ ...form, stages: next });
+                      }}
+                      placeholder="0"
+                      className="w-full pl-5 pr-2 py-1.5 bg-white border border-slate-300 rounded-lg text-right font-mono text-xs"
+                    />
+                  </div>
+                </div>
+
+                <div className="sm:col-span-2">
+                  <span className="sm:hidden block text-[10px] font-semibold text-slate-500 mb-0.5">
+                    Due After (Days from Admission)
+                  </span>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min={0}
+                      aria-label="Due After Days"
+                      value={st.dueOffsetDays}
+                      onChange={(e) => {
+                        const next = [...form.stages];
+                        next[idx].dueOffsetDays = e.target.value;
+                        setForm({ ...form, stages: next });
+                      }}
+                      title="Days after admission date when this stage becomes due (0 = due on admission day)"
+                      className="w-full pl-2 pr-9 py-1.5 bg-white border border-slate-300 rounded-lg text-center font-mono text-xs"
+                    />
+                    <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 pointer-events-none">
+                      days
+                    </span>
+                  </div>
+                </div>
+
+                <div className="sm:col-span-1 flex justify-end sm:justify-center">
+                  {form.stages.length > 1 && (
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setForm({ ...form, stages: form.stages.filter((_, i) => i !== idx) })
+                      }
+                      title="Remove stage"
+                      className="p-1 text-slate-400 hover:text-rose-600 rounded"
+                    >
+                      <X className="w-4 h-4" />
+                    </button>
+                  )}
+                </div>
               </div>
             ))}
+
+            <div className="flex items-center justify-between pt-2 border-t border-slate-200 text-xs">
+              <span className="text-slate-500">
+                Total Stages: <strong className="text-slate-800">{form.stages.length}</strong>
+              </span>
+              <span className="font-semibold text-slate-700">
+                Total Package Fee:{' '}
+                <strong className="font-mono text-emerald-700 text-sm">
+                  {formatPaisaBDT(
+                    form.stages.reduce((sum, st) => sum + takaToPaisa(st.amountTaka || 0), 0),
+                    { showDecimals: false }
+                  )}
+                </strong>
+              </span>
+            </div>
           </div>
 
           <div className="flex justify-end gap-2 pt-3 border-t border-slate-200">

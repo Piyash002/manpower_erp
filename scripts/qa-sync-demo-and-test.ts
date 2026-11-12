@@ -42,6 +42,8 @@ import { JournalEntry } from '../src/models/JournalEntry';
 import { JournalLine } from '../src/models/JournalLine';
 import { Student } from '../src/models/Student';
 import { Trade } from '../src/models/Trade';
+import { Batch } from '../src/models/Batch';
+import { BatchAssessment } from '../src/models/BatchAssessment';
 import { Employee } from '../src/models/Employee';
 import { EmployeeContract } from '../src/models/EmployeeContract';
 import { SalaryStructure } from '../src/models/SalaryStructure';
@@ -78,6 +80,8 @@ async function seedLiveDemoData() {
   const acctUser = { userId: 'demo-acct', name: 'Demo Accountant', username: 'accountant', role: 'Accountant' };
 
   const trade = await Trade.findOne({ active: true }).lean();
+  const realBatch = trade ? await Batch.findOne({ trade_id: trade._id }).sort({ start_date: 1 }).lean() : null;
+  const demoBatchCode = realBatch?.batch_code || 'B-2026-01';
   const structure = await SalaryStructure.findOne({}).lean();
   let tpl1 = await FeeTemplate.findOne({ isDeleted: { $ne: true }, active: true })
     .sort({ totalAmountPaisa: -1 })
@@ -123,7 +127,7 @@ async function seedLiveDemoData() {
       passport_no: 'BD-DEMO-001',
       trade_id: trade!._id,
       trade_name: trade!.name,
-      batch: 'B-2026-01',
+      batch: demoBatchCode,
       session: 'Morning',
       admission_date: new Date('2026-11-02T10:00:00Z'),
       destination_country: tpl1.country || 'Saudi Arabia',
@@ -191,7 +195,7 @@ async function seedLiveDemoData() {
       passport_no: 'BD-DEMO-002',
       trade_id: trade!._id,
       trade_name: trade!.name,
-      batch: 'B-2026-01',
+      batch: demoBatchCode,
       session: 'Morning',
       admission_date: new Date('2026-11-04T10:00:00Z'),
       destination_country: tpl1.country || 'Singapore',
@@ -300,6 +304,29 @@ async function seedLiveDemoData() {
       });
     }
     console.log('  = Demo Student ST-2026-DEMO02 ready');
+  }
+  if (demoSt2 && realBatch) {
+    if (demoSt2.batch !== realBatch.batch_code) {
+      await Student.updateOne({ _id: demoSt2._id }, { $set: { batch: realBatch.batch_code } });
+    }
+    await BatchAssessment.findOneAndUpdate(
+      { batch_id: realBatch._id, student_id: demoSt2._id },
+      { $setOnInsert: { batch_id: realBatch._id, student_id: demoSt2._id, result_status: 'Pending' } },
+      { upsert: true }
+    );
+  }
+
+  // Sync any legacy student with dummy B-* batch string that already has a valid BatchAssessment
+  const legacyAssessments = await BatchAssessment.find({}).lean();
+  for (const a of legacyAssessments) {
+    const [st, bt] = await Promise.all([
+      Student.findById(a.student_id).select('batch'),
+      Batch.findById(a.batch_id).select('batch_code'),
+    ]);
+    if (st && bt && st.batch && st.batch.startsWith('B-') && st.batch !== bt.batch_code) {
+      st.batch = bt.batch_code;
+      await st.save();
+    }
   }
 
   // Demo Payroll Runs in FY2026:
@@ -978,6 +1005,46 @@ async function runQaVerification() {
     assert(
       missingAccruals.length === 0 && missingPayouts.length === 0,
       'QA-C3: Every Confirmed/Paid Payroll Run has its linked Accounts JV/PV voucher'
+    );
+
+    // QA-C4: Cross-module Trades <-> Batches <-> Assessments <-> FeeTemplates <-> Students Sync Audit
+    const [allTrades, allBatches, allAssessments, allTemplates, allStudents] = await Promise.all([
+      Trade.find().lean(),
+      Batch.find().lean(),
+      BatchAssessment.find().lean(),
+      FeeTemplate.find({ isDeleted: { $ne: true } }).lean(),
+      Student.find().select('student_no trade_id trade_name batch status').lean(),
+    ]);
+    const tradeNameById = new Map(allTrades.map((t) => [t._id.toString(), t.name]));
+    const batchById = new Map(allBatches.map((b) => [b._id.toString(), b]));
+    const studentById = new Map(allStudents.map((s) => [s._id.toString(), s]));
+
+    let catalogSyncErrors = 0;
+    for (const b of allBatches) {
+      const expected = tradeNameById.get(b.trade_id?.toString() || '');
+      if (!expected || b.trade_name !== expected) catalogSyncErrors++;
+    }
+    for (const tplItem of allTemplates) {
+      if (tplItem.tradeId) {
+        const expected = tradeNameById.get(tplItem.tradeId.toString());
+        if (!expected || tplItem.tradeName !== expected) catalogSyncErrors++;
+      }
+    }
+    for (const s of allStudents) {
+      const expected = tradeNameById.get(s.trade_id?.toString() || '');
+      if (!expected || s.trade_name !== expected) catalogSyncErrors++;
+    }
+    for (const a of allAssessments) {
+      const st = studentById.get(a.student_id?.toString() || '');
+      const bt = batchById.get(a.batch_id?.toString() || '');
+      if (!st || !bt || st.trade_id?.toString() !== bt.trade_id?.toString()) {
+        catalogSyncErrors++;
+      }
+    }
+    assert(
+      catalogSyncErrors === 0,
+      `QA-C4: 100% Sync verified across ${allTrades.length} Trades, ${allBatches.length} Batches, ${allAssessments.length} Assessments, ${allTemplates.length} FeeTemplates & ${allStudents.length} Students`,
+      `catalogSyncErrors=${catalogSyncErrors}`
     );
   } finally {
     // Clean up ONLY isolated FY2096 QA fixtures (preserving FY2026 live + demo data)

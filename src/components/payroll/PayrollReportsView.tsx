@@ -1,9 +1,11 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { BarChart3, Download, RefreshCw } from 'lucide-react';
-import { formatBDT } from '@/lib/formatters';
+import { formatBDT, EMPLOYEE_DEPARTMENTS } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 
 const MONTHS = [
   'January',
@@ -29,6 +31,172 @@ export function PayrollReportsView() {
   const [reportType, setReportType] = useState<ReportTab>('register');
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [deptFilter, setDeptFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('name');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
+
+  const filteredRows = useMemo(() => {
+    const filtered = rows.filter((r) => {
+      if (deptFilter !== 'all' && r.department !== deptFilter) return false;
+      if (statusFilter !== 'all' && r.status && r.status !== statusFilter) return false;
+      return matchesSearch(search, [
+        r.payslip_no,
+        r.employee_name,
+        r.beneficiary_name,
+        r.employee_id,
+        r.department,
+        r.bank_name,
+        r.bank_account_no,
+        r.status,
+      ]);
+    });
+    return sortTableItems(filtered, sortKey, sortDir, {
+      name: (r) => r.employee_name || r.beneficiary_name || r.department || '',
+      payslip_no: (r) => r.payslip_no || '',
+      department: (r) => r.department || '',
+      gross_pay: (r) => Number(r.gross_pay || 0),
+      net_pay: (r) => Number(r.net_pay || 0),
+      deductions: (r) => Number(r.total_deductions || 0),
+      tds: (r) => Number(r.tds_amount || 0),
+      status: (r) => r.status || '',
+    });
+  }, [rows, search, deptFilter, statusFilter, sortKey, sortDir]);
+
+  const buildReportColumns = () => {
+    const periodLabel = `${MONTHS[month - 1]} ${year}`;
+    if (reportType === 'department_summary') {
+      return {
+        title: `Department Payroll Summary — ${periodLabel}`,
+        headers: ['Department', 'Employees', 'Basic Pay', 'Allowances', 'Gross Pay', 'Deductions', 'Net Payable'],
+        rawRows: filteredRows.map((r) => [
+          r.department || '',
+          Number(r.employees || 0),
+          Number(r.basic_pay || 0),
+          Number(r.total_allowances || 0),
+          Number(r.gross_pay || 0),
+          Number(r.total_deductions || 0),
+          Number(r.net_pay || 0),
+        ]),
+        printRows: filteredRows.map((r) => [
+          r.department || '',
+          String(r.employees || 0),
+          formatBDT(r.basic_pay || 0),
+          formatBDT(r.total_allowances || 0),
+          formatBDT(r.gross_pay || 0),
+          formatBDT(r.total_deductions || 0),
+          formatBDT(r.net_pay || 0),
+        ]),
+        rightAlignCols: [2, 3, 4, 5, 6],
+      };
+    }
+    if (reportType === 'tax_summary') {
+      return {
+        title: `Tax (TDS) & PF Summary — ${periodLabel}`,
+        headers: ['Payslip #', 'Employee ID', 'Employee Name', 'Department', 'Gross Pay', 'Income Tax (TDS)', 'Provident Fund', 'Total Deductions', 'Status'],
+        rawRows: filteredRows.map((r) => [
+          r.payslip_no || '',
+          r.employee_id || '',
+          r.employee_name || '',
+          r.department || '',
+          Number(r.gross_pay || 0),
+          Number(r.tds_amount || 0),
+          Number(r.pf_amount || 0),
+          Number(r.total_deductions || 0),
+          r.status || '',
+        ]),
+        printRows: filteredRows.map((r) => [
+          r.payslip_no || '',
+          r.employee_id || '',
+          r.employee_name || '',
+          r.department || '',
+          formatBDT(r.gross_pay || 0),
+          formatBDT(r.tds_amount || 0),
+          formatBDT(r.pf_amount || 0),
+          formatBDT(r.total_deductions || 0),
+          r.status || '',
+        ]),
+        rightAlignCols: [4, 5, 6, 7],
+      };
+    }
+    if (reportType === 'bank_transfer') {
+      return {
+        title: `Bank-Transfer Salary Sheet — ${periodLabel}`,
+        headers: ['Payslip #', 'Employee ID', 'Beneficiary Name', 'Bank Name', 'Account Number', 'Transfer Amount', 'Status'],
+        rawRows: filteredRows.map((r) => [
+          r.payslip_no || '',
+          r.employee_id || '',
+          r.beneficiary_name || '',
+          r.bank_name || '',
+          r.bank_account_no || '',
+          Number(r.net_pay || 0),
+          r.status || '',
+        ]),
+        printRows: filteredRows.map((r) => [
+          r.payslip_no || '',
+          r.employee_id || '',
+          r.beneficiary_name || '',
+          r.bank_name || '',
+          r.bank_account_no || '',
+          formatBDT(r.net_pay || 0),
+          r.status || '',
+        ]),
+        rightAlignCols: [5],
+      };
+    }
+    return {
+      title: `Monthly Payroll Register — ${periodLabel}`,
+      headers: ['Payslip #', 'Employee ID', 'Employee Name', 'Department', 'Basic', 'Allowances', 'Gross', 'Deductions', 'Net Pay', 'Status'],
+      rawRows: filteredRows.map((r) => [
+        r.payslip_no || '',
+        r.employee_id || '',
+        r.employee_name || '',
+        r.department || '',
+        Number(r.basic_pay || 0),
+        Number(r.total_allowances || 0),
+        Number(r.gross_pay || 0),
+        Number(r.total_deductions || 0),
+        Number(r.net_pay || 0),
+        r.status || '',
+      ]),
+      printRows: filteredRows.map((r) => [
+        r.payslip_no || '',
+        r.employee_id || '',
+        r.employee_name || '',
+        r.department || '',
+        formatBDT(r.basic_pay || 0),
+        formatBDT(r.total_allowances || 0),
+        formatBDT(r.gross_pay || 0),
+        formatBDT(r.total_deductions || 0),
+        formatBDT(r.net_pay || 0),
+        r.status || '',
+      ]),
+      rightAlignCols: [4, 5, 6, 7, 8],
+    };
+  };
+
+  const handleExportExcel = () => {
+    const cfg = buildReportColumns();
+    downloadExcel({
+      filename: `Payroll-${reportType}-${year}-${String(month).padStart(2, '0')}`,
+      sheetName: reportType,
+      headers: cfg.headers,
+      rows: cfg.rawRows,
+    });
+  };
+
+  const handlePrint = () => {
+    const cfg = buildReportColumns();
+    printTableReport({
+      title: cfg.title,
+      meta: `Rows: ${filteredRows.length} | Generated for Accounts & HRM`,
+      headers: cfg.headers,
+      rows: cfg.printRows,
+      rightAlignCols: cfg.rightAlignCols,
+      landscape: true,
+    });
+  };
 
   const loadReport = async () => {
     setLoading(true);
@@ -91,10 +259,10 @@ export function PayrollReportsView() {
             href={csvUrl}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-lg shadow-xs"
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-bold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg shadow-xs"
           >
             <Download className="w-4 h-4" />
-            <span>Export CSV / Excel</span>
+            <span>Export CSV</span>
           </a>
         </div>
       </div>
@@ -124,6 +292,68 @@ export function PayrollReportsView() {
         ))}
       </div>
 
+      <TableToolbar
+        search={search}
+        onSearchChange={setSearch}
+        searchPlaceholder="Search employee, payslip #, department or bank A/C..."
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSortChange={(k, d) => {
+          setSortKey(k);
+          setSortDir(d);
+        }}
+        sortOptions={[
+          { value: 'name', label: reportType === 'department_summary' ? 'Department' : 'Employee / Name' },
+          ...(reportType !== 'department_summary' ? [{ value: 'payslip_no', label: 'Payslip #' }] : []),
+          { value: 'department', label: 'Department' },
+          ...(reportType === 'tax_summary' ? [{ value: 'tds', label: 'TDS Amount' }] : []),
+          ...(reportType !== 'bank_transfer' ? [{ value: 'gross_pay', label: 'Gross Pay' }] : []),
+          ...(reportType !== 'tax_summary' ? [{ value: 'net_pay', label: 'Net Pay' }] : []),
+          ...(reportType !== 'department_summary' ? [{ value: 'status', label: 'Status' }] : []),
+        ]}
+        filters={
+          <>
+            {reportType !== 'bank_transfer' && (
+              <select
+                value={deptFilter}
+                onChange={(e) => setDeptFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+              >
+                <option value="all">All Departments</option>
+                {EMPLOYEE_DEPARTMENTS.map((d) => (
+                  <option key={d} value={d}>
+                    {d}
+                  </option>
+                ))}
+              </select>
+            )}
+            {reportType !== 'department_summary' && (
+              <select
+                value={statusFilter}
+                onChange={(e) => setStatusFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+              >
+                <option value="all">All Status</option>
+                <option value="Draft">Draft</option>
+                <option value="Verified">Verified</option>
+                <option value="Confirmed">Confirmed</option>
+                <option value="Paid">Paid</option>
+              </select>
+            )}
+          </>
+        }
+        totalCount={rows.length}
+        filteredCount={filteredRows.length}
+        hasActiveFilters={search !== '' || deptFilter !== 'all' || statusFilter !== 'all'}
+        onReset={() => {
+          setSearch('');
+          setDeptFilter('all');
+          setStatusFilter('all');
+        }}
+        onExportExcel={handleExportExcel}
+        onPrint={handlePrint}
+      />
+
       {/* Report Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
         {loading ? (
@@ -131,7 +361,7 @@ export function PayrollReportsView() {
             <RefreshCw className="w-7 h-7 animate-spin text-emerald-600 mx-auto mb-2" />
             <p className="text-xs text-slate-500">Generating report...</p>
           </div>
-        ) : rows.length === 0 ? (
+        ) : filteredRows.length === 0 ? (
           <div className="py-16 text-center text-slate-500">
             <BarChart3 className="w-10 h-10 text-slate-300 mx-auto mb-2" />
             <p className="font-semibold text-slate-700">
@@ -152,7 +382,7 @@ export function PayrollReportsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.department}>
                   <td className="px-4 py-3 font-bold text-slate-900">{r.department}</td>
                   <td className="px-4 py-3 text-center font-mono">{r.employees}</td>
@@ -188,7 +418,7 @@ export function PayrollReportsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.payslip_no}>
                   <td className="px-4 py-3 font-mono text-xs font-bold">{r.payslip_no}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900">
@@ -224,7 +454,7 @@ export function PayrollReportsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.payslip_no}>
                   <td className="px-4 py-3 font-mono text-xs font-bold">{r.payslip_no}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900">
@@ -259,7 +489,7 @@ export function PayrollReportsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => (
+              {filteredRows.map((r) => (
                 <tr key={r.payslip_no}>
                   <td className="px-4 py-3 font-mono text-xs font-bold">{r.payslip_no}</td>
                   <td className="px-4 py-3 font-semibold text-slate-900">

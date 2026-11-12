@@ -35,12 +35,12 @@ export async function GET(
 
     void JournalEntry;
 
-    const [documents, assessment, batch, feePlan, receipts, refunds] = await Promise.all([
+    const [documents, batch, allAssessments, feePlan, receipts, refunds] = await Promise.all([
       StudentDocument.find({ student_id: id }).sort({ createdAt: 1 }),
-      BatchAssessment.findOne({ student_id: id }).lean(),
       Batch.findOne({
         $or: [{ batch_code: student.batch }, { name: student.batch }],
       }).lean(),
+      BatchAssessment.find({ student_id: id }).sort({ updatedAt: -1 }).lean(),
       StudentFeePlan.findOne({ studentId: id, isDeleted: { $ne: true } })
         .populate('invoiceJournalEntryId', 'voucherNo entryDate')
         .lean(),
@@ -53,6 +53,11 @@ export async function GET(
         .sort({ refundDate: -1 })
         .lean(),
     ]);
+
+    const assessment =
+      (batch && allAssessments.find((a) => a.batch_id?.toString() === batch._id.toString())) ||
+      allAssessments[0] ||
+      null;
 
     // Check passport 6-month expiry alert (PRD Section 5.7)
     const passportExpiringSoon = isWithin6Months(student.passport_expiry_date);
@@ -159,8 +164,38 @@ export async function PUT(
     const prevCountry = student.destination_country;
     if (body.destination_country) student.destination_country = body.destination_country.trim();
     if (body.destination_contract_years !== undefined) student.destination_contract_years = Number(body.destination_contract_years);
+    const prevStatus = student.status;
+    const prevBatch = student.batch;
+    let matchedTargetBatch: any = null;
+
+    if (body.batch !== undefined) {
+      const nextBatchStr = String(body.batch || '').trim();
+      if (nextBatchStr) {
+        matchedTargetBatch = await Batch.findOne({
+          $or: [
+            { batch_code: nextBatchStr.toUpperCase() },
+            { batch_code: nextBatchStr },
+            { name: nextBatchStr },
+          ],
+        }).lean();
+        if (
+          matchedTargetBatch &&
+          matchedTargetBatch.trade_id?.toString() !== student.trade_id?.toString()
+        ) {
+          return NextResponse.json(
+            {
+              success: false,
+              message: `Batch "${matchedTargetBatch.batch_code}" belongs to trade "${matchedTargetBatch.trade_name}", not "${student.trade_name}".`,
+            },
+            { status: 400 }
+          );
+        }
+        student.batch = matchedTargetBatch ? matchedTargetBatch.batch_code : nextBatchStr;
+      } else {
+        student.batch = '';
+      }
+    }
     if (body.status) student.status = body.status;
-    if (body.batch) student.batch = body.batch.trim();
     if (body.photo_url !== undefined) student.photo_url = body.photo_url;
     if (body.education_qualifications !== undefined && Array.isArray(body.education_qualifications)) {
       student.education_qualifications = body.education_qualifications
@@ -185,6 +220,72 @@ export async function PUT(
     void prevCountry;
 
     await student.save();
+
+    // Sync batch transfer & assessment state cleanly
+    if (body.batch !== undefined && student.batch !== prevBatch) {
+      if (matchedTargetBatch) {
+        await BatchAssessment.deleteMany({
+          student_id: student._id,
+          batch_id: { $ne: matchedTargetBatch._id },
+          result_status: 'Pending',
+          theory_score: null,
+          practical_score: null,
+          total_score: null,
+          $or: [{ certificate_url: '' }, { certificate_url: { $exists: false } }],
+        });
+        await BatchAssessment.findOneAndUpdate(
+          { batch_id: matchedTargetBatch._id, student_id: student._id },
+          {
+            $setOnInsert: {
+              batch_id: matchedTargetBatch._id,
+              student_id: student._id,
+              result_status:
+                student.status === 'Passed'
+                  ? 'Passed'
+                  : student.status === 'Failed'
+                  ? 'Failed'
+                  : 'Pending',
+            },
+          },
+          { upsert: true }
+        );
+      } else if (!student.batch) {
+        await BatchAssessment.deleteMany({
+          student_id: student._id,
+          result_status: 'Pending',
+          theory_score: null,
+          practical_score: null,
+          total_score: null,
+          $or: [{ certificate_url: '' }, { certificate_url: { $exists: false } }],
+        });
+      }
+    }
+
+    if (body.status && student.status !== prevStatus) {
+      const targetResult =
+        student.status === 'Passed'
+          ? 'Passed'
+          : student.status === 'Failed'
+          ? 'Failed'
+          : student.status === 'Active'
+          ? 'Pending'
+          : null;
+      if (targetResult) {
+        const curBatch =
+          matchedTargetBatch ||
+          (student.batch
+            ? await Batch.findOne({
+                $or: [{ batch_code: student.batch }, { name: student.batch }],
+              }).lean()
+            : null);
+        if (curBatch) {
+          await BatchAssessment.updateOne(
+            { batch_id: curBatch._id, student_id: student._id },
+            { $set: { result_status: targetResult } }
+          );
+        }
+      }
+    }
 
     await createAuditLog({
       user: auth.user,

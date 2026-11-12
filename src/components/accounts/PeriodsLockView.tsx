@@ -4,8 +4,16 @@ import React, { useEffect, useState } from 'react';
 import { Lock, Unlock, Plus, RefreshCw, CheckCircle2, AlertCircle } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatDateDMY } from '@/lib/formatters';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 export function PeriodsLockView() {
   const { user } = useAuth();
@@ -18,6 +26,10 @@ export function PeriodsLockView() {
   const [selectedFy, setSelectedFy] = useState<string>('all');
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Open' | 'Locked'>('all');
+  const [sortKey, setSortKey] = useState('startDate');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const [newYear, setNewYear] = useState(String(new Date().getUTCFullYear() + 1));
   const [creatingFy, setCreatingFy] = useState(false);
@@ -182,6 +194,87 @@ export function PeriodsLockView() {
       </div>
 
       {/* Periods Table */}
+      {(() => {
+        const filtered = periods.filter((p) => {
+          if (statusFilter !== 'all' && p.status !== statusFilter) return false;
+          return matchesSearch(search, [
+            p.name,
+            p.fiscalYearId?.code || `FY${p.year}`,
+            p.status,
+            p.lockReason,
+            p.lockedBy,
+            p.unlockedBy,
+          ]);
+        });
+        const sortedPeriods = sortTableItems(filtered, sortKey, sortDir, {
+          startDate: (p) => new Date(p.startDate || 0),
+          name: (p) => p.name || '',
+          fy: (p) => p.fiscalYearId?.code || `FY${p.year}`,
+          status: (p) => p.status || '',
+        });
+        const headers = ['Period', 'Fiscal Year', 'Start Date', 'End Date', 'Status', 'Governance Note'];
+        const rows = sortedPeriods.map((p) => [
+          p.name,
+          p.fiscalYearId?.code || `FY${p.year}`,
+          formatDateDMY(p.startDate),
+          formatDateDMY(p.endDate),
+          p.status,
+          p.lockReason || '',
+        ]);
+
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search period, fiscal year, lock note..."
+              filters={
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Open">Open</option>
+                  <option value="Locked">Locked</option>
+                </select>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'startDate', label: 'Start Date' },
+                { value: 'name', label: 'Period Name' },
+                { value: 'fy', label: 'Fiscal Year' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={periods.length}
+              filteredCount={sortedPeriods.length}
+              hasActiveFilters={statusFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setStatusFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'accounting-periods',
+                  sheetName: 'Periods',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Accounting Periods & Lock Governance',
+                  headers,
+                  rows,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -202,14 +295,14 @@ export function PeriodsLockView() {
                     Loading accounting periods...
                   </td>
                 </tr>
-              ) : periods.length === 0 ? (
+              ) : sortedPeriods.length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-4 py-8 text-center text-slate-400">
-                    No accounting periods found.
+                    No matching accounting periods found.
                   </td>
                 </tr>
               ) : (
-                periods.map((p) => (
+                sortedPeriods.map((p) => (
                   <tr key={p._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-2.5 font-semibold text-slate-900">{p.name}</td>
                     <td className="px-4 py-2.5 font-mono text-slate-600">
@@ -275,6 +368,9 @@ export function PeriodsLockView() {
           </table>
         </div>
       </div>
+          </div>
+        );
+      })()}
 
       {/* Lock / Unlock Confirmation Modal */}
       <Modal

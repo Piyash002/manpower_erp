@@ -1,21 +1,17 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   FileText,
-  Search,
-  Filter,
   RefreshCw,
-  ShieldCheck,
-  User,
   Clock,
-  Layers,
   ChevronLeft,
   ChevronRight,
-  Database,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { formatDate } from '@/lib/formatters';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 
 export function AuditLogsView() {
   const [logs, setLogs] = useState<any[]>([]);
@@ -25,6 +21,8 @@ export function AuditLogsView() {
   const [totalPages, setTotalPages] = useState(1);
   const [entityFilter, setEntityFilter] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const [sortKey, setSortKey] = useState('timestamp');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const fetchLogs = async (pageNum = 1, entity = entityFilter) => {
     setLoading(true);
@@ -54,16 +52,60 @@ export function AuditLogsView() {
     fetchLogs(1, entityFilter);
   }, [entityFilter]);
 
-  const filteredLogs = logs.filter((log) => {
-    if (!searchTerm) return true;
-    const term = searchTerm.toLowerCase();
-    return (
-      log.action?.toLowerCase().includes(term) ||
-      log.userName?.toLowerCase().includes(term) ||
-      log.entity?.toLowerCase().includes(term) ||
-      log.entityId?.toLowerCase().includes(term)
+  const filteredLogs = useMemo(() => {
+    const filtered = logs.filter((log) =>
+      matchesSearch(searchTerm, [
+        log.action,
+        log.userName,
+        log.userRole,
+        log.entity,
+        log.entityId,
+        typeof log.newValues === 'string' ? log.newValues : JSON.stringify(log.newValues || ''),
+      ])
     );
-  });
+    return sortTableItems(filtered, sortKey, sortDir, {
+      timestamp: (l) => (l.timestamp ? new Date(l.timestamp).getTime() : 0),
+      user: (l) => l.userName || '',
+      action: (l) => l.action || '',
+      entity: (l) => l.entity || '',
+    });
+  }, [logs, searchTerm, sortKey, sortDir]);
+
+  const exportExcel = () => {
+    downloadExcel({
+      filename: `Audit-Logs-Page-${page}`,
+      sheetName: 'AuditLogs',
+      headers: ['Timestamp', 'User', 'Role', 'Action', 'Entity', 'Entity ID', 'New Values', 'Old Values'],
+      rows: filteredLogs.map((log) => [
+        formatDate(log.timestamp),
+        log.userName || 'System',
+        log.userRole || 'Auto',
+        log.action || '',
+        log.entity || '',
+        log.entityId || '',
+        typeof log.newValues === 'string' ? log.newValues : JSON.stringify(log.newValues || ''),
+        typeof log.oldValues === 'string' ? log.oldValues : JSON.stringify(log.oldValues || ''),
+      ]),
+    });
+  };
+
+  const printLogs = () => {
+    printTableReport({
+      title: 'System Audit Logs',
+      subtitle: entityFilter ? `Entity: ${entityFilter}` : 'All Entities',
+      meta: `Page ${page}/${totalPages} | Showing ${filteredLogs.length} of ${total} records`,
+      headers: ['Timestamp', 'User', 'Role', 'Action', 'Entity', 'Entity ID'],
+      rows: filteredLogs.map((log) => [
+        formatDate(log.timestamp),
+        log.userName || 'System',
+        log.userRole || 'Auto',
+        log.action || '',
+        log.entity || '',
+        log.entityId || '',
+      ]),
+      landscape: true,
+    });
+  };
 
   const getEntityBadge = (entity: string) => {
     switch (entity?.toLowerCase()) {
@@ -109,25 +151,28 @@ export function AuditLogsView() {
         </button>
       </div>
 
-      {/* Filter and Search Bar */}
-      <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-xs flex flex-col md:flex-row gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
-          <input
-            type="text"
-            placeholder="Search action, user, or entity ID..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="w-full pl-9 pr-4 py-2 text-xs bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500"
-          />
-        </div>
-
-        <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-slate-400" />
+      {/* Filter, Search, Sort, Excel & Print Bar */}
+      <TableToolbar
+        search={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Search action, user, entity, or ID..."
+        sortKey={sortKey}
+        sortDir={sortDir}
+        onSortChange={(k, d) => {
+          setSortKey(k);
+          setSortDir(d);
+        }}
+        sortOptions={[
+          { value: 'timestamp', label: 'Timestamp' },
+          { value: 'user', label: 'User' },
+          { value: 'action', label: 'Action' },
+          { value: 'entity', label: 'Entity' },
+        ]}
+        filters={
           <select
             value={entityFilter}
             onChange={(e) => setEntityFilter(e.target.value)}
-            className="text-xs bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-500/20 focus:border-emerald-500 font-medium"
+            className="text-xs bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 text-slate-700 font-medium"
           >
             <option value="">All Entities</option>
             <option value="Student">Candidates (Student)</option>
@@ -135,9 +180,20 @@ export function AuditLogsView() {
             <option value="Batch">Batches & Assessments</option>
             <option value="Trade">Trades & Countries</option>
             <option value="User">Users & Authentication</option>
+            <option value="Payroll">Payroll & HRM</option>
+            <option value="Account">Accounts & Vouchers</option>
           </select>
-        </div>
-      </div>
+        }
+        totalCount={logs.length}
+        filteredCount={filteredLogs.length}
+        hasActiveFilters={searchTerm !== '' || entityFilter !== ''}
+        onReset={() => {
+          setSearchTerm('');
+          setEntityFilter('');
+        }}
+        onExportExcel={exportExcel}
+        onPrint={printLogs}
+      />
 
       {/* Audit Logs Table */}
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-hidden">

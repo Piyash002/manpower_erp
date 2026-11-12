@@ -171,11 +171,15 @@ async function runTests() {
       'processStudentDiscountApproval posts 4110 Dr / 1210 Cr and adjusts stages to 1,40,000 BDT'
     );
 
-    // 3. Collect Cash receipt (50,000 BDT) + PDF generation
+    // 3. Collect Bank transfer / Cheque receipt (50,000 BDT) + Bank/Cheque/Proof details + PDF generation
     const rcpt1 = await collectStudentReceipt({
       studentId: student._id.toString(),
       amountPaisa: 5000000,
-      method: 'Cash',
+      method: 'Bank transfer',
+      bankName: 'Dutch-Bangla Bank, Banani',
+      chequeNo: 'CHQ-998811',
+      chequeDate: '2097-04-15',
+      proofUrl: '/api/uploads/accounts/receipts/qa-slip.png',
       receiptDate: '2097-04-12',
       note: 'Stage 1 + Stage 2 payment',
       user: qaAcct,
@@ -188,7 +192,11 @@ async function runTests() {
       voucherNo: rcpt1.entry.voucherNo,
       receiptDate: rcpt1.receipt.receiptDate,
       amountTaka: 50000,
-      method: 'Cash',
+      method: rcpt1.receipt.method,
+      reference: rcpt1.receipt.reference,
+      bankName: rcpt1.receipt.bankName,
+      chequeNo: rcpt1.receipt.chequeNo,
+      chequeDate: rcpt1.receipt.chequeDate,
       createdBy: 'QA',
       studentName: student.name,
       studentNo: student.student_no,
@@ -196,13 +204,19 @@ async function runTests() {
       totalPaidTaka: 50000,
       totalDueTaka: 90000,
     });
+    const pdfText = pdfBuf.toString('latin1');
 
     assert(
       rcpt1.receipt.receiptNo.startsWith('MR-FY2097-') &&
+        rcpt1.receipt.bankName === 'Dutch-Bangla Bank, Banani' &&
+        rcpt1.receipt.chequeNo === 'CHQ-998811' &&
+        rcpt1.receipt.proofUrl === '/api/uploads/accounts/receipts/qa-slip.png' &&
+        pdfText.includes('Dutch-Bangla Bank, Banani') &&
+        pdfText.includes('CHQ-998811') &&
         rcpt1.plan.totalPaidPaisa === 5000000 &&
         rcpt1.plan.totalDuePaisa === 9000000 &&
         pdfBuf.toString('latin1', 0, 5) === '%PDF-',
-      'collectStudentReceipt uses fiscal-year MR-FY2097 sequence and builds valid PDF receipt buffer'
+      'collectStudentReceipt persists Bank/Cheque/Proof metadata, uses MR-FY2097 sequence, and renders PDF'
     );
 
     // 4. Reverse receipt 1 cleanly

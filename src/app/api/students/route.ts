@@ -5,6 +5,7 @@ import { Student } from '@/models/Student';
 import { StudentDocument } from '@/models/StudentDocument';
 import { Batch } from '@/models/Batch';
 import { BatchAssessment } from '@/models/BatchAssessment';
+import { Trade } from '@/models/Trade';
 import { Employee } from '@/models/Employee';
 import { StudentFeePlan } from '@/models/StudentFeePlan';
 import { generateStudentId } from '@/models/Counter';
@@ -269,7 +270,35 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // 2. Fee totals are owned by Accounts (createStudentFeePlanOnAdmission below).
+    // 2. Validate Trade and Batch compatibility cleanly
+    const tradeDoc = await Trade.findById(trade_id).select('_id name active').lean();
+    if (!tradeDoc) {
+      return NextResponse.json(
+        { success: false, message: 'Selected training trade was not found.' },
+        { status: 404 }
+      );
+    }
+
+    const canonicalTradeName = tradeDoc.name;
+    let canonicalBatchCode = batch.trim();
+    const matchedBatch = await Batch.findOne({
+      $or: [{ batch_code: canonicalBatchCode.toUpperCase() }, { batch_code: canonicalBatchCode }, { name: canonicalBatchCode }],
+    }).lean();
+
+    if (matchedBatch) {
+      if (matchedBatch.trade_id?.toString() !== tradeDoc._id.toString()) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: `Batch "${matchedBatch.batch_code}" belongs to trade "${matchedBatch.trade_name}", not "${canonicalTradeName}".`,
+          },
+          { status: 400 }
+        );
+      }
+      canonicalBatchCode = matchedBatch.batch_code;
+    }
+
+    // Fee totals are owned by Accounts (createStudentFeePlanOnAdmission below).
     // Admission never collects money or writes payments directly.
     const admFee = Math.max(0, Math.round(Number(admission_fee || 0)));
     const crsFee = Math.max(0, Math.round(Number(course_fee || 0)));
@@ -336,9 +365,9 @@ export async function POST(req: NextRequest) {
       overseas_reason_for_return: overseas_reason_for_return || '',
 
       // Training
-      trade_id,
-      trade_name: trade_name.trim(),
-      batch: batch.trim(),
+      trade_id: tradeDoc._id,
+      trade_name: canonicalTradeName,
+      batch: canonicalBatchCode,
       session: session.trim(),
       admission_date: admission_date ? new Date(admission_date) : new Date(),
       destination_country: destination_country || 'Not decided yet',
@@ -423,7 +452,7 @@ export async function POST(req: NextRequest) {
         feePlanResult = await createStudentFeePlanOnAdmission({
           studentId: newStudent._id.toString(),
           templateId: fee_template_id || null,
-          tradeName: trade_name.trim(),
+          tradeName: canonicalTradeName,
           destinationCountry: destination_country || 'Not decided yet',
           admissionDate: admission_date,
           fallbackFeeTotals: !fee_template_id
@@ -456,18 +485,19 @@ export async function POST(req: NextRequest) {
     const totalBilledTaka = feePlanResult.plan ? paisaToTaka(feePlanResult.plan.totalBilledPaisa) : 0;
 
     // 7. Auto-link to Batch Assessment if matching Batch exists
-    if (batch && batch.trim()) {
+    if (matchedBatch) {
       try {
-        const matchedBatch = await Batch.findOne({
-          $or: [{ batch_code: batch.trim() }, { name: batch.trim() }],
-        });
-        if (matchedBatch) {
-          await BatchAssessment.create({
-            batch_id: matchedBatch._id,
-            student_id: newStudent._id,
-            result_status: 'Pending',
-          });
-        }
+        await BatchAssessment.findOneAndUpdate(
+          { batch_id: matchedBatch._id, student_id: newStudent._id },
+          {
+            $setOnInsert: {
+              batch_id: matchedBatch._id,
+              student_id: newStudent._id,
+              result_status: 'Pending',
+            },
+          },
+          { upsert: true }
+        );
       } catch (batchErr) {
         console.error('Error linking batch assessment:', batchErr);
       }

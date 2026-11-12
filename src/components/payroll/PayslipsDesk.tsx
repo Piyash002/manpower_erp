@@ -20,10 +20,14 @@ import {
   Lock,
   ChevronLeft,
   ChevronRight,
+  Printer,
+  ArrowUpDown,
+  RotateCcw,
 } from 'lucide-react';
 import { formatBDT, formatDateDMY, EMPLOYEE_DEPARTMENTS } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import { useAuth } from '@/components/layout/DashboardLayout';
 
 const MONTHS = [
@@ -71,6 +75,8 @@ export function PayslipsDesk() {
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchInput, setSearchInput] = useState<string>('');
   const [searchQuery, setSearchQuery] = useState<string>('');
+  const [sortKey, setSortKey] = useState<string>('payslip_no');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [page, setPage] = useState<number>(1);
 
   const [payslips, setPayslips] = useState<any[]>([]);
@@ -468,6 +474,50 @@ export function PayslipsDesk() {
             <option value="Paid">Paid</option>
             <option value="Reversed">Reversed</option>
           </select>
+
+          <div className="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 rounded-lg px-2 py-1">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
+            <select
+              value={sortKey}
+              onChange={(e) => setSortKey(e.target.value)}
+              className="text-xs font-semibold bg-transparent focus:outline-none text-slate-700"
+            >
+              <option value="payslip_no">Sort: Payslip #</option>
+              <option value="employee">Sort: Employee</option>
+              <option value="period">Sort: Period</option>
+              <option value="gross">Sort: Gross Pay</option>
+              <option value="deductions">Sort: Deductions</option>
+              <option value="net">Sort: Net Pay</option>
+              <option value="status">Sort: Status</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => setSortDir((d) => (d === 'asc' ? 'desc' : 'asc'))}
+              className="px-1.5 py-0.5 text-[11px] font-mono bg-white border border-slate-200 rounded hover:bg-slate-100"
+              title="Toggle sort direction"
+            >
+              {sortDir === 'asc' ? '↑' : '↓'}
+            </button>
+          </div>
+
+          {(searchQuery !== '' || month !== 'all' || year !== String(now.getFullYear()) || department !== 'all' || statusFilter !== 'all') && (
+            <button
+              type="button"
+              onClick={() => {
+                setSearchInput('');
+                setSearchQuery('');
+                setMonth('all');
+                setYear(String(now.getFullYear()));
+                setDepartment('all');
+                setStatusFilter('all');
+                setPage(1);
+              }}
+              className="inline-flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-slate-600 hover:text-slate-900 bg-slate-100 rounded-lg"
+            >
+              <RotateCcw className="w-3 h-3" />
+              Reset
+            </button>
+          )}
         </div>
 
         {/* Export filtered/selected */}
@@ -493,6 +543,47 @@ export function PayslipsDesk() {
             <Download className="w-3.5 h-3.5" />
             CSV
           </a>
+          <button
+            type="button"
+            onClick={() => {
+              const sorted = sortTableItems(payslips, sortKey, sortDir, {
+                payslip_no: (p) => p.payslip_no || '',
+                employee: (p) => `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+                period: (p) => (p.year || 0) * 100 + (p.month || 0),
+                gross: (p) => Number(p.gross_pay || 0),
+                deductions: (p) => Number(p.total_deductions || 0),
+                net: (p) => Number(p.net_pay || 0),
+                status: (p) => p.status || '',
+              });
+              const totalGross = sorted.reduce((s, p) => s + Number(p.gross_pay || 0), 0);
+              const totalDed = sorted.reduce((s, p) => s + Number(p.total_deductions || 0), 0);
+              const totalNet = sorted.reduce((s, p) => s + Number(p.net_pay || 0), 0);
+              printTableReport({
+                title: 'Payslips Register',
+                subtitle: `Month: ${month === 'all' ? 'All' : MONTHS[Number(month) - 1]} | Year: ${year} | Dept: ${department} | Status: ${statusFilter}`,
+                meta: `Page Rows: ${sorted.length} (Total Matching: ${allSummary.count})`,
+                headers: ['Payslip No', 'Emp ID', 'Employee', 'Department', 'Period', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'],
+                rows: sorted.map((p) => [
+                  p.payslip_no || '',
+                  p.employee_id?.employee_id || '',
+                  `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+                  p.employee_id?.department || '',
+                  `${MONTHS[(p.month || 1) - 1]} ${p.year}`,
+                  formatBDT(p.gross_pay || 0),
+                  formatBDT(p.total_deductions || 0),
+                  formatBDT(p.net_pay || 0),
+                  p.status || '',
+                ]),
+                rightAlignCols: [5, 6, 7],
+                summaryRow: ['PAGE TOTAL', '', `${sorted.length} Payslips`, '', '', formatBDT(totalGross), formatBDT(totalDed), formatBDT(totalNet), ''],
+                landscape: true,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print
+          </button>
         </div>
       </div>
 
@@ -579,7 +670,15 @@ export function PayslipsDesk() {
                   </td>
                 </tr>
               ) : (
-                payslips.map((p) => (
+                sortTableItems(payslips, sortKey, sortDir, {
+                  payslip_no: (p) => p.payslip_no || '',
+                  employee: (p) => `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+                  period: (p) => (p.year || 0) * 100 + (p.month || 0),
+                  gross: (p) => Number(p.gross_pay || 0),
+                  deductions: (p) => Number(p.total_deductions || 0),
+                  net: (p) => Number(p.net_pay || 0),
+                  status: (p) => p.status || '',
+                }).map((p) => (
                   <tr
                     key={p._id}
                     onClick={() => openDrawer(p)}

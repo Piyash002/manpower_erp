@@ -38,21 +38,57 @@ export async function GET(req: NextRequest) {
       .sort({ start_date: -1 })
       .lean();
 
-    // Enrich each batch with trainee statistics
+    // Enrich each batch with deduplicated, synchronized trainee statistics
     const enrichedBatches = await Promise.all(
       batches.map(async (batch: any) => {
         const batchId = batch._id;
 
-        // Count students having this batch code or enrolled in assessments
-        const assessments = await BatchAssessment.find({ batch_id: batchId }).lean();
-        const studentCountByBatchField = await Student.countDocuments({
-          $or: [{ batch: batch.batch_code }, { batch: batch.name }],
-        });
+        const [assessments, studentsByBatch] = await Promise.all([
+          BatchAssessment.find({ batch_id: batchId }).lean(),
+          Student.find({
+            $or: [{ batch: batch.batch_code }, { batch: batch.name }],
+          })
+            .select('_id status')
+            .lean(),
+        ]);
 
-        const totalEnrolled = Math.max(assessments.length, studentCountByBatchField);
-        const passedCount = assessments.filter((a) => a.result_status === 'Passed').length;
-        const failedCount = assessments.filter((a) => a.result_status === 'Failed').length;
-        const certificatesCount = assessments.filter((a) => Boolean(a.certificate_url)).length;
+        const enrolledIds = new Set<string>();
+        const assessmentByStudent = new Map<string, any>();
+
+        for (const s of studentsByBatch) {
+          enrolledIds.add(s._id.toString());
+        }
+        for (const a of assessments) {
+          const sid = a.student_id?.toString();
+          if (sid) {
+            assessmentByStudent.set(sid, a);
+            enrolledIds.add(sid);
+          }
+        }
+
+        // Verify all IDs in assessmentByStudent exist in Student collection (skip orphaned rows)
+        if (assessmentByStudent.size > 0) {
+          const validStudentRows = await Student.find({
+            _id: { $in: Array.from(enrolledIds) },
+          })
+            .select('_id')
+            .lean();
+          const validSet = new Set(validStudentRows.map((v) => v._id.toString()));
+          for (const sid of Array.from(enrolledIds)) {
+            if (!validSet.has(sid)) enrolledIds.delete(sid);
+          }
+        }
+
+        let passedCount = 0;
+        let failedCount = 0;
+        let certificatesCount = 0;
+        for (const sid of enrolledIds) {
+          const a = assessmentByStudent.get(sid);
+          if (a?.result_status === 'Passed') passedCount++;
+          else if (a?.result_status === 'Failed') failedCount++;
+          if (a?.certificate_url) certificatesCount++;
+        }
+        const totalEnrolled = enrolledIds.size;
 
         return {
           ...batch,

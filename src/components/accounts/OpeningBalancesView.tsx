@@ -3,9 +3,17 @@
 import React, { useEffect, useState } from 'react';
 import { Scale, Plus, CheckCircle2, AlertCircle, RefreshCw, X } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { formatDateDMY } from '@/lib/formatters';
-import { formatPaisaBDT, takaToPaisa } from '@/lib/accounts-money';
+import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 interface OpeningRow {
   accountId: string;
@@ -30,6 +38,10 @@ export function OpeningBalancesView() {
   const [loading, setLoading] = useState(true);
   const [posting, setPosting] = useState(false);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Posted' | 'Reversed'>('all');
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   const loadData = async () => {
     setLoading(true);
@@ -310,17 +322,91 @@ export function OpeningBalancesView() {
       )}
 
       {/* Posted History */}
+      {(() => {
+        const filtered = history.filter((e) => {
+          if (statusFilter !== 'all' && e.status !== statusFilter) return false;
+          return matchesSearch(search, [e.voucherNo, e.description, e.status, formatDateDMY(e.entryDate)]);
+        });
+        const sortedHistory = sortTableItems(filtered, sortKey, sortDir, {
+          date: (e) => new Date(e.entryDate || 0),
+          voucher: (e) => e.voucherNo || '',
+          amount: (e) => Number(e.totalDebitPaisa || 0),
+          status: (e) => e.status || '',
+        });
+        const headers = ['Voucher No', 'Cutover Date', 'Description', 'Lines', 'Total Debit (BDT)', 'Status'];
+        const exportRows = sortedHistory.map((e) => [
+          e.voucherNo,
+          formatDateDMY(e.entryDate),
+          e.description,
+          (e.lines || []).length,
+          paisaToTaka(e.totalDebitPaisa || 0),
+          e.status,
+        ]);
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search opening voucher, description..."
+              filters={
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value as any)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                >
+                  <option value="all">All Status</option>
+                  <option value="Posted">Posted</option>
+                  <option value="Reversed">Reversed</option>
+                </select>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'date', label: 'Cutover Date' },
+                { value: 'voucher', label: 'Voucher No' },
+                { value: 'amount', label: 'Amount' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={history.length}
+              filteredCount={sortedHistory.length}
+              hasActiveFilters={statusFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setStatusFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'opening-balances-history',
+                  sheetName: 'Opening Balances',
+                  headers,
+                  rows: exportRows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Opening Balance Entries',
+                  headers,
+                  rows: exportRows,
+                  rightAlignCols: [3, 4],
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-200 bg-slate-50 text-xs font-bold text-slate-700 uppercase">
-          Posted Opening Balance Entries ({history.length})
+          Posted Opening Balance Entries ({sortedHistory.length})
         </div>
-        {history.length === 0 ? (
+        {sortedHistory.length === 0 ? (
           <div className="p-6 text-center text-xs text-slate-400">
-            No opening balance entries posted yet.
+            No matching opening balance entries found.
           </div>
         ) : (
           <div className="divide-y divide-slate-100 text-xs">
-            {history.map((e) => (
+            {sortedHistory.map((e) => (
               <div key={e._id} className="p-4 flex items-center justify-between gap-4">
                 <div>
                   <span className="font-mono font-bold text-slate-900">{e.voucherNo}</span>{' '}
@@ -337,6 +423,9 @@ export function OpeningBalancesView() {
           </div>
         )}
       </div>
+          </div>
+        );
+      })()}
     </div>
   );
 }

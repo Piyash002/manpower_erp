@@ -525,6 +525,9 @@ export function buildMoneyReceiptPdfBuffer(receipt: {
   amountTaka: number;
   method: string;
   reference?: string;
+  bankName?: string;
+  chequeNo?: string;
+  chequeDate?: string | Date | null;
   note?: string;
   createdBy: string;
   studentName: string;
@@ -580,8 +583,21 @@ export function buildMoneyReceiptPdfBuffer(receipt: {
   text(360, 695, `Mobile: ${receipt.mobile || '-'}`, 9, false);
   line(40, 682, 555, 682);
   text(52, 664, `Payment Method: ${receipt.method}`, 9.5, true);
-  text(250, 664, `Reference / TrxID: ${receipt.reference || '-'}`, 9, false);
-  text(52, 644, `Note: ${String(receipt.note || '-').slice(0, 82)}`, 8.5, false);
+  text(250, 664, `Reference / TrxID: ${receipt.reference || receipt.chequeNo || '-'}`, 9, false);
+  const bankLine = [
+    receipt.bankName ? `Bank: ${receipt.bankName}` : '',
+    receipt.chequeNo ? `Cheque/Advice: ${receipt.chequeNo}` : '',
+    receipt.chequeDate ? `Cheque Date: ${formatDateDMY(receipt.chequeDate)}` : '',
+  ]
+    .filter(Boolean)
+    .join('  |  ');
+  text(
+    52,
+    644,
+    `${bankLine ? `${bankLine}  |  ` : ''}Note: ${String(receipt.note || '-').slice(0, 68)}`.slice(0, 92),
+    8.5,
+    false
+  );
 
   // Stage Allocations
   let y = 595;

@@ -245,15 +245,20 @@ export function AdmissionForm() {
     });
   }, [existingBatches, formData.trade_id]);
 
-  // Auto-select first active batch when tradeBatches change
+  // Auto-select first active batch when tradeBatches change, or clear stale batch from another trade
   useEffect(() => {
     if (tradeBatches.length > 0) {
       const exists = tradeBatches.some((b) => b.batch_code === formData.batch);
       if (!exists) {
         setFormData((prev) => ({ ...prev, batch: tradeBatches[0].batch_code }));
       }
+    } else if (existingBatches.length > 0 && formData.batch) {
+      const belongsToOtherTrade = existingBatches.some((b) => b.batch_code === formData.batch);
+      if (belongsToOtherTrade || formData.batch.startsWith('B-')) {
+        setFormData((prev) => ({ ...prev, batch: '' }));
+      }
     }
-  }, [tradeBatches]);
+  }, [tradeBatches, existingBatches, formData.batch]);
 
   // Quick Batch Modal State
   const [isQuickBatchModalOpen, setIsQuickBatchModalOpen] = useState(false);

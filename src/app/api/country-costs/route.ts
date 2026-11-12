@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { CountryCost } from '@/models/CountryCost';
+import { Trade } from '@/models/Trade';
 
 // GET /api/country-costs
 export async function GET(req: NextRequest) {
@@ -55,8 +56,31 @@ export async function POST(req: NextRequest) {
     const total = vCost + gFee;
 
     await connectDB();
+    const tradeExists = await Trade.findById(trade_id).select('_id name').lean();
+    if (!tradeExists) {
+      return NextResponse.json(
+        { success: false, message: 'Selected trade was not found.' },
+        { status: 404 }
+      );
+    }
+
+    const cleanCountry = country.trim();
+    const duplicate = await CountryCost.findOne({
+      trade_id,
+      country: { $regex: new RegExp(`^${cleanCountry.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') },
+    }).lean();
+    if (duplicate) {
+      return NextResponse.json(
+        {
+          success: false,
+          message: `Destination "${cleanCountry}" is already configured for trade "${tradeExists.name}". Edit the existing entry instead.`,
+        },
+        { status: 409 }
+      );
+    }
+
     const countryCost = await CountryCost.create({
-      country: country.trim(),
+      country: cleanCountry,
       trade_id,
       visa_days: Number(visa_days),
       visa_cost: vCost,

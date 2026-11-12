@@ -28,7 +28,15 @@ import {
 import { formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 interface TraineeAssessment {
   _id: string;
@@ -96,6 +104,12 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
   const [editFormData, setEditFormData] = useState<any>({});
   const [isSubmittingEdit, setIsSubmittingEdit] = useState(false);
   const [editError, setEditError] = useState('');
+
+  // Roster Search / Filter / Sort
+  const [rosterSearch, setRosterSearch] = useState('');
+  const [resultFilter, setResultFilter] = useState<'all' | 'Passed' | 'Failed' | 'Pending'>('all');
+  const [rosterSortKey, setRosterSortKey] = useState('name');
+  const [rosterSortDir, setRosterSortDir] = useState<SortDir>('asc');
 
   const canEdit = user?.role === 'Admin' || user?.role === 'Counselor';
 
@@ -547,7 +561,96 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
               </button>
             )}
           </div>
-        ) : (
+        ) : (() => {
+          const filteredTrainees = trainees.filter((t) => {
+            if (resultFilter !== 'all' && t.result_status !== resultFilter) return false;
+            return matchesSearch(rosterSearch, [
+              t.student.name,
+              t.student.student_no,
+              t.student.mobile,
+              t.certificate_no,
+              t.result_status,
+            ]);
+          });
+          const sortedTrainees = sortTableItems(filteredTrainees, rosterSortKey, rosterSortDir, {
+            name: (t) => t.student.name || '',
+            id: (t) => t.student.student_no || '',
+            total: (t) => (t.total_score ?? -1),
+            theory: (t) => (t.theory_score ?? -1),
+            practical: (t) => (t.practical_score ?? -1),
+            result: (t) => t.result_status || '',
+          });
+          const headers = ['Student ID', 'Candidate Name', 'Mobile', 'Theory', 'Practical', 'Total %', 'Result', 'Certificate No'];
+          const rows = sortedTrainees.map((t) => [
+            t.student.student_no,
+            t.student.name,
+            t.student.mobile,
+            t.theory_score ?? '',
+            t.practical_score ?? '',
+            t.total_score ?? '',
+            t.result_status,
+            t.certificate_no || '',
+          ]);
+          return (
+            <div>
+              <div className="p-3 border-b border-slate-200 bg-slate-50/40">
+                <TableToolbar
+                  search={rosterSearch}
+                  onSearchChange={setRosterSearch}
+                  searchPlaceholder="Search candidate name, ID, mobile, cert no..."
+                  filters={
+                    <select
+                      value={resultFilter}
+                      onChange={(e) => setResultFilter(e.target.value as any)}
+                      className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                    >
+                      <option value="all">All Results</option>
+                      <option value="Passed">Passed</option>
+                      <option value="Failed">Failed</option>
+                      <option value="Pending">Pending</option>
+                    </select>
+                  }
+                  sortKey={rosterSortKey}
+                  sortDir={rosterSortDir}
+                  sortOptions={[
+                    { value: 'name', label: 'Candidate Name' },
+                    { value: 'id', label: 'Student ID' },
+                    { value: 'total', label: 'Total Score' },
+                    { value: 'theory', label: 'Theory Score' },
+                    { value: 'practical', label: 'Practical Score' },
+                    { value: 'result', label: 'Result Status' },
+                  ]}
+                  onSortChange={(k, d) => {
+                    setRosterSortKey(k);
+                    setRosterSortDir(d);
+                  }}
+                  totalCount={trainees.length}
+                  filteredCount={sortedTrainees.length}
+                  hasActiveFilters={resultFilter !== 'all'}
+                  onReset={() => {
+                    setRosterSearch('');
+                    setResultFilter('all');
+                  }}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: `batch-${batch.batch_code}-results`,
+                      sheetName: batch.batch_code,
+                      headers,
+                      rows,
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: `Batch Assessment Sheet — ${batch.batch_code}`,
+                      subtitle: `${batch.name} (${batch.trade_name})`,
+                      meta: `Result Filter: ${resultFilter}`,
+                      headers,
+                      rows,
+                      rightAlignCols: [3, 4, 5],
+                    })
+                  }
+                />
+              </div>
           <div className="overflow-x-auto">
             <table className="w-full text-left text-sm">
               <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase tracking-wider">
@@ -562,7 +665,7 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {trainees.map((t) => {
+                {sortedTrainees.map((t) => {
                   const s = t.student;
                   const hasCert = Boolean(t.certificate_url);
                   return (
@@ -663,7 +766,9 @@ export function BatchDetail({ batchId }: BatchDetailProps) {
               </tbody>
             </table>
           </div>
-        )}
+            </div>
+          );
+        })()}
       </div>
 
       {/* GRADE & CERTIFICATE MODAL */}

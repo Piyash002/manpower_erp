@@ -5,6 +5,7 @@ import { MoneyReceipt } from '@/models/MoneyReceipt';
 import { FeeRefund, type RefundKind, type RefundRuleCode } from '@/models/FeeRefund';
 import { FiscalYear } from '@/models/FiscalYear';
 import { JournalEntry } from '@/models/JournalEntry';
+import { Account } from '@/models/Account';
 import { Student } from '@/models/Student';
 import { AuditLog } from '@/models/AuditLog';
 import { VoucherSequence } from '@/models/VoucherSequence';
@@ -104,6 +105,10 @@ export async function collectStudentReceipt(params: {
   method: PaymentMethod;
   depositAccountId?: string;
   reference?: string;
+  bankName?: string;
+  chequeNo?: string;
+  chequeDate?: Date | string;
+  proofUrl?: string;
   receiptDate?: Date | string;
   note?: string;
   targetStageNo?: number | null;
@@ -124,6 +129,19 @@ export async function collectStudentReceipt(params: {
   if (Number.isNaN(rDate.getTime())) {
     throw new Error('Invalid receipt date.');
   }
+
+  let parsedChequeDate: Date | null = null;
+  if (params.chequeDate) {
+    parsedChequeDate = new Date(params.chequeDate);
+    if (Number.isNaN(parsedChequeDate.getTime())) {
+      throw new Error('Invalid cheque date.');
+    }
+  }
+
+  const cleanBankName = params.bankName?.trim() || '';
+  const cleanChequeNo = params.chequeNo?.trim() || '';
+  const cleanProofUrl = params.proofUrl?.trim() || '';
+  const cleanReference = params.reference?.trim() || cleanChequeNo || '';
 
   const branch = params.branch?.trim() || 'Main';
   const department = params.department?.trim() || 'Counseling';
@@ -148,20 +166,44 @@ export async function collectStudentReceipt(params: {
       throw new Error('Student not found.');
     }
 
-    const depositAccId =
-      params.depositAccountId || (await getSystemAccountId(resolveDepositSystemTag(params.method)));
+    let depositAccId = params.depositAccountId?.trim() || '';
+    if (depositAccId) {
+      if (!mongoose.Types.ObjectId.isValid(depositAccId)) {
+        throw new Error('Invalid deposit account ID.');
+      }
+      const chosenAcc = await Account.findOne({
+        _id: depositAccId,
+        active: true,
+        isGroup: false,
+        type: 'Asset',
+        isDeleted: { $ne: true },
+      }).session(session);
+      if (!chosenAcc) {
+        throw new Error('Deposit account must be an active non-group Asset account.');
+      }
+      depositAccId = chosenAcc._id.toString();
+    } else {
+      depositAccId = await getSystemAccountId(resolveDepositSystemTag(params.method));
+    }
+
     const receivableAccId = await getSystemAccountId('STUDENT_RECEIVABLE');
     const { fiscalYearCode } = await resolveOpenPeriodForDate(rDate, session);
     const receiptNo = await nextFiscalSeriesId('MR', fiscalYearCode, 'ACCOUNTS_MR', 'RV', session);
     const idemKey = params.idempotencyKey || `RECEIPT:${receiptNo}`;
 
     const allocations = allocatePaisaAcrossStages(plan.stages, amountPaisa, params.targetStageNo);
+    const bankDetailLabel = [
+      cleanBankName ? `Bank: ${cleanBankName}` : '',
+      cleanChequeNo ? `Cheque/Ref: ${cleanChequeNo}` : '',
+    ]
+      .filter(Boolean)
+      .join(' | ');
 
     const { entry } = await postTransactionEntry({
       journalType: 'RV',
       entryDate: rDate,
-      description: `Student fee receipt ${receiptNo} from ${student.name} (${student.student_no}) via ${params.method}`,
-      reference: params.reference?.trim() || receiptNo,
+      description: `Student fee receipt ${receiptNo} from ${student.name} (${student.student_no}) via ${params.method}${bankDetailLabel ? ` [${bankDetailLabel}]` : ''}`,
+      reference: cleanReference || receiptNo,
       sourceModule: 'FEE_RECEIPT',
       sourceId: receiptNo,
       idempotencyKey: idemKey,
@@ -170,7 +212,7 @@ export async function collectStudentReceipt(params: {
       lines: [
         {
           accountId: depositAccId,
-          description: `Received via ${params.method} (${receiptNo})`,
+          description: `Received via ${params.method} (${receiptNo})${bankDetailLabel ? ` — ${bankDetailLabel}` : ''}`,
           debitPaisa: amountPaisa,
           creditPaisa: 0,
           branch,
@@ -200,7 +242,11 @@ export async function collectStudentReceipt(params: {
           amountPaisa,
           method: params.method,
           depositAccountId: new mongoose.Types.ObjectId(depositAccId),
-          reference: params.reference?.trim() || '',
+          reference: cleanReference,
+          bankName: cleanBankName,
+          chequeNo: cleanChequeNo,
+          chequeDate: parsedChequeDate,
+          proofUrl: cleanProofUrl,
           receiptDate: rDate,
           note: params.note?.trim() || '',
           branch,
@@ -248,6 +294,9 @@ export async function collectStudentReceipt(params: {
             studentNo: student.student_no,
             amountPaisa,
             method: params.method,
+            bankName: cleanBankName || undefined,
+            chequeNo: cleanChequeNo || undefined,
+            proofUrl: cleanProofUrl || undefined,
           },
           timestamp: new Date(),
         },

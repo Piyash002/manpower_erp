@@ -15,6 +15,10 @@ export interface IMoneyReceipt extends Document {
   method: PaymentMethod;
   depositAccountId: mongoose.Types.ObjectId;
   reference?: string;
+  bankName?: string;
+  chequeNo?: string;
+  chequeDate?: Date | null;
+  proofUrl?: string;
   receiptDate: Date;
   note?: string;
   branch: string;
@@ -44,6 +48,10 @@ const MoneyReceiptSchema = new Schema<IMoneyReceipt>(
     },
     depositAccountId: { type: Schema.Types.ObjectId, ref: 'Account', required: true },
     reference: { type: String, default: '', trim: true },
+    bankName: { type: String, default: '', trim: true },
+    chequeNo: { type: String, default: '', trim: true },
+    chequeDate: { type: Date, default: null },
+    proofUrl: { type: String, default: '', trim: true },
     receiptDate: { type: Date, required: true, default: Date.now, index: true },
     note: { type: String, default: '', trim: true },
     branch: { type: String, default: 'Main', trim: true },

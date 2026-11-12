@@ -3,9 +3,17 @@
 import React, { useEffect, useState } from 'react';
 import { BookMarked, Download, FileSpreadsheet, RefreshCw } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { EMPLOYEE_DEPARTMENTS, formatDateDMY } from '@/lib/formatters';
-import { formatPaisaBDT } from '@/lib/accounts-money';
+import { formatPaisaBDT, paisaToTaka } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 export function GeneralLedgerView() {
   const { user } = useAuth();
@@ -23,6 +31,9 @@ export function GeneralLedgerView() {
   const [department, setDepartment] = useState<string>('all');
   const [ledger, setLedger] = useState<any | null>(null);
   const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   useEffect(() => {
     if (!canAccess) return;
@@ -196,7 +207,80 @@ export function GeneralLedgerView() {
         </div>
       )}
 
-      {/* Ledger Table */}
+      {/* Ledger Search / Sort / Export / Print + Table */}
+      {(() => {
+        const rawRows: any[] = ledger?.rows || [];
+        const filteredRows = rawRows.filter((r) =>
+          matchesSearch(search, [r.voucherNo, r.journalType, r.branch, r.department, r.description])
+        );
+        const sortedRows = sortTableItems(filteredRows, sortKey, sortDir, {
+          date: (r) => new Date(r.entryDate || 0),
+          voucherNo: (r) => r.voucherNo || '',
+          debit: (r) => Number(r.debitPaisa || 0),
+          credit: (r) => Number(r.creditPaisa || 0),
+          balance: (r) => Number(r.runningBalancePaisa || 0),
+        });
+        const selectedAcc = accounts.find((a) => a._id === accountId);
+        const headers = ['Date', 'Voucher', 'Type', 'Branch / Dept', 'Description', 'Debit (BDT)', 'Credit (BDT)', 'Balance (BDT)'];
+        const exportRows = sortedRows.map((r) => [
+          formatDateDMY(r.entryDate),
+          r.voucherNo,
+          r.journalType,
+          `${r.branch || 'Main'} / ${r.department || 'General'}`,
+          r.description,
+          r.debitPaisa > 0 ? paisaToTaka(r.debitPaisa) : 0,
+          r.creditPaisa > 0 ? paisaToTaka(r.creditPaisa) : 0,
+          paisaToTaka(r.runningBalancePaisa || 0),
+        ]);
+
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search voucher no, description, dept..."
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'date', label: 'Entry Date' },
+                { value: 'voucherNo', label: 'Voucher No' },
+                { value: 'debit', label: 'Debit' },
+                { value: 'credit', label: 'Credit' },
+                { value: 'balance', label: 'Balance' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={rawRows.length}
+              filteredCount={sortedRows.length}
+              onReset={() => setSearch('')}
+              onExportExcel={
+                ledger
+                  ? () =>
+                      downloadExcel({
+                        filename: `ledger-${selectedAcc?.code || 'account'}`,
+                        sheetName: 'General Ledger',
+                        headers,
+                        rows: exportRows,
+                      })
+                  : undefined
+              }
+              onPrint={
+                ledger
+                  ? () =>
+                      printTableReport({
+                        title: `General Ledger — ${selectedAcc ? `${selectedAcc.code} ${selectedAcc.name}` : ''}`,
+                        meta: `Period: ${startDate} to ${endDate} | Dept: ${department}`,
+                        headers,
+                        rows: exportRows,
+                        rightAlignCols: [5, 6, 7],
+                        landscape: true,
+                      })
+                  : undefined
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -237,14 +321,14 @@ export function GeneralLedgerView() {
                       {formatPaisaBDT(ledger.openingBalancePaisa)}
                     </td>
                   </tr>
-                  {ledger.rows.length === 0 ? (
+                  {sortedRows.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                        No posted entries for this account in the selected date range.
+                        No matching ledger entries found.
                       </td>
                     </tr>
                   ) : (
-                    ledger.rows.map((r: any) => (
+                    sortedRows.map((r: any) => (
                       <tr key={r._id} className="hover:bg-slate-50/70">
                         <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
                           {formatDateDMY(r.entryDate)}
@@ -275,6 +359,9 @@ export function GeneralLedgerView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
     </div>
   );
 }

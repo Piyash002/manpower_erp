@@ -73,12 +73,26 @@ export async function POST(
       { upsert: true, new: true }
     );
 
-    // Sync student status if result is finalized
-    if (result_status === 'Passed') {
+    // Sync student status & batch code cleanly when result changes
+    let studentChanged = false;
+    if (result_status === 'Passed' && student.status !== 'Passed') {
       student.status = 'Passed';
-      await student.save();
-    } else if (result_status === 'Failed') {
+      studentChanged = true;
+    } else if (result_status === 'Failed' && student.status !== 'Failed') {
       student.status = 'Failed';
+      studentChanged = true;
+    } else if (
+      result_status === 'Pending' &&
+      (student.status === 'Passed' || student.status === 'Failed')
+    ) {
+      student.status = 'Active';
+      studentChanged = true;
+    }
+    if (!student.batch || student.batch.trim() !== batch.batch_code) {
+      student.batch = batch.batch_code;
+      studentChanged = true;
+    }
+    if (studentChanged) {
       await student.save();
     }
 

@@ -22,6 +22,8 @@ import {
 import { formatBDT, formatDateDMY, EMPLOYEE_DEPARTMENTS } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { PayslipsDesk } from '@/components/payroll/PayslipsDesk';
 
@@ -85,6 +87,13 @@ export function PayrollRunsView() {
   const [confirmModalAction, setConfirmModalAction] = useState<'confirm' | 'reverse' | null>(null);
   const [reverseReason, setReverseReason] = useState('');
   const [modalError, setModalError] = useState('');
+
+  // Run Payslips Table Search / Filter / Sort
+  const [slipSearch, setSlipSearch] = useState('');
+  const [slipDeptFilter, setSlipDeptFilter] = useState('all');
+  const [slipStatusFilter, setSlipStatusFilter] = useState('all');
+  const [slipSortKey, setSlipSortKey] = useState('payslip_no');
+  const [slipSortDir, setSlipSortDir] = useState<SortDir>('asc');
 
   const loadRuns = async (preferRunId?: string) => {
     setLoading(true);
@@ -247,6 +256,92 @@ export function PayrollRunsView() {
   const warnings = run?.warnings || [];
   const skipped = run?.skipped_employees || [];
   const currentStepIdx = run ? RUN_STEPS.indexOf(run.status as any) : -1;
+
+  const filteredRunPayslips = sortTableItems(
+    runPayslips.filter((p: any) => {
+      const dept = p.employee_id?.department || '';
+      if (slipDeptFilter !== 'all' && dept !== slipDeptFilter) return false;
+      if (slipStatusFilter !== 'all' && p.status !== slipStatusFilter) return false;
+      return matchesSearch(slipSearch, [
+        p.payslip_no,
+        p.employee_id?.firstName,
+        p.employee_id?.lastName,
+        p.employee_id?.employee_id,
+        dept,
+        p.status,
+      ]);
+    }),
+    slipSortKey,
+    slipSortDir,
+    {
+      payslip_no: (p: any) => p.payslip_no || '',
+      employee: (p: any) => `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+      department: (p: any) => p.employee_id?.department || '',
+      gross: (p: any) => Number(p.gross_pay || 0),
+      deductions: (p: any) => Number(p.total_deductions || 0),
+      net: (p: any) => Number(p.net_pay || 0),
+      status: (p: any) => p.status || '',
+    }
+  );
+
+  const exportRunPayslipsExcel = () => {
+    if (!run) return;
+    downloadExcel({
+      filename: `Payroll-Run-${run.batch_code || 'Payslips'}`,
+      sheetName: run.batch_code || 'PayrollRun',
+      headers: [
+        'Payslip No',
+        'Employee ID',
+        'Employee Name',
+        'Department',
+        'Days',
+        'OT Hours',
+        'Gross Pay (BDT)',
+        'Deductions (BDT)',
+        'Net Pay (BDT)',
+        'Status',
+      ],
+      rows: filteredRunPayslips.map((p: any) => [
+        p.payslip_no || '',
+        p.employee_id?.employee_id || '',
+        `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+        p.employee_id?.department || '',
+        `${p.prorated_days || p.days_in_month || 0}/${p.days_in_month || 0}`,
+        Number(p.inputs_snapshot?.overtime_hours || 0),
+        Number(p.gross_pay || 0),
+        Number(p.total_deductions || 0),
+        Number(p.net_pay || 0),
+        p.status || '',
+      ]),
+    });
+  };
+
+  const printRunPayslipsReport = () => {
+    if (!run) return;
+    const totalGross = filteredRunPayslips.reduce((s: number, p: any) => s + Number(p.gross_pay || 0), 0);
+    const totalDed = filteredRunPayslips.reduce((s: number, p: any) => s + Number(p.total_deductions || 0), 0);
+    const totalNet = filteredRunPayslips.reduce((s: number, p: any) => s + Number(p.net_pay || 0), 0);
+    printTableReport({
+      title: `Payroll Run — ${run.batch_code} (${run.name})`,
+      subtitle: `${MONTHS[(run.month || 1) - 1]} ${run.year} · Status: ${run.status}`,
+      meta: `Rows: ${filteredRunPayslips.length} | Gross: ${formatBDT(totalGross)} | Net: ${formatBDT(totalNet)}`,
+      headers: ['Payslip #', 'Emp ID', 'Employee', 'Department', 'Days / OT', 'Gross Pay', 'Deductions', 'Net Pay', 'Status'],
+      rows: filteredRunPayslips.map((p: any) => [
+        p.payslip_no || '',
+        p.employee_id?.employee_id || '',
+        `${p.employee_id?.firstName || ''} ${p.employee_id?.lastName || ''}`.trim(),
+        p.employee_id?.department || '',
+        `${p.prorated_days || p.days_in_month || 0}/${p.days_in_month || 0}d${p.inputs_snapshot?.overtime_hours > 0 ? ` (${p.inputs_snapshot.overtime_hours}h OT)` : ''}`,
+        formatBDT(p.gross_pay || 0),
+        formatBDT(p.total_deductions || 0),
+        formatBDT(p.net_pay || 0),
+        p.status || '',
+      ]),
+      rightAlignCols: [5, 6, 7],
+      summaryRow: ['TOTAL', '', `${filteredRunPayslips.length} Payslips`, '', '', formatBDT(totalGross), formatBDT(totalDed), formatBDT(totalNet), ''],
+      landscape: true,
+    });
+  };
 
   return (
     <div className="space-y-6">
@@ -738,65 +833,135 @@ export function PayrollRunsView() {
                     </Link>
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-left text-xs">
-                      <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                        <tr>
-                          <th className="px-4 py-2.5">Payslip</th>
-                          <th className="px-4 py-2.5">Employee</th>
-                          <th className="px-4 py-2.5">Days / OT</th>
-                          <th className="px-4 py-2.5 text-right">Gross</th>
-                          <th className="px-4 py-2.5 text-right">Deductions</th>
-                          <th className="px-4 py-2.5 text-right">Net Pay</th>
-                          <th className="px-4 py-2.5 text-center">Status</th>
-                          <th className="px-4 py-2.5 text-right">View</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-slate-100">
-                        {runPayslips.map((p: any) => (
-                          <tr key={p._id} className="hover:bg-slate-50/70">
-                            <td className="px-4 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
-                              {p.payslip_no}
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap">
-                              <span className="font-semibold text-slate-900 block">
-                                {p.employee_id?.firstName} {p.employee_id?.lastName}
-                              </span>
-                              <span className="text-[11px] text-slate-400">
-                                {p.employee_id?.employee_id} · {p.employee_id?.department}
-                              </span>
-                            </td>
-                            <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
-                              <span>
-                                {p.prorated_days || p.days_in_month}/{p.days_in_month}d
-                              </span>
-                              {p.inputs_snapshot?.overtime_hours > 0 && (
-                                <span className="ml-1.5 text-emerald-700 font-semibold">
-                                  · {p.inputs_snapshot.overtime_hours}h OT
-                                </span>
-                              )}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono">{formatBDT(p.gross_pay)}</td>
-                            <td className="px-4 py-2.5 text-right font-mono text-rose-700">
-                              {formatBDT(p.total_deductions)}
-                            </td>
-                            <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-800">
-                              {formatBDT(p.net_pay)}
-                            </td>
-                            <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
-                            <td className="px-4 py-2.5 text-right">
-                              <Link
-                                href={`/payroll/payslips/${p._id}`}
-                                className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50"
-                              >
-                                <Eye className="w-3 h-3" /> PDF
-                              </Link>
-                            </td>
+                  <>
+                    <div className="p-3 border-b border-slate-100 bg-slate-50/40">
+                      <TableToolbar
+                        search={slipSearch}
+                        onSearchChange={setSlipSearch}
+                        searchPlaceholder="Search payslip #, employee name or ID..."
+                        sortKey={slipSortKey}
+                        sortDir={slipSortDir}
+                        onSortChange={(k, d) => {
+                          setSlipSortKey(k);
+                          setSlipSortDir(d);
+                        }}
+                        sortOptions={[
+                          { value: 'payslip_no', label: 'Payslip #' },
+                          { value: 'employee', label: 'Employee Name' },
+                          { value: 'department', label: 'Department' },
+                          { value: 'gross', label: 'Gross Pay' },
+                          { value: 'deductions', label: 'Deductions' },
+                          { value: 'net', label: 'Net Pay' },
+                          { value: 'status', label: 'Status' },
+                        ]}
+                        filters={
+                          <>
+                            <select
+                              value={slipDeptFilter}
+                              onChange={(e) => setSlipDeptFilter(e.target.value)}
+                              className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                            >
+                              <option value="all">All Departments</option>
+                              {EMPLOYEE_DEPARTMENTS.map((d) => (
+                                <option key={d} value={d}>
+                                  {d}
+                                </option>
+                              ))}
+                            </select>
+                            <select
+                              value={slipStatusFilter}
+                              onChange={(e) => setSlipStatusFilter(e.target.value)}
+                              className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                            >
+                              <option value="all">All Status</option>
+                              <option value="Draft">Draft</option>
+                              <option value="Verified">Verified</option>
+                              <option value="Confirmed">Confirmed</option>
+                              <option value="Paid">Paid</option>
+                              <option value="Reversed">Reversed</option>
+                            </select>
+                          </>
+                        }
+                        totalCount={runPayslips.length}
+                        filteredCount={filteredRunPayslips.length}
+                        hasActiveFilters={slipSearch !== '' || slipDeptFilter !== 'all' || slipStatusFilter !== 'all'}
+                        onReset={() => {
+                          setSlipSearch('');
+                          setSlipDeptFilter('all');
+                          setSlipStatusFilter('all');
+                        }}
+                        onExportExcel={exportRunPayslipsExcel}
+                        onPrint={printRunPayslipsReport}
+                      />
+                    </div>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                          <tr>
+                            <th className="px-4 py-2.5">Payslip</th>
+                            <th className="px-4 py-2.5">Employee</th>
+                            <th className="px-4 py-2.5">Days / OT</th>
+                            <th className="px-4 py-2.5 text-right">Gross</th>
+                            <th className="px-4 py-2.5 text-right">Deductions</th>
+                            <th className="px-4 py-2.5 text-right">Net Pay</th>
+                            <th className="px-4 py-2.5 text-center">Status</th>
+                            <th className="px-4 py-2.5 text-right">View</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100">
+                          {filteredRunPayslips.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="py-10 text-center text-xs text-slate-500">
+                                No payslips match your search or filter criteria.
+                              </td>
+                            </tr>
+                          ) : (
+                            filteredRunPayslips.map((p: any) => (
+                              <tr key={p._id} className="hover:bg-slate-50/70">
+                                <td className="px-4 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
+                                  {p.payslip_no}
+                                </td>
+                                <td className="px-4 py-2.5 whitespace-nowrap">
+                                  <span className="font-semibold text-slate-900 block">
+                                    {p.employee_id?.firstName} {p.employee_id?.lastName}
+                                  </span>
+                                  <span className="text-[11px] text-slate-400">
+                                    {p.employee_id?.employee_id} · {p.employee_id?.department}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 whitespace-nowrap text-slate-600">
+                                  <span>
+                                    {p.prorated_days || p.days_in_month}/{p.days_in_month}d
+                                  </span>
+                                  {p.inputs_snapshot?.overtime_hours > 0 && (
+                                    <span className="ml-1.5 text-emerald-700 font-semibold">
+                                      · {p.inputs_snapshot.overtime_hours}h OT
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono">{formatBDT(p.gross_pay)}</td>
+                                <td className="px-4 py-2.5 text-right font-mono text-rose-700">
+                                  {formatBDT(p.total_deductions)}
+                                </td>
+                                <td className="px-4 py-2.5 text-right font-mono font-bold text-emerald-800">
+                                  {formatBDT(p.net_pay)}
+                                </td>
+                                <td className="px-4 py-2.5 text-center">{getStatusBadge(p.status)}</td>
+                                <td className="px-4 py-2.5 text-right">
+                                  <Link
+                                    href={`/payroll/payslips/${p._id}`}
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 text-[11px] font-medium text-slate-700 bg-white border border-slate-300 rounded-md hover:bg-slate-50"
+                                  >
+                                    <Eye className="w-3 h-3" /> PDF
+                                  </Link>
+                                </td>
+                              </tr>
+                            ))
+                          )}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             </div>

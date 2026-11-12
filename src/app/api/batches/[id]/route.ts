@@ -74,12 +74,18 @@ export async function GET(
     for (const s of studentsWithBatchCode) {
       const sId = s._id.toString();
       if (!enrolledMap.has(sId)) {
-        // Create an assessment record for this student so it's consistent
-        const newAssessment = await BatchAssessment.create({
-          batch_id: batch._id,
-          student_id: s._id,
-          result_status: s.status === 'Passed' ? 'Passed' : s.status === 'Failed' ? 'Failed' : 'Pending',
-        });
+        // Atomic upsert so concurrent loads never hit duplicate index errors
+        const newAssessment = await BatchAssessment.findOneAndUpdate(
+          { batch_id: batch._id, student_id: s._id },
+          {
+            $setOnInsert: {
+              batch_id: batch._id,
+              student_id: s._id,
+              result_status: s.status === 'Passed' ? 'Passed' : s.status === 'Failed' ? 'Failed' : 'Pending',
+            },
+          },
+          { upsert: true, new: true }
+        );
 
         enrolledMap.set(sId, {
           _id: newAssessment._id.toString(),
@@ -93,16 +99,16 @@ export async function GET(
             trade_name: s.trade_name,
             destination_country: s.destination_country,
           },
-          exam_date: null,
-          theory_score: null,
-          practical_score: null,
-          total_score: null,
+          exam_date: newAssessment.exam_date || null,
+          theory_score: newAssessment.theory_score ?? null,
+          practical_score: newAssessment.practical_score ?? null,
+          total_score: newAssessment.total_score ?? null,
           result_status: newAssessment.result_status,
-          certificate_no: '',
-          certificate_url: '',
-          certificate_issue_date: null,
-          remarks: '',
-          evaluated_by: '',
+          certificate_no: newAssessment.certificate_no || '',
+          certificate_url: newAssessment.certificate_url || '',
+          certificate_issue_date: newAssessment.certificate_issue_date || null,
+          remarks: newAssessment.remarks || '',
+          evaluated_by: newAssessment.evaluated_by || '',
         });
       }
     }

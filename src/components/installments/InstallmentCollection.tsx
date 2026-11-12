@@ -25,6 +25,7 @@ import {
 import { formatBDT, formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { downloadExcel, printTableReport } from '@/lib/client-export';
 
 interface InstallmentItem {
   _id: string;
@@ -457,7 +458,68 @@ function InstallmentCollectionContent() {
           </p>
         </div>
 
-        <div className="flex items-center gap-2 self-start sm:self-auto">
+        <div className="flex flex-wrap items-center gap-2 self-start sm:self-auto">
+          <button
+            type="button"
+            onClick={() => {
+              const headers = ['Student ID', 'Name', 'Mobile', 'Trade', 'Batch', 'Inst #', 'Due Date', 'Amount (BDT)', 'Paid (BDT)', 'Due (BDT)', 'Status'];
+              const rows = installments.map((i) => [
+                i.student?.student_no || '',
+                i.student?.name || '',
+                i.student?.mobile || '',
+                i.student?.trade_name || '',
+                i.student?.batch || '',
+                i.installment_no,
+                formatDate(i.due_date),
+                i.amount,
+                i.paid_amount,
+                i.remaining_due,
+                i.status,
+              ]);
+              downloadExcel({
+                filename: `installments-${activeTab}`,
+                sheetName: 'Installments',
+                headers,
+                rows,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg shadow-xs transition-colors"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            <span>Excel</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const headers = ['Student ID', 'Name', 'Mobile', 'Trade', 'Inst #', 'Due Date', 'Amount', 'Paid', 'Due', 'Status'];
+              const rows = installments.map((i) => [
+                i.student?.student_no || '',
+                i.student?.name || '',
+                i.student?.mobile || '',
+                i.student?.trade_name || '',
+                `#${i.installment_no}`,
+                formatDate(i.due_date),
+                i.amount,
+                i.paid_amount,
+                i.remaining_due,
+                i.status,
+              ]);
+              printTableReport({
+                title: 'Installment Collection & Dues Schedule',
+                meta: `Tab: ${activeTab} | Batch: ${selectedBatch} | Trade: ${selectedTrade}`,
+                headers,
+                rows,
+                rightAlignCols: [6, 7, 8],
+                landscape: true,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 rounded-lg hover:bg-slate-50 shadow-xs transition-colors"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            <span>Print</span>
+          </button>
+
           {/* Export CSV Dropdown */}
           <div className="relative">
             <button

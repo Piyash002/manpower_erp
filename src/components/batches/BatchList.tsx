@@ -19,8 +19,11 @@ import {
   FileCheck,
   Download,
   Printer,
+  FileSpreadsheet,
+  ArrowUpDown,
 } from 'lucide-react';
 import { formatDate } from '@/lib/formatters';
+import { downloadExcel, printTableReport, sortTableItems, type SortDir } from '@/lib/client-export';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { useAuth } from '@/components/layout/DashboardLayout';
@@ -50,7 +53,7 @@ interface BatchItem {
 interface TradeOption {
   _id: string;
   name: string;
-  duration_days: number;
+  course_days: number;
 }
 
 export function BatchList() {
@@ -61,10 +64,12 @@ export function BatchList() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Filters
+  // Filters & Sorting
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [tradeFilter, setTradeFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('start_date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
 
   // Create Modal
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
@@ -116,9 +121,17 @@ export function BatchList() {
       }
 
       if (tradeData.success) {
-        setTrades(tradeData.trades || []);
-        if (!formData.trade_id && tradeData.trades.length > 0) {
-          setFormData((prev) => ({ ...prev, trade_id: tradeData.trades[0]._id }));
+        const tList: TradeOption[] = tradeData.trades || [];
+        setTrades(tList);
+        if (!formData.trade_id && tList.length > 0) {
+          const firstTrade = tList[0];
+          const start = new Date(formData.start_date || new Date().toISOString().split('T')[0]);
+          start.setDate(start.getDate() + (firstTrade.course_days || 45));
+          setFormData((prev) => ({
+            ...prev,
+            trade_id: firstTrade._id,
+            end_date: prev.end_date || start.toISOString().split('T')[0],
+          }));
         }
       }
     } catch (err: any) {
@@ -137,14 +150,14 @@ export function BatchList() {
     loadData();
   };
 
-  // Auto-fill end date based on trade duration
+  // Auto-fill end date based on trade duration (course_days)
   const handleTradeSelect = (tradeId: string) => {
     const selectedTrade = trades.find((t) => t._id === tradeId);
     let newEndDate = formData.end_date;
 
     if (selectedTrade && formData.start_date) {
       const start = new Date(formData.start_date);
-      start.setDate(start.getDate() + (selectedTrade.duration_days || 45));
+      start.setDate(start.getDate() + (selectedTrade.course_days || 45));
       newEndDate = start.toISOString().split('T')[0];
     }
 
@@ -334,6 +347,93 @@ export function BatchList() {
             ))}
           </select>
 
+          <div className="inline-flex items-center border border-slate-300 rounded-lg overflow-hidden bg-white">
+            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400 ml-2.5" />
+            <select
+              value={`${sortKey}:${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = e.target.value.split(':');
+                setSortKey(k);
+                setSortDir(d as SortDir);
+              }}
+              className="px-2 py-2 text-xs md:text-sm bg-white text-slate-700 focus:outline-hidden"
+            >
+              <option value="start_date:desc">Newest Start Date</option>
+              <option value="start_date:asc">Oldest Start Date</option>
+              <option value="code:asc">Batch Code (A → Z)</option>
+              <option value="name:asc">Batch Name (A → Z)</option>
+              <option value="enrolled:desc">Most Enrolled</option>
+              <option value="status:asc">Status</option>
+            </select>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => {
+              const sorted = sortTableItems(batches, sortKey, sortDir, {
+                start_date: (b) => new Date(b.start_date || 0),
+                code: (b) => b.batch_code || '',
+                name: (b) => b.name || '',
+                enrolled: (b) => b.stats?.totalEnrolled || 0,
+                status: (b) => b.status || '',
+              });
+              downloadExcel({
+                filename: 'training-batches',
+                sheetName: 'Batches',
+                headers: ['Code', 'Batch Name', 'Trade', 'Instructor', 'Start Date', 'End Date', 'Exam Date', 'Enrolled', 'Capacity', 'Passed', 'Certs', 'Status'],
+                rows: sorted.map((b) => [
+                  b.batch_code,
+                  b.name,
+                  b.trade_name,
+                  b.instructor || '',
+                  formatDate(b.start_date),
+                  formatDate(b.end_date),
+                  b.exam_date ? formatDate(b.exam_date) : '',
+                  b.stats?.totalEnrolled || 0,
+                  b.capacity,
+                  b.stats?.passedCount || 0,
+                  b.stats?.certificatesCount || 0,
+                  b.status,
+                ]),
+              });
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" /> Excel
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              const sorted = sortTableItems(batches, sortKey, sortDir, {
+                start_date: (b) => new Date(b.start_date || 0),
+                code: (b) => b.batch_code || '',
+                name: (b) => b.name || '',
+                enrolled: (b) => b.stats?.totalEnrolled || 0,
+                status: (b) => b.status || '',
+              });
+              printTableReport({
+                title: 'Training Batches & Assessment Summary',
+                headers: ['Code', 'Batch Name', 'Trade', 'Instructor', 'Duration', 'Enrolled', 'Passed', 'Status'],
+                rows: sorted.map((b) => [
+                  b.batch_code,
+                  b.name,
+                  b.trade_name,
+                  b.instructor || '—',
+                  `${formatDate(b.start_date)} – ${formatDate(b.end_date)}`,
+                  `${b.stats?.totalEnrolled || 0}/${b.capacity}`,
+                  b.stats?.passedCount || 0,
+                  b.status,
+                ]),
+                rightAlignCols: [6],
+                landscape: true,
+              });
+            }}
+            className="inline-flex items-center gap-1 px-2.5 py-2 text-xs font-semibold text-slate-700 bg-slate-100 hover:bg-slate-200 border border-slate-200 rounded-lg"
+          >
+            <Printer className="w-3.5 h-3.5" /> Print
+          </button>
+
           <button
             onClick={loadData}
             className="p-2 text-slate-500 hover:text-slate-800 hover:bg-slate-100 rounded-lg border border-slate-200"
@@ -380,7 +480,13 @@ export function BatchList() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {batches.map((batch) => {
+                {sortTableItems(batches, sortKey, sortDir, {
+                  start_date: (b) => new Date(b.start_date || 0),
+                  code: (b) => b.batch_code || '',
+                  name: (b) => b.name || '',
+                  enrolled: (b) => b.stats?.totalEnrolled || 0,
+                  status: (b) => b.status || '',
+                }).map((batch) => {
                   return (
                     <tr key={batch._id} className="hover:bg-slate-50/80 transition-colors">
                       {/* Name & Code */}
@@ -557,7 +663,7 @@ export function BatchList() {
               >
                 {trades.map((trade) => (
                   <option key={trade._id} value={trade._id}>
-                    {trade.name} ({trade.duration_days} Days)
+                    {trade.name} ({trade.course_days} Days)
                   </option>
                 ))}
               </select>

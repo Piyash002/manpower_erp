@@ -47,6 +47,26 @@ export async function POST(req: NextRequest) {
           { status: 400 }
         );
       }
+    } else if (kind === 'receipt_proof') {
+      const isAllowed =
+        PHOTO_MIMES.has(file.type) ||
+        file.type === 'application/pdf' ||
+        /\.(jpe?g|png|webp|gif|pdf)$/i.test(file.name);
+      if (!isAllowed) {
+        return NextResponse.json(
+          {
+            success: false,
+            message: 'Receipt proof must be a JPG, PNG, WebP, GIF, or PDF file.',
+          },
+          { status: 400 }
+        );
+      }
+      if (file.size > 5 * 1024 * 1024) {
+        return NextResponse.json(
+          { success: false, message: 'Receipt proof file size must not exceed 5 MB.' },
+          { status: 400 }
+        );
+      }
     } else if (kind === 'document') {
       if (!DOC_MIMES.has(file.type)) {
         return NextResponse.json(
@@ -68,14 +88,28 @@ export async function POST(req: NextRequest) {
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const subDir = kind === 'photo' ? 'employees/photos' : kind === 'document' ? 'employees/docs' : '';
+    const subDir =
+      kind === 'photo'
+        ? 'employees/photos'
+        : kind === 'document'
+        ? 'employees/docs'
+        : kind === 'receipt_proof'
+        ? 'accounts/receipts'
+        : '';
     const uploadsDir = subDir
       ? path.join(process.cwd(), 'public', 'uploads', subDir)
       : path.join(process.cwd(), 'public', 'uploads');
     await mkdir(uploadsDir, { recursive: true });
 
     const ext = path.extname(file.name) || (kind === 'photo' ? '.jpg' : '.bin');
-    const prefix = kind === 'photo' ? 'emp_photo' : kind === 'document' ? 'emp_doc' : 'doc';
+    const prefix =
+      kind === 'photo'
+        ? 'emp_photo'
+        : kind === 'document'
+        ? 'emp_doc'
+        : kind === 'receipt_proof'
+        ? 'mr_proof'
+        : 'doc';
     const uniqueName = `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
     const filePath = path.join(uploadsDir, uniqueName);
 

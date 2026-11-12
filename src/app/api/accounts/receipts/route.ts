@@ -21,6 +21,10 @@ const createReceiptSchema = z.object({
   method: z.enum(['Cash', 'bKash', 'Nagad', 'Rocket', 'Bank transfer', 'Cheque', 'Card']),
   depositAccountId: z.string().trim().optional(),
   reference: z.string().trim().max(120).optional(),
+  bankName: z.string().trim().max(120).optional(),
+  chequeNo: z.string().trim().max(80).optional(),
+  chequeDate: z.string().trim().optional(),
+  proofUrl: z.string().trim().max(500).optional(),
   receiptDate: z.string().trim().optional(),
   note: z.string().trim().max(300).optional(),
   targetStageNo: z.number().int().positive().nullable().optional(),
@@ -111,6 +115,8 @@ export async function POST(req: NextRequest) {
     const isClient =
       error.message?.includes('exceeds') ||
       error.message?.includes('Locked') ||
+      error.message?.includes('Invalid') ||
+      error.message?.includes('Deposit account') ||
       error.message?.includes('No Student Fee Plan');
     return NextResponse.json(
       { success: false, message: error.message || 'Failed to collect receipt' },

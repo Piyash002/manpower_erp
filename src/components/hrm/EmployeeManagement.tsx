@@ -22,11 +22,15 @@ import {
   Upload,
   ChevronLeft,
   ChevronRight,
+  FileSpreadsheet,
+  Printer,
+  ArrowUpDown,
 } from 'lucide-react';
 import { formatBDT, formatDate } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { EmployeeAvatar } from './EmployeeAvatar';
+import { downloadExcel, printTableReport, sortTableItems, type SortDir } from '@/lib/client-export';
 
 interface EmployeeRecord {
   _id: string;
@@ -78,6 +82,8 @@ export function EmployeeManagement() {
   const [desigFilter, setDesigFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('employee_id');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
   const [page, setPage] = useState(1);
 
   // Selection & Bulk Actions
@@ -307,6 +313,73 @@ export function EmployeeManagement() {
         <div className="flex flex-wrap items-center gap-2">
           <button
             type="button"
+            onClick={() => {
+              const sorted = sortTableItems(employees, sortKey, sortDir, {
+                employee_id: (e) => e.employee_id || '',
+                name: (e) => `${e.firstName} ${e.lastName}`,
+                dept: (e) => e.department || '',
+                salary: (e) => Number(e.basic_salary || 0),
+                joining: (e) => new Date(e.joining_date || 0),
+                status: (e) => e.status || '',
+              });
+              downloadExcel({
+                filename: 'employees-directory',
+                sheetName: 'Employees',
+                headers: ['Employee ID', 'Name', 'Department', 'Designation', 'Type', 'Phone', 'Email', 'Basic Salary (BDT)', 'Method', 'Status'],
+                rows: sorted.map((e) => [
+                  e.employee_id,
+                  `${e.firstName} ${e.lastName}`.trim(),
+                  e.department,
+                  e.designation,
+                  e.employee_type || 'Permanent',
+                  e.phone,
+                  e.email || '',
+                  e.basic_salary || 0,
+                  e.payment_method || 'Bank',
+                  e.status,
+                ]),
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 rounded-lg"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            Excel
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              const sorted = sortTableItems(employees, sortKey, sortDir, {
+                employee_id: (e) => e.employee_id || '',
+                name: (e) => `${e.firstName} ${e.lastName}`,
+                dept: (e) => e.department || '',
+                salary: (e) => Number(e.basic_salary || 0),
+                joining: (e) => new Date(e.joining_date || 0),
+                status: (e) => e.status || '',
+              });
+              printTableReport({
+                title: 'Employees Directory',
+                meta: `Page ${metaInfo.page} of ${metaInfo.totalPages} | Status: ${statusFilter}`,
+                headers: ['Emp ID', 'Name', 'Department', 'Designation', 'Phone', 'Basic Salary', 'Status'],
+                rows: sorted.map((e) => [
+                  e.employee_id,
+                  `${e.firstName} ${e.lastName}`.trim(),
+                  e.department,
+                  e.designation,
+                  e.phone,
+                  e.basic_salary || 0,
+                  e.status,
+                ]),
+                rightAlignCols: [5],
+                landscape: true,
+              });
+            }}
+            className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
+          >
+            <Printer className="w-3.5 h-3.5" />
+            Print
+          </button>
+          <button
+            type="button"
             onClick={handleExportCsv}
             className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold text-slate-700 bg-white border border-slate-300 hover:bg-slate-50 rounded-lg"
           >
@@ -414,6 +487,27 @@ export function EmployeeManagement() {
               </option>
             ))}
           </select>
+
+          <div className="inline-flex items-center border border-slate-200 rounded-lg overflow-hidden bg-slate-50">
+            <ArrowUpDown className="w-3 h-3 text-slate-400 ml-2" />
+            <select
+              value={`${sortKey}:${sortDir}`}
+              onChange={(e) => {
+                const [k, d] = e.target.value.split(':');
+                setSortKey(k);
+                setSortDir(d as SortDir);
+              }}
+              className="px-2 py-1.5 text-xs font-medium bg-slate-50 text-slate-700 focus:outline-none"
+            >
+              <option value="employee_id:asc">Sort: Emp ID (Asc)</option>
+              <option value="name:asc">Sort: Name (A → Z)</option>
+              <option value="dept:asc">Sort: Department</option>
+              <option value="salary:desc">Sort: Highest Salary</option>
+              <option value="salary:asc">Sort: Lowest Salary</option>
+              <option value="joining:desc">Sort: Newest Joining</option>
+              <option value="status:asc">Sort: Status</option>
+            </select>
+          </div>
         </div>
 
         <div className="flex items-center gap-1 bg-slate-100 p-1 rounded-lg">
@@ -522,7 +616,14 @@ export function EmployeeManagement() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {employees.map((emp) => {
+              {sortTableItems(employees, sortKey, sortDir, {
+                employee_id: (e) => e.employee_id || '',
+                name: (e) => `${e.firstName} ${e.lastName}`,
+                dept: (e) => e.department || '',
+                salary: (e) => Number(e.basic_salary || 0),
+                joining: (e) => new Date(e.joining_date || 0),
+                status: (e) => e.status || '',
+              }).map((emp) => {
                 const isEditingInline = inlineId === emp._id;
                 return (
                   <tr key={emp._id} className="hover:bg-slate-50/60">
@@ -675,7 +776,14 @@ export function EmployeeManagement() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {employees.map((emp) => (
+          {sortTableItems(employees, sortKey, sortDir, {
+            employee_id: (e) => e.employee_id || '',
+            name: (e) => `${e.firstName} ${e.lastName}`,
+            dept: (e) => e.department || '',
+            salary: (e) => Number(e.basic_salary || 0),
+            joining: (e) => new Date(e.joining_date || 0),
+            status: (e) => e.status || '',
+          }).map((emp) => (
             <div
               key={emp._id}
               className="bg-white rounded-xl border border-slate-200 p-5 shadow-xs flex flex-col justify-between space-y-4"

@@ -15,9 +15,17 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
 import { EMPLOYEE_DEPARTMENTS, formatDateDMY } from '@/lib/formatters';
 import { formatPaisaBDT, paisaToTaka, takaToPaisa } from '@/lib/accounts-money';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const JOURNAL_TYPES = [
   { code: 'JV', label: 'JV — Journal Voucher' },
@@ -48,6 +56,8 @@ export function VouchersView() {
   const [typeFilter, setTypeFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [search, setSearch] = useState('');
+  const [sortKey, setSortKey] = useState('date');
+  const [sortDir, setSortDir] = useState<SortDir>('desc');
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
 
   // Create / Edit Modal
@@ -339,48 +349,108 @@ export function VouchersView() {
         </div>
       )}
 
-      {/* Filter Bar */}
-      <div className="bg-white p-3.5 rounded-xl border border-slate-200 shadow-2xs flex flex-wrap items-center gap-2.5">
-        <input
-          type="text"
-          placeholder="Search voucher no, description, reference..."
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          onKeyDown={(e) => e.key === 'Enter' && loadData()}
-          className="px-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg min-w-[220px] flex-1 max-w-xs"
-        />
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
-        >
-          <option value="all">All Types</option>
-          {JOURNAL_TYPES.map((t) => (
-            <option key={t.code} value={t.code}>
-              {t.label}
-            </option>
-          ))}
-        </select>
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg"
-        >
-          <option value="all">All Statuses</option>
-          <option value="Draft">Draft</option>
-          <option value="Posted">Posted</option>
-          <option value="Reversed">Reversed</option>
-        </select>
-        <button
-          type="button"
-          onClick={loadData}
-          className="px-3 py-1.5 text-xs font-semibold bg-slate-900 text-white rounded-lg"
-        >
-          Apply
-        </button>
-      </div>
+      {/* Filter Bar & Vouchers Table */}
+      {(() => {
+        const filtered = entries.filter((entry) =>
+          matchesSearch(search, [
+            entry.voucherNo,
+            entry.description,
+            entry.reference,
+            entry.journalType,
+            entry.status,
+          ])
+        );
+        const sortedEntries = sortTableItems(filtered, sortKey, sortDir, {
+          date: (e) => new Date(e.entryDate || 0),
+          voucherNo: (e) => e.voucherNo || '',
+          type: (e) => e.journalType || '',
+          amount: (e) => Number(e.totalDebitPaisa || 0),
+          status: (e) => e.status || '',
+        });
+        const headers = ['Voucher No', 'Date', 'Type', 'Description', 'Reference', 'Amount (BDT)', 'Status'];
+        const rows = sortedEntries.map((e) => [
+          e.voucherNo,
+          formatDateDMY(e.entryDate),
+          e.journalType,
+          e.description,
+          e.reference || '',
+          paisaToTaka(e.totalDebitPaisa || 0),
+          e.status,
+        ]);
 
-      {/* Vouchers Table */}
+        return (
+          <>
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search voucher no, description, reference..."
+              filters={
+                <>
+                  <select
+                    value={typeFilter}
+                    onChange={(e) => setTypeFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Types</option>
+                    {JOURNAL_TYPES.map((t) => (
+                      <option key={t.code} value={t.code}>
+                        {t.label}
+                      </option>
+                    ))}
+                  </select>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Statuses</option>
+                    <option value="Draft">Draft</option>
+                    <option value="Posted">Posted</option>
+                    <option value="Reversed">Reversed</option>
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'date', label: 'Voucher Date' },
+                { value: 'voucherNo', label: 'Voucher No' },
+                { value: 'amount', label: 'Amount' },
+                { value: 'type', label: 'Type' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={entries.length}
+              filteredCount={sortedEntries.length}
+              hasActiveFilters={typeFilter !== 'all' || statusFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setTypeFilter('all');
+                setStatusFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'journal-vouchers',
+                  sheetName: 'Vouchers',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Journal Vouchers Register',
+                  meta: `Type: ${typeFilter} | Status: ${statusFilter}`,
+                  headers,
+                  rows,
+                  rightAlignCols: [5],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-left text-xs">
@@ -402,14 +472,14 @@ export function VouchersView() {
                     Loading vouchers...
                   </td>
                 </tr>
-              ) : entries.length === 0 ? (
+              ) : sortedEntries.length === 0 ? (
                 <tr>
                   <td colSpan={7} className="px-4 py-8 text-center text-slate-400">
-                    No vouchers found. Click &quot;New Voucher&quot; to create one.
+                    No matching vouchers found.
                   </td>
                 </tr>
               ) : (
-                entries.map((entry) => (
+                sortedEntries.map((entry) => (
                   <tr key={entry._id} className="hover:bg-slate-50/70">
                     <td className="px-4 py-2.5 font-mono font-bold text-slate-900 whitespace-nowrap">
                       {entry.voucherNo}
@@ -492,6 +562,9 @@ export function VouchersView() {
           </table>
         </div>
       </div>
+          </>
+        );
+      })()}
 
       {/* Create / Edit Voucher Modal */}
       <Modal

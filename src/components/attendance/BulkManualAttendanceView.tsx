@@ -12,6 +12,8 @@ import {
   Lock,
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import {
   EMPLOYEE_DEPARTMENTS,
   formatTimeDhaka,
@@ -90,6 +92,12 @@ export function BulkManualAttendanceView() {
   const [batchOutTime, setBatchOutTime] = useState('18:00');
   const [reason, setReason] = useState('');
   const [overwriteExisting, setOverwriteExisting] = useState(false);
+
+  // Table Search / Filter / Sort
+  const [tableSearch, setTableSearch] = useState('');
+  const [tableStatusFilter, setTableStatusFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('employee_id');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const [holidayInfo, setHolidayInfo] = useState<{
     title: string;
@@ -268,6 +276,41 @@ export function BulkManualAttendanceView() {
   const allUnlockedSelected =
     rows.some((r) => !r.existing?.locked) &&
     rows.filter((r) => !r.existing?.locked).every((r) => r.selected);
+
+  const filteredSortedRows = sortTableItems(
+    rows.filter((row) => {
+      if (tableStatusFilter === 'existing' && !row.existing) return false;
+      if (tableStatusFilter === 'unmarked' && row.existing) return false;
+      if (tableStatusFilter === 'selected' && !row.selected) return false;
+      if (
+        tableStatusFilter !== 'all' &&
+        tableStatusFilter !== 'existing' &&
+        tableStatusFilter !== 'unmarked' &&
+        tableStatusFilter !== 'selected' &&
+        row.status !== tableStatusFilter
+      ) {
+        return false;
+      }
+      return matchesSearch(tableSearch, [
+        row.employee.employee_id,
+        row.employee.biometric_id,
+        row.employee.firstName,
+        row.employee.lastName,
+        row.employee.department,
+        row.employee.shift,
+        row.existing?.status,
+        row.status,
+      ]);
+    }),
+    sortKey,
+    sortDir,
+    {
+      employee_id: (r) => r.employee.employee_id || '',
+      name: (r) => `${r.employee.firstName || ''} ${r.employee.lastName || ''}`.trim(),
+      department: (r) => r.employee.department || '',
+      status: (r) => r.existing?.status || r.status || '',
+    }
+  );
 
   return (
     <div className="space-y-5">
@@ -477,15 +520,98 @@ export function BulkManualAttendanceView() {
                 </div>
               </div>
 
+              {/* Table Search, Filter, Sort, Excel & Print */}
+              {rows.length > 0 && (
+                <TableToolbar
+                  search={tableSearch}
+                  onSearchChange={setTableSearch}
+                  searchPlaceholder="Search employee name, ID, biometric PIN..."
+                  sortKey={sortKey}
+                  sortDir={sortDir}
+                  onSortChange={(k, d) => {
+                    setSortKey(k);
+                    setSortDir(d);
+                  }}
+                  sortOptions={[
+                    { value: 'employee_id', label: 'Employee ID' },
+                    { value: 'name', label: 'Name' },
+                    { value: 'department', label: 'Department' },
+                    { value: 'status', label: 'Status' },
+                  ]}
+                  filters={
+                    <select
+                      value={tableStatusFilter}
+                      onChange={(e) => setTableStatusFilter(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                    >
+                      <option value="all">All Rows</option>
+                      <option value="existing">Has Existing Record</option>
+                      <option value="unmarked">Not Marked Yet</option>
+                      <option value="selected">Selected Only</option>
+                      {BULK_STATUSES.map((st) => (
+                        <option key={st} value={st}>
+                          Marked: {st}
+                        </option>
+                      ))}
+                    </select>
+                  }
+                  totalCount={rows.length}
+                  filteredCount={filteredSortedRows.length}
+                  hasActiveFilters={tableSearch !== '' || tableStatusFilter !== 'all'}
+                  onReset={() => {
+                    setTableSearch('');
+                    setTableStatusFilter('all');
+                  }}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: `Bulk-Attendance-${date}`,
+                      sheetName: 'Attendance',
+                      headers: ['Employee ID', 'Employee Name', 'Department', 'Shift', 'Existing Status', 'Marked Status', 'Check In', 'Check Out', 'Remark'],
+                      rows: filteredSortedRows.map((r) => [
+                        r.employee.employee_id,
+                        `${r.employee.firstName} ${r.employee.lastName}`,
+                        r.employee.department,
+                        r.employee.shift || 'Regular',
+                        r.existing ? `${r.existing.status} (${r.existing.source})` : 'Unmarked',
+                        r.status,
+                        r.check_in_time,
+                        r.check_out_time,
+                        r.remark || '',
+                      ]),
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: `Daily Attendance Sheet — ${date}`,
+                      subtitle: `Dept: ${department} | Shift: ${shift}`,
+                      meta: `Employees: ${filteredSortedRows.length}`,
+                      headers: ['Emp ID', 'Employee Name', 'Department', 'Shift', 'Existing', 'Marked Status', 'In', 'Out', 'Remark'],
+                      rows: filteredSortedRows.map((r) => [
+                        r.employee.employee_id,
+                        `${r.employee.firstName} ${r.employee.lastName}`,
+                        r.employee.department,
+                        r.employee.shift || 'Regular',
+                        r.existing ? r.existing.status : 'Unmarked',
+                        r.status,
+                        r.check_in_time || '-',
+                        r.check_out_time || '-',
+                        r.remark || '',
+                      ]),
+                      landscape: true,
+                    })
+                  }
+                />
+              )}
+
               {/* Multi-Employee Table */}
               <div className="overflow-x-auto">
                 {loading ? (
                   <div className="py-12 text-center">
                     <RefreshCw className="w-6 h-6 animate-spin text-emerald-600 mx-auto" />
                   </div>
-                ) : rows.length === 0 ? (
+                ) : filteredSortedRows.length === 0 ? (
                   <div className="py-10 text-center text-xs text-slate-400">
-                    No active employees match the selected Department / Shift filter.
+                    No active employees match the current search or filter.
                   </div>
                 ) : (
                   <table className="w-full text-left text-xs">
@@ -510,7 +636,7 @@ export function BulkManualAttendanceView() {
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                      {rows.map((row) => {
+                      {filteredSortedRows.map((row) => {
                         const locked = Boolean(row.existing?.locked);
                         const needsTimes =
                           row.status === 'Present' || row.status === 'Late' || row.status === 'Half-day';

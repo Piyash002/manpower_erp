@@ -15,7 +15,15 @@ import {
 import { formatBDT } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
 import { useAuth } from '@/components/layout/DashboardLayout';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 const MONTHS = [
   'January', 'February', 'March', 'April', 'May', 'June',
@@ -36,6 +44,10 @@ export function MonthlyInputsView() {
   const [loading, setLoading] = useState(true);
   const [savingEmpId, setSavingEmpId] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [deptFilter, setDeptFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('empCode');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   // CSV/Excel Import Modal
   const [isImportOpen, setIsImportOpen] = useState(false);
@@ -305,6 +317,121 @@ export function MonthlyInputsView() {
         </div>
       )}
 
+      {(() => {
+        const depts = Array.from(
+          new Set(rows.map((r) => r.employee?.department).filter(Boolean))
+        ).sort() as string[];
+        const filteredRows = rows.filter((r) => {
+          const emp = r.employee || {};
+          if (deptFilter !== 'all' && emp.department !== deptFilter) return false;
+          const d = drafts[emp._id] || {};
+          return matchesSearch(search, [
+            emp.employee_id,
+            `${emp.firstName} ${emp.lastName}`,
+            emp.department,
+            d.notes,
+          ]);
+        });
+        const sortedRows = sortTableItems(filteredRows, sortKey, sortDir, {
+          empCode: (r) => r.employee?.employee_id || '',
+          name: (r) => `${r.employee?.firstName || ''} ${r.employee?.lastName || ''}`,
+          basic: (r) => Number(r.employee?.basic_salary || 0),
+          ot: (r) => Number(drafts[r.employee?._id]?.overtime_hours || 0),
+          bonus: (r) => Number(drafts[r.employee?._id]?.bonus_amount || 0),
+          advance: (r) => Number(drafts[r.employee?._id]?.advance_deduction || 0),
+        });
+        const headers = [
+          'Emp ID',
+          'Employee Name',
+          'Department',
+          'Basic (BDT)',
+          'OT Hrs',
+          'Bonus Type',
+          'Bonus (BDT)',
+          'Advance (BDT)',
+          'Fine (BDT)',
+          'Other Adj (BDT)',
+          'Notes',
+        ];
+        const exportRows = sortedRows.map((r) => {
+          const emp = r.employee || {};
+          const d = drafts[emp._id] || {};
+          return [
+            emp.employee_id,
+            `${emp.firstName || ''} ${emp.lastName || ''}`.trim(),
+            emp.department || '',
+            Number(emp.basic_salary || 0),
+            Number(d.overtime_hours || 0),
+            d.bonus_type || 'festival',
+            Number(d.bonus_amount || 0),
+            Number(d.advance_deduction || 0),
+            Number(d.fine || 0),
+            Number(d.other_adjustment || 0),
+            d.notes || '',
+          ];
+        });
+
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search employee name, ID, dept, note..."
+              filters={
+                <select
+                  value={deptFilter}
+                  onChange={(e) => setDeptFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                >
+                  <option value="all">All Departments</option>
+                  {depts.map((dep) => (
+                    <option key={dep} value={dep}>
+                      {dep}
+                    </option>
+                  ))}
+                </select>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'empCode', label: 'Employee ID' },
+                { value: 'name', label: 'Name' },
+                { value: 'basic', label: 'Basic Salary' },
+                { value: 'ot', label: 'OT Hours' },
+                { value: 'bonus', label: 'Bonus' },
+                { value: 'advance', label: 'Advance' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={rows.length}
+              filteredCount={sortedRows.length}
+              hasActiveFilters={deptFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setDeptFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: `monthly-inputs-${year}-${String(month).padStart(2, '0')}`,
+                  sheetName: `${MONTHS[month - 1]} ${year}`,
+                  headers,
+                  rows: exportRows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: `Monthly Variable Pay Inputs — ${MONTHS[month - 1]} ${year}`,
+                  meta: `Department: ${deptFilter}`,
+                  headers,
+                  rows: exportRows,
+                  rightAlignCols: [3, 4, 6, 7, 8, 9],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
         {loading ? (
           <div className="py-16 text-center">
@@ -332,7 +459,7 @@ export function MonthlyInputsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {rows.map((r) => {
+              {sortedRows.map((r) => {
                 const emp = r.employee;
                 const d = drafts[emp._id] || {};
                 const disabled = !canEdit || isLocked;
@@ -439,6 +566,9 @@ export function MonthlyInputsView() {
           </table>
         )}
       </div>
+          </div>
+        );
+      })()}
 
       {/* CSV / Excel Import Modal */}
       <Modal

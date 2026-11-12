@@ -64,6 +64,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
   const [isAssessmentModalOpen, setIsAssessmentModalOpen] = useState(false);
   const [availableBatches, setAvailableBatches] = useState<any[]>([]);
   const [countryCosts, setCountryCosts] = useState<any[]>([]);
+  const [feeTemplateCountries, setFeeTemplateCountries] = useState<string[]>([]);
   const [availableAgents, setAvailableAgents] = useState<any[]>([]);
 
   // Documents Checklist Upload / Inline Edit State
@@ -106,12 +107,27 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
   const loadStudentData = async () => {
     try {
-      const [res, batchRes, countryRes, empRes] = await Promise.all([
+      const [res, batchRes, countryRes, empRes, tplRes] = await Promise.all([
         fetch(`/api/students/${studentId}`),
         fetch('/api/batches'),
         fetch('/api/country-costs'),
         fetch('/api/hrm/employees?status=Active'),
+        fetch('/api/accounts/fee-templates?activeOnly=1'),
       ]);
+
+      if (tplRes.ok) {
+        const tplData = await tplRes.json();
+        if (tplData.success && Array.isArray(tplData.data)) {
+          const cList = Array.from(
+            new Set(
+              tplData.data
+                .map((t: any) => String(t.country || '').trim())
+                .filter((c: string) => c && c.toLowerCase() !== 'all' && c !== 'Not decided yet')
+            )
+          ) as string[];
+          setFeeTemplateCountries(cList);
+        }
+      }
 
       if (empRes.ok) {
         const empData = await empRes.json();
@@ -915,10 +931,26 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                         <td className="px-3 py-2.5 font-sans">{formatDate(rcpt.receiptDate)}</td>
                         <td className="px-3 py-2.5 font-sans">
                           <span className="font-medium text-slate-800">{rcpt.method}</span>
-                          {rcpt.reference && (
-                            <span className="block text-[11px] font-mono text-slate-400">
-                              Ref: {rcpt.reference}
+                          {(rcpt.bankName || rcpt.chequeNo || rcpt.reference) && (
+                            <span className="block text-[11px] font-mono text-slate-500">
+                              {[
+                                rcpt.bankName,
+                                rcpt.chequeNo ? `Cheque: ${rcpt.chequeNo}` : '',
+                                !rcpt.chequeNo && rcpt.reference ? `Ref: ${rcpt.reference}` : '',
+                              ]
+                                .filter(Boolean)
+                                .join(' • ')}
                             </span>
+                          )}
+                          {rcpt.proofUrl && (
+                            <a
+                              href={rcpt.proofUrl}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="inline-block mt-0.5 text-[10px] font-semibold text-blue-600 hover:underline"
+                            >
+                              View Slip / Photo
+                            </a>
                           )}
                         </td>
                         <td
@@ -1909,6 +1941,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                   {Array.from(
                     new Set([
                       ...countryCosts.map((c: any) => c.country),
+                      ...feeTemplateCountries,
                       'Saudi Arabia',
                       'Singapore',
                       'UAE - Dubai',
@@ -1937,18 +1970,29 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
               <div>
-                <label className="block font-bold text-slate-600 mb-1">Assigned Training Batch</label>
+                <label className="block font-bold text-slate-600 mb-1">
+                  Assigned Training Batch ({student?.trade_name})
+                </label>
                 <select
                   value={editFormData.batch || ''}
                   onChange={(e) => setEditFormData({ ...editFormData, batch: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg text-xs text-slate-900 font-mono"
                 >
                   <option value="">No Batch Assigned</option>
-                  {availableBatches.map((b) => (
-                    <option key={b._id} value={b.batch_code}>
-                      {b.batch_code} ({b.name})
-                    </option>
-                  ))}
+                  {availableBatches
+                    .filter((b) => {
+                      const bTrade = typeof b.trade_id === 'object' && b.trade_id ? b.trade_id._id : b.trade_id;
+                      const stTrade =
+                        typeof student?.trade_id === 'object' && student?.trade_id
+                          ? student.trade_id._id
+                          : student?.trade_id;
+                      return !stTrade || String(bTrade) === String(stTrade);
+                    })
+                    .map((b) => (
+                      <option key={b._id} value={b.batch_code}>
+                        {b.batch_code} ({b.name})
+                      </option>
+                    ))}
                   {editFormData.batch && !availableBatches.some((b) => b.batch_code === editFormData.batch) && (
                     <option value={editFormData.batch}>{editFormData.batch}</option>
                   )}

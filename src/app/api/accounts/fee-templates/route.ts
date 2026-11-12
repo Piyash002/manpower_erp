@@ -87,15 +87,28 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    let resolvedTradeId: string | null = d.tradeId ? d.tradeId.trim() : null;
+    let resolvedTradeName = 'General';
+    if (resolvedTradeId) {
+      const tr = await Trade.findById(resolvedTradeId).select('name').lean();
+      if (!tr) {
+        return badRequestResponse('Linked Trade not found.');
+      }
+      resolvedTradeName = tr.name;
+    }
+
+    const cleanCountry =
+      !d.country || d.country.trim().toLowerCase() === 'all' ? 'All' : d.country.trim();
+
     const stages = d.stages.map((s, idx) => ({ ...s, stageOrder: idx + 1 }));
     const totalAmountPaisa = stages.reduce((sum, s) => sum + s.amountPaisa, 0);
 
     const created = await FeeTemplate.create({
       code: cleanCode,
       name: d.name,
-      tradeId: d.tradeId || null,
-      tradeName: d.tradeName,
-      country: d.country,
+      tradeId: resolvedTradeId,
+      tradeName: resolvedTradeName,
+      country: cleanCountry,
       stages,
       totalAmountPaisa,
       active: true,

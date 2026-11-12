@@ -4,6 +4,7 @@ import { createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { FeeTemplate } from '@/models/FeeTemplate';
 import { StudentFeePlan } from '@/models/StudentFeePlan';
+import { Trade } from '@/models/Trade';
 import {
   ACCOUNTS_WRITE_ROLES,
   badRequestResponse,
@@ -69,9 +70,23 @@ export async function PATCH(
 
     const d = parsed.data;
     if (d.name !== undefined) tpl.name = d.name;
-    if (d.tradeId !== undefined) tpl.tradeId = (d.tradeId as any) || null;
-    if (d.tradeName !== undefined) tpl.tradeName = d.tradeName;
-    if (d.country !== undefined) tpl.country = d.country;
+    if (d.tradeId !== undefined) {
+      const cleanTradeId = d.tradeId ? d.tradeId.trim() : null;
+      if (cleanTradeId) {
+        const tr = await Trade.findById(cleanTradeId).select('name').lean();
+        if (!tr) return badRequestResponse('Linked Trade not found.');
+        tpl.tradeId = tr._id as any;
+        tpl.tradeName = tr.name;
+      } else {
+        tpl.tradeId = null;
+        tpl.tradeName = 'General';
+      }
+    } else if (d.tradeName !== undefined) {
+      tpl.tradeName = d.tradeName;
+    }
+    if (d.country !== undefined) {
+      tpl.country = !d.country || d.country.trim().toLowerCase() === 'all' ? 'All' : d.country.trim();
+    }
     if (d.active !== undefined) tpl.active = d.active;
     if (d.stages !== undefined) {
       const normalized = d.stages.map((s, idx) => ({ ...s, stageOrder: idx + 1 }));

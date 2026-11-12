@@ -2,6 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { z } from 'zod';
 import { connectDB } from '@/lib/db';
 import { PayslipBatch } from '@/models/PayslipBatch';
+import { Payslip } from '@/models/Payslip';
+import { Employee } from '@/models/Employee';
+import { EmployeeContract } from '@/models/EmployeeContract';
 import { JournalEntry } from '@/models/JournalEntry';
 import {
   ACCOUNTS_WRITE_ROLES,
@@ -37,13 +40,32 @@ export async function GET(req: NextRequest) {
       .lean();
 
     const runIds = runs.map((r: any) => r._id.toString());
-    const entries = await JournalEntry.find({
-      sourceModule: { $in: ['PAYROLL_CONFIRM', 'PAYROLL_PAY'] },
-      sourceId: { $in: runIds },
-      isDeleted: { $ne: true },
-    })
-      .select('voucherNo sourceModule sourceId status entryDate totalDebitPaisa')
-      .lean();
+    const [entries, payslips] = await Promise.all([
+      JournalEntry.find({
+        sourceModule: { $in: ['PAYROLL_CONFIRM', 'PAYROLL_PAY'] },
+        sourceId: { $in: runIds },
+        isDeleted: { $ne: true },
+      })
+        .select('voucherNo sourceModule sourceId status entryDate totalDebitPaisa')
+        .lean(),
+      Payslip.find({
+        batch_id: { $in: runs.map((r: any) => r._id) },
+        is_reversal: { $ne: true },
+        status: { $nin: ['Cancelled', 'Reversed'] },
+      })
+        .select('batch_id payslip_no employee_id contract_id net_pay status payment_method payment_reference')
+        .populate({
+          path: 'employee_id',
+          model: Employee,
+          select: 'employee_id firstName lastName department payment_method bank_name bank_branch bank_account_no phone',
+        })
+        .populate({
+          path: 'contract_id',
+          model: EmployeeContract,
+          select: 'bank_name bank_account_no',
+        })
+        .lean(),
+    ]);
 
     const entryMap = new Map<string, any[]>();
     for (const e of entries) {
@@ -52,10 +74,58 @@ export async function GET(req: NextRequest) {
       entryMap.get(k)!.push(e);
     }
 
-    const enriched = runs.map((r: any) => ({
-      ...r,
-      journalEntries: entryMap.get(r._id.toString()) || [],
-    }));
+    const recipientMap = new Map<string, any[]>();
+    for (const p of payslips as any[]) {
+      const k = String(p.batch_id);
+      const emp = p.employee_id || {};
+      const contract = p.contract_id || {};
+      const method = p.payment_method || emp.payment_method || 'Bank';
+      const isWallet = method === 'bKash' || method === 'Nagad';
+      const accountNo =
+        String(emp.bank_account_no || '').trim() ||
+        String(contract.bank_account_no || '').trim() ||
+        (isWallet ? String(emp.phone || '').trim() : '');
+      const bankName =
+        String(emp.bank_name || '').trim() ||
+        String(contract.bank_name || '').trim() ||
+        (method === 'Bank' ? '' : method);
+      const name =
+        `${emp.firstName || ''} ${emp.lastName || ''}`.trim() ||
+        emp.employee_id ||
+        'Unknown Employee';
+
+      if (!recipientMap.has(k)) recipientMap.set(k, []);
+      recipientMap.get(k)!.push({
+        payslipId: String(p._id),
+        payslipNo: p.payslip_no || '',
+        employeeObjId: emp._id ? String(emp._id) : '',
+        employeeCode: emp.employee_id || '',
+        name,
+        department: emp.department || '',
+        method,
+        bankName,
+        bankBranch: String(emp.bank_branch || '').trim(),
+        accountNo,
+        phone: String(emp.phone || '').trim(),
+        netPay: Number(p.net_pay || 0),
+        status: p.status || 'Confirmed',
+        paymentReference: p.payment_reference || '',
+      });
+    }
+
+    const enriched = runs.map((r: any) => {
+      const idStr = r._id.toString();
+      const recipients = recipientMap.get(idStr) || [];
+      const missingBankCount = recipients.filter(
+        (rec: any) => rec.method !== 'Cash' && !rec.accountNo
+      ).length;
+      return {
+        ...r,
+        journalEntries: entryMap.get(idStr) || [],
+        recipients,
+        missingBankCount,
+      };
+    });
 
     return NextResponse.json({ success: true, data: enriched });
   } catch (error: any) {

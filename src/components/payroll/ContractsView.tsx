@@ -13,6 +13,14 @@ import Link from 'next/link';
 import { formatBDT, formatDateDMY } from '@/lib/formatters';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import {
+  downloadExcel,
+  matchesSearch,
+  printTableReport,
+  sortTableItems,
+  type SortDir,
+} from '@/lib/client-export';
 
 export function ContractsView() {
   const [contracts, setContracts] = useState<any[]>([]);
@@ -20,6 +28,11 @@ export function ContractsView() {
   const [structures, setStructures] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [banner, setBanner] = useState<{ type: 'ok' | 'err'; msg: string } | null>(null);
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [structureFilter, setStructureFilter] = useState('all');
+  const [sortKey, setSortKey] = useState('employee');
+  const [sortDir, setSortDir] = useState<SortDir>('asc');
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingContract, setEditingContract] = useState<any | null>(null);
@@ -159,6 +172,126 @@ export function ContractsView() {
         </div>
       )}
 
+      {(() => {
+        const filtered = contracts.filter((c) => {
+          if (statusFilter !== 'all' && c.status !== statusFilter) return false;
+          if (structureFilter !== 'all' && String(c.structure_id?._id || '') !== structureFilter) return false;
+          return matchesSearch(search, [
+            c.employee_id?.firstName,
+            c.employee_id?.lastName,
+            c.employee_id?.employee_id,
+            c.employee_id?.department,
+            c.structure_id?.name,
+            c.structure_id?.code,
+            c.bank_name,
+            c.bank_account_no,
+          ]);
+        });
+        const sortedContracts = sortTableItems(filtered, sortKey, sortDir, {
+          employee: (c) => `${c.employee_id?.firstName || ''} ${c.employee_id?.lastName || ''}`,
+          empCode: (c) => c.employee_id?.employee_id || '',
+          salary: (c) => Number(c.basic_salary || 0),
+          startDate: (c) => new Date(c.start_date || 0),
+          status: (c) => c.status || '',
+        });
+        const headers = [
+          'Emp ID',
+          'Employee Name',
+          'Department',
+          'Salary Structure',
+          'Basic Salary (BDT)',
+          'Start Date',
+          'End Date',
+          'Bank Name',
+          'Bank Account No',
+          'Status',
+        ];
+        const rows = sortedContracts.map((c) => [
+          c.employee_id?.employee_id || '',
+          `${c.employee_id?.firstName || ''} ${c.employee_id?.lastName || ''}`.trim(),
+          c.employee_id?.department || '',
+          c.structure_id?.name || '',
+          Number(c.basic_salary || 0),
+          formatDateDMY(c.start_date),
+          c.end_date ? formatDateDMY(c.end_date) : 'Open-ended',
+          c.bank_name || '',
+          c.bank_account_no || '',
+          c.status,
+        ]);
+
+        return (
+          <div className="space-y-3">
+            <TableToolbar
+              search={search}
+              onSearchChange={setSearch}
+              searchPlaceholder="Search employee, ID, dept, structure, bank A/C..."
+              filters={
+                <>
+                  <select
+                    value={statusFilter}
+                    onChange={(e) => setStatusFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Status</option>
+                    <option value="Active">Active</option>
+                    <option value="Expired">Expired</option>
+                    <option value="Terminated">Terminated</option>
+                  </select>
+                  <select
+                    value={structureFilter}
+                    onChange={(e) => setStructureFilter(e.target.value)}
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                  >
+                    <option value="all">All Structures</option>
+                    {structures.map((s) => (
+                      <option key={s._id} value={s._id}>
+                        {s.name}
+                      </option>
+                    ))}
+                  </select>
+                </>
+              }
+              sortKey={sortKey}
+              sortDir={sortDir}
+              sortOptions={[
+                { value: 'employee', label: 'Employee Name' },
+                { value: 'empCode', label: 'Employee ID' },
+                { value: 'salary', label: 'Basic Salary' },
+                { value: 'startDate', label: 'Start Date' },
+                { value: 'status', label: 'Status' },
+              ]}
+              onSortChange={(k, d) => {
+                setSortKey(k);
+                setSortDir(d);
+              }}
+              totalCount={contracts.length}
+              filteredCount={sortedContracts.length}
+              hasActiveFilters={statusFilter !== 'all' || structureFilter !== 'all'}
+              onReset={() => {
+                setSearch('');
+                setStatusFilter('all');
+                setStructureFilter('all');
+              }}
+              onExportExcel={() =>
+                downloadExcel({
+                  filename: 'employee-contracts',
+                  sheetName: 'Contracts',
+                  headers,
+                  rows,
+                })
+              }
+              onPrint={() =>
+                printTableReport({
+                  title: 'Employee Salary Contracts',
+                  meta: `Status: ${statusFilter}`,
+                  headers,
+                  rows,
+                  rightAlignCols: [4],
+                  landscape: true,
+                })
+              }
+            />
+
       <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
         {loading ? (
           <div className="py-16 text-center">
@@ -209,7 +342,13 @@ export function ContractsView() {
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {contracts.map((c) => (
+              {sortedContracts.length === 0 ? (
+                <tr>
+                  <td colSpan={7} className="px-4 py-10 text-center text-xs text-slate-400">
+                    No matching employee contracts found.
+                  </td>
+                </tr>
+              ) : sortedContracts.map((c) => (
                 <tr key={c._id} className="hover:bg-slate-50/70">
                   <td className="px-4 py-3.5 whitespace-nowrap">
                     <div className="font-semibold text-slate-900">
@@ -272,6 +411,9 @@ export function ContractsView() {
           </table>
         )}
       </div>
+          </div>
+        );
+      })()}
 
       {/* Assign / Edit Contract Modal */}
       <Modal

@@ -2,6 +2,7 @@ import mongoose from 'mongoose';
 import { PayslipBatch } from '@/models/PayslipBatch';
 import { Payslip } from '@/models/Payslip';
 import { Employee, PaymentMethodType } from '@/models/Employee';
+import { Account } from '@/models/Account';
 import { JournalEntry } from '@/models/JournalEntry';
 import { AuditLog } from '@/models/AuditLog';
 import { connectDB } from '@/lib/db';
@@ -234,8 +235,23 @@ export async function disbursePayrollRun(params: {
 
     const payableSlips = slips.filter((s: any) => Number(s.net_pay || 0) > 0);
     const salPayAccId = await getSystemAccountId('SALARY_PAYABLE');
-    const payoutAccId =
-      params.payoutAccountId || (await getSystemAccountId(mapPayrollMethodToSystemTag(params.method)));
+    let payoutAccId = '';
+    if (params.payoutAccountId) {
+      const customAcc = await Account.findOne({
+        _id: params.payoutAccountId,
+        isDeleted: { $ne: true },
+        active: true,
+        isGroup: false,
+      })
+        .session(session)
+        .lean();
+      if (!customAcc || customAcc.type !== 'Asset') {
+        throw new Error('Selected payout account must be an active Cash/Bank Asset ledger account.');
+      }
+      payoutAccId = customAcc._id.toString();
+    } else {
+      payoutAccId = await getSystemAccountId(mapPayrollMethodToSystemTag(params.method));
+    }
     const branch = batch.branch || 'Main';
 
     const lines: JournalLineInput[] = [];
@@ -339,6 +355,7 @@ export async function disbursePayrollRun(params: {
             voucherNo: payEntry.voucherNo,
             accrualVoucherNo: accrualEntry?.voucherNo || null,
             payment_method: params.method,
+            payoutAccountId: payoutAccId,
             payment_reference: ref,
             totalDisbursedPaisa,
             payslipsPaid: updRes.modifiedCount,

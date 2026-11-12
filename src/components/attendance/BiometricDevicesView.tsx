@@ -16,6 +16,8 @@ import {
 } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 import { formatDate, formatTimeDhaka } from '@/lib/formatters';
 
 type SubTab = 'devices' | 'raw' | 'unmatched' | 'sync';
@@ -33,6 +35,25 @@ export function BiometricDevicesView() {
   const [rawDate, setRawDate] = useState('');
   const [rawSource, setRawSource] = useState('all');
   const [rawMatched, setRawMatched] = useState('all');
+
+  // Shared Search / Filter / Sort per sub-tab
+  const [devSearch, setDevSearch] = useState('');
+  const [devStatusFilter, setDevStatusFilter] = useState('all');
+  const [devSortKey, setDevSortKey] = useState('name');
+  const [devSortDir, setDevSortDir] = useState<SortDir>('asc');
+
+  const [rawSearch, setRawSearch] = useState('');
+  const [rawSortKey, setRawSortKey] = useState('timestamp');
+  const [rawSortDir, setRawSortDir] = useState<SortDir>('desc');
+
+  const [unmSearch, setUnmSearch] = useState('');
+  const [unmSortKey, setUnmSortKey] = useState('count');
+  const [unmSortDir, setUnmSortDir] = useState<SortDir>('desc');
+
+  const [syncSearch, setSyncSearch] = useState('');
+  const [syncStatusFilter, setSyncStatusFilter] = useState('all');
+  const [syncSortKey, setSyncSortKey] = useState('synced_at');
+  const [syncSortDir, setSyncSortDir] = useState<SortDir>('desc');
 
   // Unmatched assignment map: biometric_id -> selected employee._id
   const [assignMap, setAssignMap] = useState<Record<string, string>>({});
@@ -304,13 +325,99 @@ export function BiometricDevicesView() {
                 </button>
               </div>
 
-              {devices.length === 0 ? (
-                <div className="bg-white p-10 text-center rounded-xl border border-slate-200 text-xs text-slate-400">
-                  No biometric devices registered yet. Click &ldquo;Register Device&rdquo; to add one.
-                </div>
-              ) : (
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {devices.map((dev) => (
+              {(() => {
+                const filteredDevices = sortTableItems(
+                  devices.filter((dev) => {
+                    if (devStatusFilter !== 'all' && dev.status !== devStatusFilter) return false;
+                    return matchesSearch(devSearch, [dev.name, dev.brand, dev.serial_no, dev.ip_address, dev.location]);
+                  }),
+                  devSortKey,
+                  devSortDir,
+                  {
+                    name: (d) => d.name || '',
+                    brand: (d) => d.brand || '',
+                    status: (d) => d.status || '',
+                    last_sync: (d) => (d.last_sync_at ? new Date(d.last_sync_at).getTime() : 0),
+                  }
+                );
+                return (
+                  <>
+                    <TableToolbar
+                      search={devSearch}
+                      onSearchChange={setDevSearch}
+                      searchPlaceholder="Search device name, serial no, IP or location..."
+                      sortKey={devSortKey}
+                      sortDir={devSortDir}
+                      onSortChange={(k, d) => {
+                        setDevSortKey(k);
+                        setDevSortDir(d);
+                      }}
+                      sortOptions={[
+                        { value: 'name', label: 'Device Name' },
+                        { value: 'brand', label: 'Brand' },
+                        { value: 'status', label: 'Status' },
+                        { value: 'last_sync', label: 'Last Sync' },
+                      ]}
+                      filters={
+                        <select
+                          value={devStatusFilter}
+                          onChange={(e) => setDevStatusFilter(e.target.value)}
+                          className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                        >
+                          <option value="all">All Status</option>
+                          <option value="Active">Active</option>
+                          <option value="Inactive">Inactive</option>
+                        </select>
+                      }
+                      totalCount={devices.length}
+                      filteredCount={filteredDevices.length}
+                      hasActiveFilters={devSearch !== '' || devStatusFilter !== 'all'}
+                      onReset={() => {
+                        setDevSearch('');
+                        setDevStatusFilter('all');
+                      }}
+                      onExportExcel={() =>
+                        downloadExcel({
+                          filename: 'Biometric-Devices',
+                          sheetName: 'Devices',
+                          headers: ['Name', 'Brand', 'Serial No', 'IP:Port', 'Location', 'Status', 'Last Sync'],
+                          rows: filteredDevices.map((dev) => [
+                            dev.name,
+                            dev.brand,
+                            dev.serial_no,
+                            `${dev.ip_address}:${dev.port || 4370}`,
+                            dev.location || '',
+                            dev.status,
+                            dev.last_sync_at ? `${formatDate(dev.last_sync_at)} ${formatTimeDhaka(dev.last_sync_at)}` : 'Never',
+                          ]),
+                        })
+                      }
+                      onPrint={() =>
+                        printTableReport({
+                          title: 'Biometric Devices Inventory',
+                          meta: `Devices: ${filteredDevices.length}`,
+                          headers: ['Name', 'Brand', 'Serial No', 'IP:Port', 'Location', 'Status', 'Last Sync'],
+                          rows: filteredDevices.map((dev) => [
+                            dev.name,
+                            dev.brand,
+                            dev.serial_no,
+                            `${dev.ip_address}:${dev.port || 4370}`,
+                            dev.location || '-',
+                            dev.status,
+                            dev.last_sync_at ? `${formatDate(dev.last_sync_at)} ${formatTimeDhaka(dev.last_sync_at)}` : 'Never',
+                          ]),
+                        })
+                      }
+                    />
+                    {filteredDevices.length === 0 ? (
+                      <div className="bg-white p-10 text-center rounded-xl border border-slate-200 text-xs text-slate-400">
+                        {devices.length === 0
+                          ? 'No biometric devices registered yet. Click "Register Device" to add one.'
+                          : 'No devices match your search or filter.'}
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {filteredDevices.map((dev) => (
                     <div
                       key={dev._id}
                       className="bg-white rounded-xl border border-slate-200 p-4 shadow-xs space-y-3"
@@ -397,71 +504,154 @@ export function BiometricDevicesView() {
                   ))}
                 </div>
               )}
+                  </>
+                );
+              })()}
             </div>
           )}
 
           {/* TAB 2: RAW PUNCH LOGS */}
-          {subTab === 'raw' && (
-            <div className="space-y-3">
-              <div className="bg-white p-3.5 rounded-xl border border-slate-200 flex flex-wrap items-center gap-2 text-xs">
-                <input
-                  type="date"
-                  value={rawDate}
-                  onChange={(e) => setRawDate(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg"
+          {subTab === 'raw' && (() => {
+            const filteredRaw = sortTableItems(
+              rawLogs.filter((log) =>
+                matchesSearch(rawSearch, [
+                  log.biometric_id,
+                  log.employee_id?.firstName,
+                  log.employee_id?.lastName,
+                  log.employee_id?.employee_id,
+                  log.source,
+                  log.punch_type,
+                  log.device_id?.name,
+                  log.reason,
+                  log.location,
+                ])
+              ),
+              rawSortKey,
+              rawSortDir,
+              {
+                timestamp: (l) => (l.timestamp ? new Date(l.timestamp).getTime() : 0),
+                employee: (l) =>
+                  l.employee_id
+                    ? `${l.employee_id.firstName || ''} ${l.employee_id.lastName || ''}`.trim()
+                    : l.biometric_id || '',
+                source: (l) => l.source || '',
+                punch_type: (l) => l.punch_type || '',
+              }
+            );
+            return (
+              <div className="space-y-3">
+                <TableToolbar
+                  search={rawSearch}
+                  onSearchChange={setRawSearch}
+                  searchPlaceholder="Search employee, PIN, device or source..."
+                  sortKey={rawSortKey}
+                  sortDir={rawSortDir}
+                  onSortChange={(k, d) => {
+                    setRawSortKey(k);
+                    setRawSortDir(d);
+                  }}
+                  sortOptions={[
+                    { value: 'timestamp', label: 'Punch Time' },
+                    { value: 'employee', label: 'Employee / PIN' },
+                    { value: 'source', label: 'Source' },
+                    { value: 'punch_type', label: 'Punch Type' },
+                  ]}
+                  filters={
+                    <>
+                      <input
+                        type="date"
+                        value={rawDate}
+                        onChange={(e) => setRawDate(e.target.value)}
+                        className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg"
+                      />
+                      <select
+                        value={rawSource}
+                        onChange={(e) => setRawSource(e.target.value)}
+                        className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-medium text-slate-700"
+                      >
+                        <option value="all">Source: All</option>
+                        <option value="Manual">Manual</option>
+                        <option value="Biometric">Biometric</option>
+                        <option value="Import">Import</option>
+                        <option value="Self Check-in">Self Check-in</option>
+                      </select>
+                      <select
+                        value={rawMatched}
+                        onChange={(e) => setRawMatched(e.target.value)}
+                        className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg font-medium text-slate-700"
+                      >
+                        <option value="all">Match: All</option>
+                        <option value="true">Matched Only</option>
+                        <option value="false">Unmatched Only</option>
+                      </select>
+                    </>
+                  }
+                  totalCount={rawLogs.length}
+                  filteredCount={filteredRaw.length}
+                  hasActiveFilters={rawSearch !== '' || rawDate !== '' || rawSource !== 'all' || rawMatched !== 'all'}
+                  onReset={() => {
+                    setRawSearch('');
+                    setRawDate('');
+                    setRawSource('all');
+                    setRawMatched('all');
+                  }}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: `Raw-Punch-Logs${rawDate ? `-${rawDate}` : ''}`,
+                      sheetName: 'RawPunches',
+                      headers: ['Punch Time', 'Employee ID / PIN', 'Employee Name', 'Type', 'Source', 'Device / Note', 'Match Status'],
+                      rows: filteredRaw.map((log) => [
+                        `${formatDate(log.timestamp)} ${formatTimeDhaka(log.timestamp)}`,
+                        log.employee_id?.employee_id || `PIN:${log.biometric_id || 'Unknown'}`,
+                        log.employee_id ? `${log.employee_id.firstName} ${log.employee_id.lastName}` : 'Unmatched',
+                        log.punch_type || '',
+                        log.source || '',
+                        log.device_id?.name || log.reason || log.location || '-',
+                        log.matched === false ? 'Unmatched' : 'Matched',
+                      ]),
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: 'Raw Biometric & Check-in Punch Logs',
+                      meta: `Punches: ${filteredRaw.length}`,
+                      headers: ['Punch Time', 'Employee / PIN', 'Type', 'Source', 'Device / Note', 'Match'],
+                      rows: filteredRaw.map((log) => [
+                        `${formatDate(log.timestamp)} ${formatTimeDhaka(log.timestamp)}`,
+                        log.employee_id
+                          ? `${log.employee_id.firstName} ${log.employee_id.lastName} (${log.employee_id.employee_id})`
+                          : `PIN: ${log.biometric_id || 'Unknown'}`,
+                        log.punch_type || '',
+                        log.source || '',
+                        log.device_id?.name || log.reason || log.location || '-',
+                        log.matched === false ? 'Unmatched' : 'Matched',
+                      ]),
+                      landscape: true,
+                    })
+                  }
                 />
-                {rawDate && (
-                  <button
-                    type="button"
-                    onClick={() => setRawDate('')}
-                    className="px-2 py-1.5 text-[11px] bg-slate-100 rounded-lg"
-                  >
-                    Clear Date
-                  </button>
-                )}
-                <select
-                  value={rawSource}
-                  onChange={(e) => setRawSource(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
-                >
-                  <option value="all">Source: All</option>
-                  <option value="Manual">Manual</option>
-                  <option value="Biometric">Biometric</option>
-                  <option value="Import">Import</option>
-                  <option value="Self Check-in">Self Check-in</option>
-                </select>
-                <select
-                  value={rawMatched}
-                  onChange={(e) => setRawMatched(e.target.value)}
-                  className="px-2.5 py-1.5 bg-slate-50 border border-slate-200 rounded-lg font-semibold"
-                >
-                  <option value="all">Match: All</option>
-                  <option value="true">Matched Only</option>
-                  <option value="false">Unmatched Only</option>
-                </select>
-              </div>
 
-              <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                    <tr>
-                      <th className="px-4 py-3">Punch Time</th>
-                      <th className="px-4 py-3">Employee / PIN</th>
-                      <th className="px-4 py-3 text-center">Type</th>
-                      <th className="px-4 py-3">Source</th>
-                      <th className="px-4 py-3">Device / Note</th>
-                      <th className="px-4 py-3 text-center">Match</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-100">
-                    {rawLogs.length === 0 ? (
+                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
                       <tr>
-                        <td colSpan={6} className="py-10 text-center text-slate-400">
-                          No raw punch logs found.
-                        </td>
+                        <th className="px-4 py-3">Punch Time</th>
+                        <th className="px-4 py-3">Employee / PIN</th>
+                        <th className="px-4 py-3 text-center">Type</th>
+                        <th className="px-4 py-3">Source</th>
+                        <th className="px-4 py-3">Device / Note</th>
+                        <th className="px-4 py-3 text-center">Match</th>
                       </tr>
-                    ) : (
-                      rawLogs.map((log) => (
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredRaw.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-10 text-center text-slate-400">
+                            No raw punch logs found.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredRaw.map((log) => (
                         <tr key={log._id} className="hover:bg-slate-50/60">
                           <td className="px-4 py-2.5 whitespace-nowrap font-mono">
                             {formatDate(log.timestamp)} {formatTimeDhaka(log.timestamp)}
@@ -507,31 +697,92 @@ export function BiometricDevicesView() {
                 </table>
               </div>
             </div>
-          )}
+            );
+          })()}
 
           {/* TAB 3: UNMATCHED BIOMETRIC IDs */}
-          {subTab === 'unmatched' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-4 py-3">Biometric PIN / ID</th>
-                    <th className="px-4 py-3">Waiting Punches</th>
-                    <th className="px-4 py-3">Latest Seen</th>
-                    <th className="px-4 py-3">Source / Device</th>
-                    <th className="px-4 py-3">Assign To Employee</th>
-                    <th className="px-4 py-3 text-right">Action</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {unmatchedGroups.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-10 text-center text-slate-400">
-                        All biometric punch logs are matched to employees!
-                      </td>
-                    </tr>
-                  ) : (
-                    unmatchedGroups.map((grp) => (
+          {subTab === 'unmatched' && (() => {
+            const filteredUnmatched = sortTableItems(
+              unmatchedGroups.filter((grp) => matchesSearch(unmSearch, [grp.biometric_id, grp.deviceName])),
+              unmSortKey,
+              unmSortDir,
+              {
+                count: (g) => Number(g.count || 0),
+                biometric_id: (g) => g.biometric_id || '',
+                latest: (g) => (g.latestTimestamp ? new Date(g.latestTimestamp).getTime() : 0),
+                device: (g) => g.deviceName || '',
+              }
+            );
+            return (
+              <div className="space-y-3">
+                <TableToolbar
+                  search={unmSearch}
+                  onSearchChange={setUnmSearch}
+                  searchPlaceholder="Search biometric PIN or device name..."
+                  sortKey={unmSortKey}
+                  sortDir={unmSortDir}
+                  onSortChange={(k, d) => {
+                    setUnmSortKey(k);
+                    setUnmSortDir(d);
+                  }}
+                  sortOptions={[
+                    { value: 'count', label: 'Waiting Punches' },
+                    { value: 'latest', label: 'Latest Seen' },
+                    { value: 'biometric_id', label: 'Biometric PIN' },
+                    { value: 'device', label: 'Device' },
+                  ]}
+                  totalCount={unmatchedGroups.length}
+                  filteredCount={filteredUnmatched.length}
+                  hasActiveFilters={unmSearch !== ''}
+                  onReset={() => setUnmSearch('')}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: 'Unmatched-Biometric-PINs',
+                      sheetName: 'UnmatchedPINs',
+                      headers: ['Biometric PIN / ID', 'Waiting Punches', 'Latest Seen', 'Source / Device'],
+                      rows: filteredUnmatched.map((grp) => [
+                        grp.biometric_id,
+                        grp.count,
+                        `${formatDate(grp.latestTimestamp)} ${formatTimeDhaka(grp.latestTimestamp)}`,
+                        grp.deviceName || '',
+                      ]),
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: 'Unmatched Biometric PINs Queue',
+                      meta: `Unmatched PINs: ${filteredUnmatched.length}`,
+                      headers: ['Biometric PIN / ID', 'Waiting Punches', 'Latest Seen', 'Source / Device'],
+                      rows: filteredUnmatched.map((grp) => [
+                        grp.biometric_id,
+                        String(grp.count),
+                        `${formatDate(grp.latestTimestamp)} ${formatTimeDhaka(grp.latestTimestamp)}`,
+                        grp.deviceName || '',
+                      ]),
+                    })
+                  }
+                />
+                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-4 py-3">Biometric PIN / ID</th>
+                        <th className="px-4 py-3">Waiting Punches</th>
+                        <th className="px-4 py-3">Latest Seen</th>
+                        <th className="px-4 py-3">Source / Device</th>
+                        <th className="px-4 py-3">Assign To Employee</th>
+                        <th className="px-4 py-3 text-right">Action</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredUnmatched.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-10 text-center text-slate-400">
+                            All biometric punch logs are matched to employees!
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredUnmatched.map((grp) => (
                       <tr key={grp.biometric_id} className="hover:bg-slate-50/60">
                         <td className="px-4 py-3 font-mono font-bold text-slate-900">
                           {grp.biometric_id}
@@ -578,31 +829,119 @@ export function BiometricDevicesView() {
                 </tbody>
               </table>
             </div>
-          )}
+              </div>
+            );
+          })()}
 
           {/* TAB 4: SYNC LOGS */}
-          {subTab === 'sync' && (
-            <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-              <table className="w-full text-left text-xs">
-                <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
-                  <tr>
-                    <th className="px-4 py-3">Synced At</th>
-                    <th className="px-4 py-3">Device / Channel</th>
-                    <th className="px-4 py-3">Type</th>
-                    <th className="px-4 py-3 text-right">Fetched / Matched / Unmatched</th>
-                    <th className="px-4 py-3 text-center">Status</th>
-                    <th className="px-4 py-3">Triggered By / Errors</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100">
-                  {syncLogs.length === 0 ? (
-                    <tr>
-                      <td colSpan={6} className="py-10 text-center text-slate-400">
-                        No sync activity recorded yet.
-                      </td>
-                    </tr>
-                  ) : (
-                    syncLogs.map((s) => (
+          {subTab === 'sync' && (() => {
+            const filteredSync = sortTableItems(
+              syncLogs.filter((s) => {
+                if (syncStatusFilter !== 'all' && s.status !== syncStatusFilter) return false;
+                return matchesSearch(syncSearch, [s.device_name, s.sync_type, s.status, s.triggered_by, ...(s.errors || [])]);
+              }),
+              syncSortKey,
+              syncSortDir,
+              {
+                synced_at: (s) => (s.synced_at ? new Date(s.synced_at).getTime() : 0),
+                device: (s) => s.device_name || '',
+                fetched: (s) => Number(s.records_fetched || 0),
+                status: (s) => s.status || '',
+              }
+            );
+            return (
+              <div className="space-y-3">
+                <TableToolbar
+                  search={syncSearch}
+                  onSearchChange={setSyncSearch}
+                  searchPlaceholder="Search device, sync type, triggered by or error..."
+                  sortKey={syncSortKey}
+                  sortDir={syncSortDir}
+                  onSortChange={(k, d) => {
+                    setSyncSortKey(k);
+                    setSyncSortDir(d);
+                  }}
+                  sortOptions={[
+                    { value: 'synced_at', label: 'Synced Time' },
+                    { value: 'device', label: 'Device / Channel' },
+                    { value: 'fetched', label: 'Fetched Count' },
+                    { value: 'status', label: 'Status' },
+                  ]}
+                  filters={
+                    <select
+                      value={syncStatusFilter}
+                      onChange={(e) => setSyncStatusFilter(e.target.value)}
+                      className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                    >
+                      <option value="all">All Status</option>
+                      <option value="Success">Success</option>
+                      <option value="Partial">Partial</option>
+                      <option value="Failed">Failed</option>
+                    </select>
+                  }
+                  totalCount={syncLogs.length}
+                  filteredCount={filteredSync.length}
+                  hasActiveFilters={syncSearch !== '' || syncStatusFilter !== 'all'}
+                  onReset={() => {
+                    setSyncSearch('');
+                    setSyncStatusFilter('all');
+                  }}
+                  onExportExcel={() =>
+                    downloadExcel({
+                      filename: 'Biometric-Sync-Logs',
+                      sheetName: 'SyncLogs',
+                      headers: ['Synced At', 'Device / Channel', 'Type', 'Fetched', 'Matched', 'Unmatched', 'Status', 'Triggered By', 'Error'],
+                      rows: filteredSync.map((s) => [
+                        `${formatDate(s.synced_at)} ${formatTimeDhaka(s.synced_at)}`,
+                        s.device_name || 'Unknown',
+                        s.sync_type || '',
+                        Number(s.records_fetched || 0),
+                        Number(s.records_matched || 0),
+                        Number(s.unmatched_count || 0),
+                        s.status || '',
+                        s.triggered_by || 'System',
+                        s.errors?.[0] || '',
+                      ]),
+                    })
+                  }
+                  onPrint={() =>
+                    printTableReport({
+                      title: 'Biometric Device Sync History',
+                      meta: `Sync Runs: ${filteredSync.length}`,
+                      headers: ['Synced At', 'Device / Channel', 'Type', 'Fetched / Matched / Unmatched', 'Status', 'Triggered By'],
+                      rows: filteredSync.map((s) => [
+                        `${formatDate(s.synced_at)} ${formatTimeDhaka(s.synced_at)}`,
+                        s.device_name || 'Unknown',
+                        s.sync_type || '',
+                        `${s.records_fetched} / ${s.records_matched} / ${s.unmatched_count}`,
+                        s.status || '',
+                        s.triggered_by || 'System',
+                      ]),
+                      landscape: true,
+                    })
+                  }
+                />
+                <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
+                      <tr>
+                        <th className="px-4 py-3">Synced At</th>
+                        <th className="px-4 py-3">Device / Channel</th>
+                        <th className="px-4 py-3">Type</th>
+                        <th className="px-4 py-3 text-right">Fetched / Matched / Unmatched</th>
+                        <th className="px-4 py-3 text-center">Status</th>
+                        <th className="px-4 py-3">Triggered By / Errors</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100">
+                      {filteredSync.length === 0 ? (
+                        <tr>
+                          <td colSpan={6} className="py-10 text-center text-slate-400">
+                            No sync activity recorded yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        filteredSync.map((s) => (
                       <tr key={s._id} className="hover:bg-slate-50/60">
                         <td className="px-4 py-3 whitespace-nowrap font-mono">
                           {formatDate(s.synced_at)} {formatTimeDhaka(s.synced_at)}
@@ -645,7 +984,9 @@ export function BiometricDevicesView() {
                 </tbody>
               </table>
             </div>
-          )}
+              </div>
+            );
+          })()}
         </>
       )}
 

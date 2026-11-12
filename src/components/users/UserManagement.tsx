@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import {
   Users,
   UserPlus,
@@ -16,6 +16,8 @@ import { Badge } from '@/components/ui/Badge';
 import { Modal } from '@/components/ui/Modal';
 import { formatDate } from '@/lib/formatters';
 import { useAuth } from '@/components/layout/DashboardLayout';
+import { TableToolbar } from '@/components/ui/TableToolbar';
+import { downloadExcel, matchesSearch, printTableReport, sortTableItems, SortDir } from '@/lib/client-export';
 
 export function UserManagement() {
   const { user: currentUser } = useAuth();
@@ -26,6 +28,18 @@ export function UserManagement() {
   const [loading, setLoading] = useState(true);
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+
+  // Search / Filter / Sort for Users & Audit Tabs
+  const [userSearch, setUserSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [userSortKey, setUserSortKey] = useState('name');
+  const [userSortDir, setUserSortDir] = useState<SortDir>('asc');
+
+  const [auditSearch, setAuditSearch] = useState('');
+  const [auditEntityFilter, setAuditEntityFilter] = useState('all');
+  const [auditSortKey, setAuditSortKey] = useState('timestamp');
+  const [auditSortDir, setAuditSortDir] = useState<SortDir>('desc');
 
   // Add User Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
@@ -173,6 +187,41 @@ export function UserManagement() {
     Viewer: 'gray',
   };
 
+  const filteredUsers = useMemo(() => {
+    const list = users.filter((u) => {
+      if (roleFilter !== 'all' && u.role !== roleFilter) return false;
+      if (statusFilter === 'active' && !u.active) return false;
+      if (statusFilter === 'inactive' && u.active) return false;
+      return matchesSearch(userSearch, [u.name, u.username, u.role]);
+    });
+    return sortTableItems(list, userSortKey, userSortDir, {
+      name: (u) => u.name || '',
+      username: (u) => u.username || '',
+      role: (u) => u.role || '',
+      status: (u) => (u.active ? 'Active' : 'Deactivated'),
+      lastLogin: (u) => (u.lastLogin ? new Date(u.lastLogin).getTime() : 0),
+    });
+  }, [users, userSearch, roleFilter, statusFilter, userSortKey, userSortDir]);
+
+  const filteredAuditLogs = useMemo(() => {
+    const list = auditLogs.filter((log) => {
+      if (auditEntityFilter !== 'all' && log.entity !== auditEntityFilter) return false;
+      return matchesSearch(auditSearch, [
+        log.userName,
+        log.userRole,
+        log.action,
+        log.entity,
+        log.newValues ? JSON.stringify(log.newValues) : '',
+      ]);
+    });
+    return sortTableItems(list, auditSortKey, auditSortDir, {
+      timestamp: (l) => (l.timestamp ? new Date(l.timestamp).getTime() : 0),
+      user: (l) => l.userName || '',
+      action: (l) => l.action || '',
+      entity: (l) => l.entity || '',
+    });
+  }, [auditLogs, auditSearch, auditEntityFilter, auditSortKey, auditSortDir]);
+
   return (
     <div className="space-y-6">
       {/* Top Header */}
@@ -245,7 +294,88 @@ export function UserManagement() {
 
       {/* TAB 1: USERS LIST */}
       {activeTab === 'users' && (
-        <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
+        <div className="space-y-4">
+          <TableToolbar
+            search={userSearch}
+            onSearchChange={setUserSearch}
+            searchPlaceholder="Search full name, username or role..."
+            sortKey={userSortKey}
+            sortDir={userSortDir}
+            onSortChange={(k, d) => {
+              setUserSortKey(k);
+              setUserSortDir(d);
+            }}
+            sortOptions={[
+              { value: 'name', label: 'Full Name' },
+              { value: 'username', label: 'Username' },
+              { value: 'role', label: 'Role' },
+              { value: 'status', label: 'Status' },
+              { value: 'lastLogin', label: 'Last Login' },
+            ]}
+            filters={
+              <>
+                <select
+                  value={roleFilter}
+                  onChange={(e) => setRoleFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                >
+                  <option value="all">All Roles</option>
+                  <option value="Admin">Admin</option>
+                  <option value="HR">HR</option>
+                  <option value="Accountant">Accountant</option>
+                  <option value="Counselor">Counselor</option>
+                  <option value="Instructor">Instructor</option>
+                  <option value="Viewer">Viewer</option>
+                </select>
+                <select
+                  value={statusFilter}
+                  onChange={(e) => setStatusFilter(e.target.value)}
+                  className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+                >
+                  <option value="all">All Status</option>
+                  <option value="active">Active</option>
+                  <option value="inactive">Deactivated</option>
+                </select>
+              </>
+            }
+            totalCount={users.length}
+            filteredCount={filteredUsers.length}
+            hasActiveFilters={userSearch !== '' || roleFilter !== 'all' || statusFilter !== 'all'}
+            onReset={() => {
+              setUserSearch('');
+              setRoleFilter('all');
+              setStatusFilter('all');
+            }}
+            onExportExcel={() =>
+              downloadExcel({
+                filename: 'System-Users',
+                sheetName: 'Users',
+                headers: ['Full Name', 'Username', 'Role', 'Status', 'Last Login'],
+                rows: filteredUsers.map((u) => [
+                  u.name || '',
+                  `@${u.username}`,
+                  u.role || '',
+                  u.active ? 'Active' : 'Deactivated',
+                  formatDate(u.lastLogin),
+                ]),
+              })
+            }
+            onPrint={() =>
+              printTableReport({
+                title: 'System Users Directory',
+                meta: `Users: ${filteredUsers.length}`,
+                headers: ['Full Name', 'Username', 'Assigned Role', 'Account Status', 'Last Login'],
+                rows: filteredUsers.map((u) => [
+                  u.name || '',
+                  `@${u.username}`,
+                  u.role || '',
+                  u.active ? 'Active' : 'Deactivated',
+                  formatDate(u.lastLogin),
+                ]),
+              })
+            }
+          />
+          <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
             <table className="w-full text-sm text-left">
               <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
@@ -259,7 +389,7 @@ export function UserManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
-                {users.map((u) => {
+                {filteredUsers.map((u) => {
                   const isCurrent = currentUser?.userId === u._id;
                   return (
                     <tr key={u._id} className="hover:bg-slate-50/80 transition-colors">
@@ -323,14 +453,85 @@ export function UserManagement() {
             </table>
           </div>
         </div>
+        </div>
       )}
 
       {/* TAB 2: AUDIT LOG */}
       {activeTab === 'audit' && (
+        <div className="space-y-4">
+          <TableToolbar
+            search={auditSearch}
+            onSearchChange={setAuditSearch}
+            searchPlaceholder="Search user, action, entity or details..."
+            sortKey={auditSortKey}
+            sortDir={auditSortDir}
+            onSortChange={(k, d) => {
+              setAuditSortKey(k);
+              setAuditSortDir(d);
+            }}
+            sortOptions={[
+              { value: 'timestamp', label: 'Timestamp' },
+              { value: 'user', label: 'User' },
+              { value: 'action', label: 'Action' },
+              { value: 'entity', label: 'Entity' },
+            ]}
+            filters={
+              <select
+                value={auditEntityFilter}
+                onChange={(e) => setAuditEntityFilter(e.target.value)}
+                className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
+              >
+                <option value="all">All Entities</option>
+                {Array.from(new Set(auditLogs.map((l) => l.entity).filter(Boolean))).map((ent) => (
+                  <option key={String(ent)} value={String(ent)}>
+                    {String(ent)}
+                  </option>
+                ))}
+              </select>
+            }
+            totalCount={auditLogs.length}
+            filteredCount={filteredAuditLogs.length}
+            hasActiveFilters={auditSearch !== '' || auditEntityFilter !== 'all'}
+            onReset={() => {
+              setAuditSearch('');
+              setAuditEntityFilter('all');
+            }}
+            onExportExcel={() =>
+              downloadExcel({
+                filename: 'Recent-Audit-Trail',
+                sheetName: 'AuditTrail',
+                headers: ['Timestamp', 'User', 'Role', 'Action', 'Entity', 'Details'],
+                rows: filteredAuditLogs.map((log) => [
+                  new Date(log.timestamp).toLocaleString('en-GB'),
+                  log.userName || 'System',
+                  log.userRole || '',
+                  log.action || '',
+                  log.entity || '',
+                  log.newValues ? JSON.stringify(log.newValues) : '-',
+                ]),
+              })
+            }
+            onPrint={() =>
+              printTableReport({
+                title: 'Recent Activity & Audit Trail',
+                meta: `Events: ${filteredAuditLogs.length}`,
+                headers: ['Timestamp', 'User', 'Role', 'Action', 'Entity', 'Details'],
+                rows: filteredAuditLogs.map((log) => [
+                  new Date(log.timestamp).toLocaleString('en-GB'),
+                  log.userName || 'System',
+                  log.userRole || '',
+                  log.action || '',
+                  log.entity || '',
+                  log.newValues ? JSON.stringify(log.newValues).slice(0, 120) : '-',
+                ]),
+                landscape: true,
+              })
+            }
+          />
         <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="p-4 border-b border-slate-100 flex items-center justify-between text-xs text-slate-500">
             <span>Showing latest system audit trail entries (PRD Section 3.4)</span>
-            <span className="font-mono">Total {auditLogs.length} events logged</span>
+            <span className="font-mono">Total {filteredAuditLogs.length} events shown</span>
           </div>
 
           <div className="overflow-x-auto">
@@ -345,7 +546,7 @@ export function UserManagement() {
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-mono">
-                {auditLogs.map((log) => (
+                {filteredAuditLogs.map((log) => (
                   <tr key={log._id} className="hover:bg-slate-50">
                     <td className="px-4 py-2.5 text-slate-500 whitespace-nowrap font-sans">
                       {new Date(log.timestamp).toLocaleString('en-GB')}
@@ -366,6 +567,7 @@ export function UserManagement() {
               </tbody>
             </table>
           </div>
+        </div>
         </div>
       )}
 
