@@ -16,6 +16,7 @@ import { ExpenseRecord } from '@/models/ExpenseRecord';
 import { VendorBill } from '@/models/VendorBill';
 import { resolveDateRange } from '@/lib/dashboard-helpers';
 import { paisaToTaka } from '@/lib/accounts-money';
+import { rememberCache } from '@/lib/redis';
 
 const CASH_BANK_CODES = ['1110', '1120', '1130', '1140', '1150'];
 
@@ -35,13 +36,16 @@ export async function GET(req: NextRequest) {
       searchParams.get('endDate')
     );
 
-    const now = new Date();
-    const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
-    const currentYear = now.getUTCFullYear();
-    const yearStart = new Date(Date.UTC(currentYear, 0, 1, 0, 0, 0, 0));
-    const yearEnd = new Date(Date.UTC(currentYear, 11, 31, 23, 59, 59, 999));
-    const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
-    const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
+    const cacheKey = `dashboard:accounts:${range.preset}:${range.startIso}:${range.endIso}`;
+
+    const payload = await rememberCache(cacheKey, 30, async () => {
+      const now = new Date();
+      const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
+      const currentYear = now.getUTCFullYear();
+      const yearStart = new Date(Date.UTC(currentYear, 0, 1, 0, 0, 0, 0));
+      const yearEnd = new Date(Date.UTC(currentYear, 11, 31, 23, 59, 59, 999));
+      const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1, 0, 0, 0, 0));
+      const monthEnd = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 0, 23, 59, 59, 999));
 
     const [
       accounts,
@@ -356,7 +360,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       range: {
         preset: range.preset,
@@ -397,7 +401,10 @@ export async function GET(req: NextRequest) {
         candidateDuesSummary: duesRows.slice(0, 5),
         pendingActions: pendingActions.slice(0, 5),
       },
+    };
     });
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('Accounts dashboard API error:', error);
     return NextResponse.json(

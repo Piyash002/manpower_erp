@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useMemo } from 'react';
 import Link from 'next/link';
 import {
   Users2,
@@ -10,6 +10,9 @@ import {
   Percent,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
+  Clock,
+  Calendar,
   Check,
   X,
 } from 'lucide-react';
@@ -191,9 +194,120 @@ export function StudentFeesView() {
     );
   }
 
+  const plansWithInsights = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+
+    return plans.map((p) => {
+      const stages = p.stages || [];
+      const overdueStages: Array<{
+        stageNo: number;
+        label: string;
+        dueDate: Date;
+        amountPaisa: number;
+        paidPaisa: number;
+        duePaisa: number;
+        daysOverdue: number;
+      }> = [];
+
+      let nextDueStage: {
+        stageNo: number;
+        label: string;
+        dueDate: Date;
+        amountPaisa: number;
+        paidPaisa: number;
+        duePaisa: number;
+        daysUntilDue: number;
+        isOverdue: boolean;
+      } | null = null;
+
+      let totalOverduePaisa = 0;
+      let maxOverdueDays = 0;
+      let earliestOverdueDate: Date | null = null;
+      let unpaidCount = 0;
+
+      const sortedStages = [...stages].sort((a: any, b: any) => (a.stageNo || 0) - (b.stageNo || 0));
+
+      for (const st of sortedStages) {
+        const amount = Number(st.amountPaisa || 0);
+        const paid = Number(st.paidPaisa || 0);
+        const due = Math.max(0, amount - paid);
+        const dueDate = st.dueDate ? new Date(st.dueDate) : null;
+
+        if (st.status !== 'Paid' && due > 0) {
+          unpaidCount++;
+
+          if (dueDate && dueDate < today) {
+            const diffTime = today.getTime() - dueDate.getTime();
+            const daysOverdue = Math.max(1, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+            totalOverduePaisa += due;
+            if (daysOverdue > maxOverdueDays) maxOverdueDays = daysOverdue;
+            if (!earliestOverdueDate || dueDate < earliestOverdueDate) {
+              earliestOverdueDate = dueDate;
+            }
+            overdueStages.push({
+              stageNo: st.stageNo,
+              label: st.label || `Stage #${st.stageNo}`,
+              dueDate,
+              amountPaisa: amount,
+              paidPaisa: paid,
+              duePaisa: due,
+              daysOverdue,
+            });
+          } else if (dueDate && !nextDueStage) {
+            const diffTime = dueDate.getTime() - today.getTime();
+            const daysUntilDue = Math.max(0, Math.floor(diffTime / (1000 * 60 * 60 * 24)));
+            nextDueStage = {
+              stageNo: st.stageNo,
+              label: st.label || `Stage #${st.stageNo}`,
+              dueDate,
+              amountPaisa: amount,
+              paidPaisa: paid,
+              duePaisa: due,
+              daysUntilDue,
+              isOverdue: false,
+            };
+          }
+        }
+      }
+
+      if (!nextDueStage && overdueStages.length > 0) {
+        const firstOverdue = overdueStages[0];
+        nextDueStage = {
+          stageNo: firstOverdue.stageNo,
+          label: firstOverdue.label,
+          dueDate: firstOverdue.dueDate,
+          amountPaisa: firstOverdue.amountPaisa,
+          paidPaisa: firstOverdue.paidPaisa,
+          duePaisa: firstOverdue.duePaisa,
+          daysUntilDue: 0,
+          isOverdue: true,
+        };
+      }
+
+      return {
+        ...p,
+        insight: {
+          overdueStages,
+          nextDueStage,
+          totalOverduePaisa,
+          isOverdue: overdueStages.length > 0,
+          maxOverdueDays,
+          earliestOverdueDate,
+          unpaidCount,
+        },
+      };
+    });
+  }, [plans]);
+
   const totalNet = plans.reduce((s, p) => s + (p.netPayablePaisa || 0), 0);
   const totalPaid = plans.reduce((s, p) => s + (p.totalPaidPaisa || 0), 0);
   const totalDue = plans.reduce((s, p) => s + (p.totalDuePaisa || 0), 0);
+  const totalOverdueAll = plansWithInsights.reduce(
+    (sum, p) => sum + (p.insight.totalOverduePaisa || 0),
+    0
+  );
+  const overdueCount = plansWithInsights.filter((p) => p.insight.isOverdue).length;
 
   return (
     <div className="space-y-5">
@@ -204,7 +318,7 @@ export function StudentFeesView() {
             <span>Student Fees &amp; Plans</span>
           </h1>
           <p className="text-xs text-slate-500 mt-0.5">
-            Accounts-owned student fee plans, invoice vouchers, stage schedules, and live receivable balances.
+            Accounts-owned student fee plans, installment schedules, overdue alerts, and receivable balances.
           </p>
         </div>
 
@@ -241,18 +355,41 @@ export function StudentFeesView() {
         </div>
       )}
 
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5">
+      {/* 4 Summary KPI Cards including Overdue Alert */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3.5">
         <div className="bg-white p-4 rounded-xl border border-slate-200 shadow-2xs">
           <span className="text-[11px] font-semibold text-slate-500 uppercase">Total Billed</span>
           <p className="text-xl font-bold text-slate-900 font-mono mt-1">{formatPaisaBDT(totalNet)}</p>
+          <span className="text-[11px] text-slate-400 mt-0.5 block">{plans.length} candidate plans</span>
         </div>
         <div className="bg-emerald-50/40 p-4 rounded-xl border border-emerald-200 shadow-2xs">
           <span className="text-[11px] font-semibold text-emerald-800 uppercase">Total Collected</span>
           <p className="text-xl font-bold text-emerald-800 font-mono mt-1">{formatPaisaBDT(totalPaid)}</p>
+          <span className="text-[11px] text-emerald-600 font-medium mt-0.5 block">
+            {totalNet > 0 ? ((totalPaid / totalNet) * 100).toFixed(1) : '0'}% collected
+          </span>
         </div>
-        <div className="bg-rose-50/40 p-4 rounded-xl border border-rose-200 shadow-2xs">
-          <span className="text-[11px] font-semibold text-rose-700 uppercase">Receivable Due</span>
-          <p className="text-xl font-bold text-rose-700 font-mono mt-1">{formatPaisaBDT(totalDue)}</p>
+        <div className="bg-amber-50/40 p-4 rounded-xl border border-amber-200 shadow-2xs">
+          <span className="text-[11px] font-semibold text-amber-800 uppercase">Receivable Due</span>
+          <p className="text-xl font-bold text-amber-900 font-mono mt-1">{formatPaisaBDT(totalDue)}</p>
+          <span className="text-[11px] text-amber-700 font-medium mt-0.5 block">
+            Outstanding balance
+          </span>
+        </div>
+        <div className="bg-rose-50 p-4 rounded-xl border border-rose-300 shadow-2xs">
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-bold text-rose-700 uppercase flex items-center gap-1.5">
+              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+              Overdue Due
+            </span>
+            <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-rose-200/90 text-rose-900">
+              {overdueCount} Candidate{overdueCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+          <p className="text-xl font-bold text-rose-700 font-mono mt-1">{formatPaisaBDT(totalOverdueAll)}</p>
+          <span className="text-[11px] text-rose-600 font-semibold mt-0.5 block">
+            Past scheduled due date
+          </span>
         </div>
       </div>
 
@@ -260,8 +397,13 @@ export function StudentFeesView() {
         const tradeOptions = Array.from(
           new Set(plans.map((p) => p.studentId?.trade_name).filter(Boolean))
         ).sort() as string[];
-        const filteredPlans = plans.filter((p) => {
+
+        const filteredPlans = plansWithInsights.filter((p) => {
           if (tradeFilter !== 'all' && p.studentId?.trade_name !== tradeFilter) return false;
+          if (statusFilter === 'Overdue' && !p.insight.isOverdue) return false;
+          if (statusFilter === 'Upcoming' && (p.insight.isOverdue || p.totalDuePaisa <= 0)) return false;
+          if (statusFilter === 'Active' && p.totalDuePaisa <= 0) return false;
+          if (statusFilter === 'Paid' && p.totalDuePaisa > 0) return false;
           return matchesSearch(search, [
             p.planNo,
             p.invoiceVoucherId?.voucherNo,
@@ -272,6 +414,7 @@ export function StudentFeesView() {
             p.templateId?.name,
           ]);
         });
+
         const sortedPlans = sortTableItems(filteredPlans, sortKey, sortDir, {
           createdAt: (p) => new Date(p.createdAt || 0),
           planNo: (p) => p.planNo || '',
@@ -279,7 +422,14 @@ export function StudentFeesView() {
           net: (p) => Number(p.netPayablePaisa || 0),
           paid: (p) => Number(p.totalPaidPaisa || 0),
           due: (p) => Number(p.totalDuePaisa || 0),
+          overdueDays: (p) => Number(p.insight.maxOverdueDays || 0),
+          overdueAmount: (p) => Number(p.insight.totalOverduePaisa || 0),
+          nextDueDate: (p) =>
+            p.insight.nextDueStage?.dueDate
+              ? new Date(p.insight.nextDueStage.dueDate).getTime()
+              : 9999999999999,
         });
+
         const headers = [
           'Plan No',
           'Invoice JV',
@@ -289,8 +439,11 @@ export function StudentFeesView() {
           'Net Payable (BDT)',
           'Paid (BDT)',
           'Due (BDT)',
+          'Overdue (BDT)',
+          'Next Due Date',
           'Status',
         ];
+
         const rows = sortedPlans.map((p) => [
           p.planNo,
           p.invoiceVoucherId?.voucherNo || '',
@@ -300,7 +453,9 @@ export function StudentFeesView() {
           paisaToTaka(p.netPayablePaisa || 0),
           paisaToTaka(p.totalPaidPaisa || 0),
           paisaToTaka(p.totalDuePaisa || 0),
-          p.status,
+          paisaToTaka(p.insight.totalOverduePaisa || 0),
+          p.insight.nextDueStage?.dueDate ? formatDateDMY(p.insight.nextDueStage.dueDate) : '—',
+          p.insight.isOverdue ? `Overdue (${p.insight.maxOverdueDays}d)` : p.status,
         ]);
 
         return (
@@ -314,11 +469,15 @@ export function StudentFeesView() {
                   <select
                     value={statusFilter}
                     onChange={(e) => setStatusFilter(e.target.value)}
-                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700"
+                    className="px-2.5 py-1.5 text-xs border border-slate-300 rounded-lg bg-white text-slate-700 font-semibold"
                   >
-                    <option value="all">All Statuses</option>
-                    <option value="Active">Active (Due)</option>
-                    <option value="Paid">Paid</option>
+                    <option value="all">All Statuses ({plans.length})</option>
+                    <option value="Overdue">🚨 Overdue Dues Only ({overdueCount})</option>
+                    <option value="Upcoming">
+                      📅 Upcoming Dues ({plansWithInsights.filter((p) => !p.insight.isOverdue && p.totalDuePaisa > 0).length})
+                    </option>
+                    <option value="Active">Active (All Due)</option>
+                    <option value="Paid">Paid Only</option>
                   </select>
                   <select
                     value={tradeFilter}
@@ -337,8 +496,11 @@ export function StudentFeesView() {
               sortKey={sortKey}
               sortDir={sortDir}
               sortOptions={[
-                { value: 'createdAt', label: 'Recent' },
+                { value: 'overdueDays', label: 'Overdue Days (Urgent First)' },
+                { value: 'overdueAmount', label: 'Overdue Amount' },
+                { value: 'nextDueDate', label: 'Next Due Date' },
                 { value: 'due', label: 'Due Balance' },
+                { value: 'createdAt', label: 'Recent' },
                 { value: 'net', label: 'Net Payable' },
                 { value: 'paid', label: 'Paid Amount' },
                 { value: 'student', label: 'Student Name' },
@@ -366,11 +528,11 @@ export function StudentFeesView() {
               }
               onPrint={() =>
                 printTableReport({
-                  title: 'Student Fees & Plans Report',
-                  meta: `Status: ${statusFilter} | Trade: ${tradeFilter}`,
+                  title: 'Student Fees & Plans Report (With Overdue & Next Due)',
+                  meta: `Status: ${statusFilter} | Trade: ${tradeFilter} | Overdue: ${overdueCount}`,
                   headers,
                   rows,
-                  rightAlignCols: [5, 6, 7],
+                  rightAlignCols: [5, 6, 7, 8],
                   landscape: true,
                 })
               }
@@ -378,12 +540,12 @@ export function StudentFeesView() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs min-w-[850px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
               <tr>
                 <th className="px-4 py-3">Plan &amp; Invoice JV</th>
-                <th className="px-4 py-3">Student</th>
-                <th className="px-4 py-3">Stages Summary</th>
+                <th className="px-4 py-3">Student &amp; Due Info</th>
+                <th className="px-4 py-3">Stages Summary (Installments)</th>
                 <th className="px-4 py-3 text-right">Net Payable</th>
                 <th className="px-4 py-3 text-right">Paid</th>
                 <th className="px-4 py-3 text-right">Due</th>
@@ -405,122 +567,213 @@ export function StudentFeesView() {
                   </td>
                 </tr>
               ) : (
-                sortedPlans.map((p) => (
-                  <tr key={p._id} className="hover:bg-slate-50/70">
-                    <td className="px-4 py-3 whitespace-nowrap">
-                      <span className="font-mono font-bold text-slate-900 block">{p.planNo}</span>
-                      <span className="text-[11px] font-mono text-blue-700">
-                        {p.invoiceJournalEntryId?.voucherNo || '-'}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <span className="font-semibold text-slate-900 block">
-                        {p.studentId?.name || 'Student'}
-                      </span>
-                      <span className="text-[11px] text-slate-400">
-                        {p.studentNo} · {p.tradeName} · {p.destinationCountry}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {(p.stages || []).map((st: any) => (
-                          <span
-                            key={st.stageNo}
-                            className={`text-[10px] px-1.5 py-0.5 rounded border ${
-                              st.status === 'Paid'
-                                ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                                : st.status === 'Partial'
-                                  ? 'bg-amber-50 border-amber-200 text-amber-800'
-                                  : 'bg-slate-50 border-slate-200 text-slate-600'
-                            }`}
-                          >
-                            #{st.stageNo} {formatDateDMY(st.dueDate)}:{' '}
-                            {formatPaisaBDT(st.amountPaisa, { showDecimals: false })}
-                          </span>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono">{formatPaisaBDT(p.netPayablePaisa)}</td>
-                    <td className="px-4 py-3 text-right font-mono text-emerald-700 font-semibold">
-                      {formatPaisaBDT(p.totalPaidPaisa)}
-                    </td>
-                    <td className="px-4 py-3 text-right font-mono text-rose-700 font-bold">
-                      {formatPaisaBDT(p.totalDuePaisa)}
-                    </td>
-                    <td className="px-4 py-3 text-center">
-                      <Badge variant={p.totalDuePaisa <= 0 ? 'success' : 'warning'}>
-                        {p.totalDuePaisa <= 0 ? 'Paid' : p.status}
-                      </Badge>
-                      {p.discountStatus === 'Pending' && p.pendingDiscountPaisa > 0 && (
-                        <div className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800">
-                          Disc Req: {formatPaisaBDT(p.pendingDiscountPaisa, { showDecimals: false })}
+                sortedPlans.map((p) => {
+                  const today = new Date();
+                  today.setHours(0, 0, 0, 0);
+
+                  return (
+                    <tr key={p._id} className={`hover:bg-slate-50/70 ${p.insight.isOverdue ? 'bg-rose-50/20' : ''}`}>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className="font-mono font-bold text-slate-900 block">{p.planNo}</span>
+                        <span className="text-[11px] font-mono text-blue-700">
+                          {p.invoiceJournalEntryId?.voucherNo || '-'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        <span className="font-semibold text-slate-900 block">
+                          {p.studentId?.name || 'Student'}
+                        </span>
+                        <span className="text-[11px] text-slate-400 block">
+                          {p.studentNo} · {p.tradeName} · {p.destinationCountry}
+                        </span>
+
+                        {/* Overdue Alert Pill */}
+                        {p.insight.isOverdue && (
+                          <div className="mt-1.5 inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-rose-50 border border-rose-200 text-rose-800 text-[11px] font-bold">
+                            <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
+                            <span>
+                              Overdue: {formatPaisaBDT(p.insight.totalOverduePaisa)} ({p.insight.maxOverdueDays}d past due)
+                            </span>
+                          </div>
+                        )}
+
+                        {/* Next Due Date & Amount */}
+                        {p.insight.nextDueStage && (
+                          <div className="mt-1 flex items-center gap-1 text-[11px] text-slate-600">
+                            <Clock className="w-3.5 h-3.5 text-sky-600 shrink-0" />
+                            <span className="text-slate-500 font-medium">Next Due:</span>
+                            <span className="font-bold text-slate-900">
+                              {formatDateDMY(p.insight.nextDueStage.dueDate)}
+                            </span>
+                            <span className="text-slate-400">·</span>
+                            <span className="font-mono font-bold text-slate-900">
+                              {formatPaisaBDT(p.insight.nextDueStage.duePaisa, { showDecimals: false })}
+                            </span>
+                            {p.insight.nextDueStage.isOverdue ? (
+                              <span className="text-[10px] text-rose-700 bg-rose-100 font-bold px-1.5 py-0.2 rounded border border-rose-300">
+                                Overdue
+                              </span>
+                            ) : (
+                              <span className="text-[10px] text-sky-800 bg-sky-50 font-bold px-1.5 py-0.2 rounded border border-sky-200">
+                                {p.insight.nextDueStage.daysUntilDue === 0
+                                  ? 'Due Today'
+                                  : `in ${p.insight.nextDueStage.daysUntilDue}d`}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1.5 max-w-sm">
+                          {(p.stages || []).map((st: any) => {
+                            const amount = Number(st.amountPaisa || 0);
+                            const paid = Number(st.paidPaisa || 0);
+                            const due = Math.max(0, amount - paid);
+                            const dueDate = st.dueDate ? new Date(st.dueDate) : null;
+                            const isStageOverdue =
+                              st.status !== 'Paid' && due > 0 && dueDate && dueDate < today;
+                            const stageOverdueDays = isStageOverdue
+                              ? Math.max(1, Math.floor((today.getTime() - dueDate.getTime()) / (1000 * 60 * 60 * 24)))
+                              : 0;
+                            const isNextStage =
+                              p.insight.nextDueStage &&
+                              p.insight.nextDueStage.stageNo === st.stageNo &&
+                              !isStageOverdue &&
+                              st.status !== 'Paid';
+
+                            return (
+                              <span
+                                key={st.stageNo}
+                                className={`text-[10px] px-2 py-1 rounded-md border inline-flex items-center gap-1 shadow-2xs transition-all ${
+                                  st.status === 'Paid'
+                                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700 font-medium'
+                                    : isStageOverdue
+                                      ? 'bg-rose-50 border-rose-300 text-rose-800 font-bold ring-1 ring-rose-200'
+                                      : isNextStage
+                                        ? 'bg-sky-50 border-sky-300 text-sky-900 font-semibold ring-1 ring-sky-200'
+                                        : st.status === 'Partial'
+                                          ? 'bg-amber-50 border-amber-200 text-amber-800 font-medium'
+                                          : 'bg-slate-50 border-slate-200 text-slate-600'
+                                }`}
+                                title={`Stage #${st.stageNo}: Billed ${formatPaisaBDT(amount)}, Paid ${formatPaisaBDT(paid)}, Due ${formatPaisaBDT(due)}${
+                                  isStageOverdue ? ` (OVERDUE by ${stageOverdueDays} days!)` : ''
+                                }`}
+                              >
+                                {st.status === 'Paid' && <CheckCircle2 className="w-3 h-3 text-emerald-600 shrink-0" />}
+                                {isStageOverdue && <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />}
+                                {isNextStage && <Clock className="w-3 h-3 text-sky-600 shrink-0" />}
+                                <span>
+                                  #{st.stageNo} {formatDateDMY(st.dueDate)}: {formatPaisaBDT(st.amountPaisa, { showDecimals: false })}
+                                </span>
+                                {isStageOverdue && (
+                                  <span className="bg-rose-200/90 text-rose-900 text-[9px] px-1 py-0.2 rounded font-extrabold uppercase">
+                                    Overdue {stageOverdueDays}d
+                                  </span>
+                                )}
+                                {isNextStage && (
+                                  <span className="bg-sky-200 text-sky-900 text-[9px] px-1 py-0.2 rounded font-bold uppercase">
+                                    Next
+                                  </span>
+                                )}
+                              </span>
+                            );
+                          })}
                         </div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-right whitespace-nowrap">
-                      <div className="inline-flex items-center gap-1">
-                        <button
-                          type="button"
-                          onClick={() => openStatement(p._id)}
-                          title="View Student Fee Statement"
-                          className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded"
-                        >
-                          <FileText className="w-3.5 h-3.5" />
-                        </button>
-                        {canWrite && p.totalDuePaisa > 0 && p.discountStatus !== 'Pending' && (
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono">{formatPaisaBDT(p.netPayablePaisa)}</td>
+                      <td className="px-4 py-3 text-right font-mono text-emerald-700 font-semibold">
+                        {formatPaisaBDT(p.totalPaidPaisa)}
+                      </td>
+                      <td className="px-4 py-3 text-right font-mono text-rose-700 font-bold">
+                        {formatPaisaBDT(p.totalDuePaisa)}
+                      </td>
+                      <td className="px-4 py-3 text-center">
+                        {p.totalDuePaisa <= 0 ? (
+                          <Badge variant="success">Paid</Badge>
+                        ) : p.insight.isOverdue ? (
+                          <div className="flex flex-col items-center gap-0.5">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-rose-100 text-rose-800 border border-rose-300 shadow-2xs">
+                              <AlertTriangle className="w-3 h-3 text-rose-600 shrink-0" />
+                              Overdue
+                            </span>
+                            <span className="text-[10px] text-rose-600 font-semibold font-mono">
+                              {p.insight.maxOverdueDays}d late
+                            </span>
+                          </div>
+                        ) : (
+                          <Badge variant="warning">{p.status || 'Active'}</Badge>
+                        )}
+                        {p.discountStatus === 'Pending' && p.pendingDiscountPaisa > 0 && (
+                          <div className="mt-1 text-[10px] px-1.5 py-0.5 rounded bg-amber-50 border border-amber-200 text-amber-800">
+                            Disc Req: {formatPaisaBDT(p.pendingDiscountPaisa, { showDecimals: false })}
+                          </div>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right whitespace-nowrap">
+                        <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => {
-                              setDiscountErr('');
-                              setDiscountForm({ amountTaka: '', reason: '' });
-                              setDiscountPlan(p);
-                            }}
-                            title="Request Discount"
-                            className="p-1.5 text-slate-600 hover:text-amber-700 hover:bg-amber-50 rounded"
+                            onClick={() => openStatement(p._id)}
+                            title="View Student Fee Statement"
+                            className="p-1.5 text-slate-600 hover:text-blue-700 hover:bg-blue-50 rounded"
                           >
-                            <Percent className="w-3.5 h-3.5" />
+                            <FileText className="w-3.5 h-3.5" />
                           </button>
-                        )}
-                        {isAdmin && p.discountStatus === 'Pending' && (
-                          <>
+                          {canWrite && p.totalDuePaisa > 0 && p.discountStatus !== 'Pending' && (
                             <button
                               type="button"
-                              onClick={() => handleDiscountDecision(p._id, 'approve_discount')}
-                              title="Approve Discount"
-                              className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded"
+                              onClick={() => {
+                                setDiscountErr('');
+                                setDiscountForm({ amountTaka: '', reason: '' });
+                                setDiscountPlan(p);
+                              }}
+                              title="Request Discount"
+                              className="p-1.5 text-slate-600 hover:text-amber-700 hover:bg-amber-50 rounded"
                             >
-                              <Check className="w-3.5 h-3.5" />
+                              <Percent className="w-3.5 h-3.5" />
                             </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDiscountDecision(p._id, 'reject_discount')}
-                              title="Reject Discount"
-                              className="p-1.5 text-rose-700 hover:bg-rose-50 rounded"
+                          )}
+                          {isAdmin && p.discountStatus === 'Pending' && (
+                            <>
+                              <button
+                                type="button"
+                                onClick={() => handleDiscountDecision(p._id, 'approve_discount')}
+                                title="Approve Discount"
+                                className="p-1.5 text-emerald-700 hover:bg-emerald-50 rounded"
+                              >
+                                <Check className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDiscountDecision(p._id, 'reject_discount')}
+                                title="Reject Discount"
+                                className="p-1.5 text-rose-700 hover:bg-rose-50 rounded"
+                              >
+                                <X className="w-3.5 h-3.5" />
+                              </button>
+                            </>
+                          )}
+                          {p.totalDuePaisa > 0 && (
+                            <Link
+                              href={`/accounts/receipts?studentId=${p.studentId?._id || p.studentId}`}
+                              className="px-2.5 py-1 text-[11px] font-semibold text-white bg-emerald-600 rounded hover:bg-emerald-700"
                             >
-                              <X className="w-3.5 h-3.5" />
-                            </button>
-                          </>
-                        )}
-                        {p.totalDuePaisa > 0 && (
-                          <Link
-                            href={`/accounts/receipts?studentId=${p.studentId?._id || p.studentId}`}
-                            className="px-2.5 py-1 text-[11px] font-semibold text-white bg-emerald-600 rounded hover:bg-emerald-700"
-                          >
-                            Collect
-                          </Link>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ))
+                              Collect
+                            </Link>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
         </div>
       </div>
-          </>
-        );
-      })()}
+    </>
+  );
+})()}
 
       {/* Assign Fee Plan Modal */}
       <Modal

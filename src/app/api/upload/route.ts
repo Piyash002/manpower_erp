@@ -1,25 +1,52 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth } from '@/lib/auth';
+import { uploadToCloudinary } from '@/lib/cloudinary';
 import { writeFile, mkdir } from 'fs/promises';
 import path from 'path';
 
-const PHOTO_MIMES = new Set([
-  'image/jpeg',
-  'image/jpg',
-  'image/pjpeg',
-  'image/png',
-  'image/x-png',
-  'image/webp',
+// Comprehensive support for all image formats
+const ALLOWED_IMAGE_EXTS = new Set([
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.gif',
+  '.svg',
+  '.bmp',
+  '.tiff',
+  '.tif',
+  '.avif',
+  '.heic',
+  '.heif',
+  '.ico',
 ]);
-const DOC_MIMES = new Set([
-  'application/pdf',
-  'image/jpeg',
-  'image/jpg',
-  'image/png',
-  'image/webp',
-  'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+
+const ALLOWED_DOC_EXTS = new Set([
+  '.pdf',
+  '.doc',
+  '.docx',
+  '.xls',
+  '.xlsx',
+  '.ppt',
+  '.pptx',
+  '.txt',
+  '.csv',
 ]);
+
+function isAllowedFile(name: string, mime: string, kind: string): boolean {
+  const ext = path.extname(name).toLowerCase();
+  const isImage = ALLOWED_IMAGE_EXTS.has(ext) || mime.startsWith('image/');
+  const isDoc = ALLOWED_DOC_EXTS.has(ext) || mime === 'application/pdf' || mime.includes('word') || mime.includes('document');
+
+  if (kind === 'photo') {
+    return isImage;
+  }
+  if (kind === 'receipt_proof' || kind === 'document') {
+    return isImage || isDoc;
+  }
+  // Default: allow all common images and documents
+  return isImage || isDoc;
+}
 
 export async function POST(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'HR', 'Counselor', 'Accountant']);
@@ -34,92 +61,90 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, message: 'No file provided' }, { status: 400 });
     }
 
-    if (kind === 'photo') {
-      if (!PHOTO_MIMES.has(file.type) && !/\.(jpe?g|png|webp|gif)$/i.test(file.name)) {
-        return NextResponse.json(
-          { success: false, message: 'Profile photo must be a JPG, PNG, WebP, or GIF image.' },
-          { status: 400 }
-        );
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        return NextResponse.json(
-          { success: false, message: 'Profile photo size must not exceed 5 MB.' },
-          { status: 400 }
-        );
-      }
-    } else if (kind === 'receipt_proof') {
-      const isAllowed =
-        PHOTO_MIMES.has(file.type) ||
-        file.type === 'application/pdf' ||
-        /\.(jpe?g|png|webp|gif|pdf)$/i.test(file.name);
-      if (!isAllowed) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: 'Receipt proof must be a JPG, PNG, WebP, GIF, or PDF file.',
-          },
-          { status: 400 }
-        );
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        return NextResponse.json(
-          { success: false, message: 'Receipt proof file size must not exceed 5 MB.' },
-          { status: 400 }
-        );
-      }
-    } else if (kind === 'document') {
-      if (!DOC_MIMES.has(file.type)) {
-        return NextResponse.json(
-          {
-            success: false,
-            message: 'Document must be PDF, JPG, PNG, WebP, or DOC/DOCX.',
-          },
-          { status: 400 }
-        );
-      }
-      if (file.size > 5 * 1024 * 1024) {
-        return NextResponse.json(
-          { success: false, message: 'Document size must not exceed 5 MB.' },
-          { status: 400 }
-        );
-      }
+    if (!isAllowedFile(file.name, file.type, kind)) {
+      return NextResponse.json(
+        {
+          success: false,
+          message:
+            kind === 'photo'
+              ? 'Profile photo must be an image file (JPG, PNG, WebP, GIF, SVG, BMP, AVIF, HEIC).'
+              : 'File must be an image (JPG, PNG, WebP, GIF, etc.) or document (PDF, DOC, DOCX).',
+        },
+        { status: 400 }
+      );
+    }
+
+    // Limit up to 10 MB for high-resolution images & multi-page PDFs
+    if (file.size > 10 * 1024 * 1024) {
+      return NextResponse.json(
+        { success: false, message: 'File size must not exceed 10 MB.' },
+        { status: 400 }
+      );
     }
 
     const bytes = await file.arrayBuffer();
     const buffer = Buffer.from(bytes);
 
-    const subDir =
+    const folder =
       kind === 'photo'
-        ? 'employees/photos'
-        : kind === 'document'
-        ? 'employees/docs'
+        ? 'manpower_erp/photos'
         : kind === 'receipt_proof'
-        ? 'accounts/receipts'
-        : '';
-    const uploadsDir = subDir
-      ? path.join(process.cwd(), 'public', 'uploads', subDir)
-      : path.join(process.cwd(), 'public', 'uploads');
-    await mkdir(uploadsDir, { recursive: true });
-
-    const ext = path.extname(file.name) || (kind === 'photo' ? '.jpg' : '.bin');
-    const prefix =
-      kind === 'photo'
-        ? 'emp_photo'
+        ? 'manpower_erp/receipts'
         : kind === 'document'
-        ? 'emp_doc'
-        : kind === 'receipt_proof'
-        ? 'mr_proof'
-        : 'doc';
-    const uniqueName = `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
-    const filePath = path.join(uploadsDir, uniqueName);
+        ? 'manpower_erp/documents'
+        : 'manpower_erp/uploads';
 
-    await writeFile(filePath, buffer);
+    let fileUrl = '';
+    let publicId = '';
 
-    const relUrl = subDir ? `/api/uploads/${subDir}/${uniqueName}` : `/api/uploads/${uniqueName}`;
+    // Primary: Upload buffer to Cloudinary
+    try {
+      const cloudinaryResult = await uploadToCloudinary(buffer, {
+        folder,
+        filename: file.name,
+        resourceType: 'auto',
+      });
+      fileUrl = cloudinaryResult.secure_url;
+      publicId = cloudinaryResult.public_id;
+    } catch (cloudErr: any) {
+      console.warn('Cloudinary upload error, falling back to local storage:', cloudErr?.message || cloudErr);
+
+      // Safe local fallback so the system NEVER fails if external network is momentarily restricted
+      const subDir =
+        kind === 'photo'
+          ? 'employees/photos'
+          : kind === 'document'
+          ? 'employees/docs'
+          : kind === 'receipt_proof'
+          ? 'accounts/receipts'
+          : '';
+      const uploadsDir = subDir
+        ? path.join(process.cwd(), 'public', 'uploads', subDir)
+        : path.join(process.cwd(), 'public', 'uploads');
+      await mkdir(uploadsDir, { recursive: true });
+
+      const ext = path.extname(file.name) || '.bin';
+      const prefix =
+        kind === 'photo'
+          ? 'emp_photo'
+          : kind === 'document'
+          ? 'emp_doc'
+          : kind === 'receipt_proof'
+          ? 'mr_proof'
+          : 'doc';
+      const uniqueName = `${prefix}_${Date.now()}_${Math.random().toString(36).substring(2, 8)}${ext}`;
+      const filePath = path.join(uploadsDir, uniqueName);
+      await writeFile(filePath, buffer);
+
+      fileUrl = subDir ? `/api/uploads/${subDir}/${uniqueName}` : `/api/uploads/${uniqueName}`;
+      publicId = uniqueName;
+    }
+
     return NextResponse.json({
       success: true,
-      url: relUrl,
-      filename: uniqueName,
+      url: fileUrl,
+      filename: file.name,
+      publicId,
       size: file.size,
       mimeType: file.type,
     });

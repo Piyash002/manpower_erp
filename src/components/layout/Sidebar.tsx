@@ -16,6 +16,7 @@ import {
   GraduationCap,
   FileText,
   PanelLeftClose,
+  PanelLeftOpen,
   Sparkles,
   UserCheck,
   Clock,
@@ -41,9 +42,18 @@ interface SidebarProps {
   isOpen: boolean;
   onClose: () => void;
   onOpenChangePassword?: () => void;
+  isCollapsed?: boolean;
+  onToggleCollapse?: () => void;
 }
 
-export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: SidebarProps) {
+export function Sidebar({
+  user,
+  isOpen,
+  onClose,
+  onOpenChangePassword,
+  isCollapsed = false,
+  onToggleCollapse,
+}: SidebarProps) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -109,13 +119,13 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           title: 'Batches & Assessment',
           href: '/batches',
           icon: GraduationCap,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'Counselor'],
         },
         {
           title: 'Trades & Countries',
           href: '/trades',
           icon: Globe2,
-          allowed: ['Admin'],
+          allowed: ['Admin', 'Counselor'],
         },
       ],
     },
@@ -132,19 +142,19 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           title: 'Employees & Agents',
           href: '/hrm/employees',
           icon: UserCheck,
-          allowed: ['Admin', 'HR', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR'],
         },
         {
           title: 'Attendance & Calendar',
           href: '/attendance',
           icon: Clock,
-          allowed: ['Admin', 'HR', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR'],
         },
         {
           title: 'Payroll Runs & Payslips',
           href: '/payroll',
           icon: Receipt,
-          allowed: ['Admin', 'HR', 'Manager', 'Employee', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin', 'HR'],
         },
         {
           title: 'Users & Staff',
@@ -156,7 +166,7 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           title: 'System Audit Logs',
           href: '/audit-logs',
           icon: FileText,
-          allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+          allowed: ['Admin'],
         },
       ],
     },
@@ -257,6 +267,14 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
     },
   ];
 
+  const roleDisplayNames: Record<string, string> = {
+    Admin: 'Super Admin',
+    Counselor: 'Admission Officer',
+    HR: 'HRM Officer',
+    Accountant: 'Accounts Officer',
+    Viewer: 'Viewer',
+  };
+
   const roleBadgeVariants: Record<string, 'purple' | 'info' | 'warning' | 'gray'> = {
     Admin: 'purple',
     Counselor: 'info',
@@ -277,19 +295,29 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
       {/* CodeZenX ERP Sidebar container */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col w-64 bg-white border-r border-slate-200/90 text-slate-700 transition-transform duration-200 ease-in-out md:translate-x-0 ${
+        className={`fixed top-0 bottom-0 left-0 z-40 flex flex-col bg-white border-r border-slate-200/90 text-slate-700 transition-all duration-200 ease-in-out md:translate-x-0 ${
           isOpen ? 'translate-x-0' : '-translate-x-full'
-        }`}
+        } ${isCollapsed ? 'md:w-20' : 'md:w-64'} w-64`}
       >
         {/* CodeZenX ERP Brand Header */}
-        <div className="flex items-center justify-between px-5 h-16 border-b border-slate-100">
+        <div className={`flex items-center ${isCollapsed ? 'justify-center px-2' : 'justify-between px-5'} h-16 border-b border-slate-100`}>
           <Link href="/" className="flex items-center gap-2.5">
             <img
               src="/images/codezenx-logo.jpg"
               alt="CodeZenX ERP"
               className="w-9 h-9 rounded-lg object-cover shadow-sm shrink-0"
             />
-            <div>
+            {!isCollapsed && (
+              <div className="hidden md:block">
+                <div className="flex items-center gap-1">
+                  <span className="text-base font-bold tracking-tight text-slate-900 font-sans">
+                    CodeZenX <span className="text-sky-600">ERP</span>
+                  </span>
+                </div>
+                <p className="text-[10px] text-slate-400 font-medium -mt-1">Manpower &amp; Recruitment</p>
+              </div>
+            )}
+            <div className="md:hidden">
               <div className="flex items-center gap-1">
                 <span className="text-base font-bold tracking-tight text-slate-900 font-sans">
                   CodeZenX <span className="text-sky-600">ERP</span>
@@ -306,9 +334,16 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
           >
             <X className="w-5 h-5" />
           </button>
-          <div className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-600 rounded-lg cursor-pointer">
-            <PanelLeftClose className="w-4 h-4" />
-          </div>
+          
+          {onToggleCollapse && (
+            <button
+              onClick={onToggleCollapse}
+              title={isCollapsed ? 'Expand Sidebar' : 'Collapse Sidebar'}
+              className="hidden md:flex p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+            >
+              {isCollapsed ? <PanelLeftOpen className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+            </button>
+          )}
         </div>
 
         {/* Navigation list grouped cleanly under Main, Student Admission, HRM */}
@@ -319,7 +354,14 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
             return (
               <div key={group.heading} className="space-y-1">
-                <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                {isCollapsed ? (
+                  <div className="hidden md:block my-2 border-t border-slate-100" title={group.heading} />
+                ) : (
+                  <div className="px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
+                    {group.heading}
+                  </div>
+                )}
+                <div className="md:hidden px-3 pt-2 pb-1 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
                   {group.heading}
                 </div>
 
@@ -335,7 +377,10 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
                       key={item.title}
                       href={item.href}
                       onClick={() => onClose()}
-                      className={`flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-semibold transition-all ${
+                      title={isCollapsed ? item.title : undefined}
+                      className={`flex items-center ${
+                        isCollapsed ? 'md:justify-center px-3 md:px-0 py-2.5' : 'justify-between px-3 py-2.5'
+                      } rounded-lg text-xs font-semibold transition-all ${
                         isActive
                           ? 'bg-slate-900 text-white shadow-xs'
                           : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
@@ -347,7 +392,7 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
                             isActive ? 'text-white' : 'text-slate-400'
                           }`}
                         />
-                        <span>{item.title}</span>
+                        <span className={isCollapsed ? 'md:hidden' : ''}>{item.title}</span>
                       </div>
                     </Link>
                   );
@@ -359,40 +404,61 @@ export function Sidebar({ user, isOpen, onClose, onOpenChangePassword }: Sidebar
 
         {/* Sidebar Footer with Signed-in Profile */}
         <div className="p-3 border-t border-slate-100 bg-slate-50/80">
-          <div className="flex items-center justify-between mb-2 px-1">
-            <div className="flex items-center gap-2.5 min-w-0 flex-1">
-              <div className="relative w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-xs font-bold text-slate-700">
+          {!isCollapsed ? (
+            <>
+              <div className="flex items-center justify-between mb-2 px-1">
+                <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                  <div className="relative w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-xs font-bold text-slate-700">
+                    {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
+                    <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-xs font-bold text-slate-800 truncate">{user?.name || 'User'}</p>
+                    <div className="flex items-center gap-1.5">
+                      <Badge variant={roleBadgeVariants[role] || 'gray'} size="sm">
+                        {roleDisplayNames[role] || role}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+
+                {onOpenChangePassword && (
+                  <button
+                    onClick={onOpenChangePassword}
+                    title="Change Password"
+                    className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors"
+                  >
+                    <KeyRound className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
+
+              <button
+                onClick={handleSignOut}
+                className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-200 hover:border-transparent rounded-lg transition-all"
+              >
+                <LogOut className="w-3.5 h-3.5" />
+                <span>Sign Out</span>
+              </button>
+            </>
+          ) : (
+            <div className="flex flex-col items-center gap-2">
+              <div
+                className="relative w-8 h-8 rounded-full bg-slate-200 border border-slate-300 flex items-center justify-center text-xs font-bold text-slate-700 cursor-pointer"
+                title={`${user?.name || 'User'} (${role})`}
+              >
                 {user?.name ? user.name.charAt(0).toUpperCase() : 'U'}
                 <span className="absolute bottom-0 right-0 w-2.5 h-2.5 bg-emerald-500 border-2 border-white rounded-full" />
               </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-xs font-bold text-slate-800 truncate">{user?.name || 'User'}</p>
-                <div className="flex items-center gap-1.5">
-                  <Badge variant={roleBadgeVariants[role] || 'gray'} size="sm">
-                    {role}
-                  </Badge>
-                </div>
-              </div>
-            </div>
-
-            {onOpenChangePassword && (
               <button
-                onClick={onOpenChangePassword}
-                title="Change Password"
-                className="p-1.5 text-slate-400 hover:text-slate-700 hover:bg-slate-200/60 rounded-md transition-colors"
+                onClick={handleSignOut}
+                title="Sign Out"
+                className="p-2 text-rose-600 hover:text-white hover:bg-rose-600 rounded-lg transition-all"
               >
-                <KeyRound className="w-3.5 h-3.5" />
+                <LogOut className="w-4 h-4" />
               </button>
-            )}
-          </div>
-
-          <button
-            onClick={handleSignOut}
-            className="w-full flex items-center justify-center gap-2 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:text-white bg-rose-50 hover:bg-rose-600 border border-rose-200 hover:border-transparent rounded-lg transition-all"
-          >
-            <LogOut className="w-3.5 h-3.5" />
-            <span>Sign Out</span>
-          </button>
+            </div>
+          )}
         </div>
       </aside>
     </>

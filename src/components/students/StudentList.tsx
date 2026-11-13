@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect, useCallback } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   Search,
   UserPlus,
@@ -67,6 +68,7 @@ interface StudentListItem {
 }
 
 export function StudentList() {
+  const router = useRouter();
   const { user } = useAuth();
   const [students, setStudents] = useState<StudentListItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -600,7 +602,7 @@ export function StudentList() {
       {/* Students Data Table */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-sm text-left">
+          <table className="w-full text-sm text-left min-w-[800px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase tracking-wider">
               <tr>
                 <th className="px-5 py-3">Student ID</th>
@@ -633,11 +635,16 @@ export function StudentList() {
                 students.map((student) => (
                   <tr
                     key={student._id}
+                    onClick={() => router.push(`/students/${student._id}`)}
                     className="hover:bg-slate-50/80 transition-colors group cursor-pointer"
                   >
                     {/* Student ID */}
                     <td className="px-5 py-3.5 font-mono font-bold text-blue-700 whitespace-nowrap">
-                      <Link href={`/students/${student._id}`} className="hover:underline">
+                      <Link
+                        href={`/students/${student._id}`}
+                        onClick={(e) => e.stopPropagation()}
+                        className="hover:underline"
+                      >
                         {student.student_no}
                       </Link>
                     </td>
@@ -755,6 +762,7 @@ export function StudentList() {
 
                         <Link
                           href={`/students/${student._id}`}
+                          onClick={(e) => e.stopPropagation()}
                           className="inline-flex items-center gap-1 px-2.5 py-1 text-xs font-semibold text-blue-600 hover:text-white bg-blue-50 hover:bg-blue-600 rounded-md transition-colors"
                           title="View Profile"
                         >

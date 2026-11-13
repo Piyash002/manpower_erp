@@ -636,7 +636,7 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                 {student.trade_name} &bull; Batch: <span className="font-semibold">{student.batch}</span> ({student.session})
               </p>
 
-              <div className="flex items-center gap-4 mt-2 text-xs text-slate-600">
+              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mt-2 text-xs text-slate-600">
                 <span className="flex items-center gap-1 font-mono">
                   <Phone className="w-3.5 h-3.5 text-slate-400" />
                   {student.mobile}
@@ -813,8 +813,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
                   <h4 className="text-xs font-bold uppercase text-slate-600 tracking-wider mb-2">
                     Stage Schedule
                   </h4>
-                  <div className="border border-slate-200 rounded-lg overflow-hidden">
-                    <table className="w-full text-xs text-left">
+                  <div className="border border-slate-200 rounded-lg overflow-x-auto">
+                    <table className="w-full text-xs text-left min-w-[550px]">
                       <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
                         <tr>
                           <th className="px-3 py-2">#</th>
@@ -894,8 +894,8 @@ export function StudentProfile({ studentId }: StudentProfileProps) {
               <span className="text-xs text-slate-400">Read-only ledger view</span>
             </div>
 
-            <div className="border border-slate-200 rounded-lg overflow-hidden">
-              <table className="w-full text-xs text-left">
+            <div className="border border-slate-200 rounded-lg overflow-x-auto">
+              <table className="w-full text-xs text-left min-w-[550px]">
                 <thead className="bg-slate-100 text-slate-600 font-semibold uppercase">
                   <tr>
                     <th className="px-3 py-2">Receipt / Voucher</th>

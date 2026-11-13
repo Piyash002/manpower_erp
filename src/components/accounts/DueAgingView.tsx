@@ -409,7 +409,7 @@ export function DueAgingView() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs min-w-[750px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
               <tr>
                 <th className="px-4 py-3">Student</th>
@@ -460,9 +460,23 @@ export function DueAgingView() {
                     </td>
                     <td className="px-4 py-2.5 text-center">
                       {item.maxOverdueDays > 0 ? (
-                        <Badge variant="danger">{item.maxOverdueDays}d overdue</Badge>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <Badge variant="danger">{item.maxOverdueDays}d overdue</Badge>
+                          {item.openStages?.[0]?.dueDate && (
+                            <span className="text-[10px] text-rose-600 font-medium">
+                              Due: {formatDateDMY(item.openStages[0].dueDate)}
+                            </span>
+                          )}
+                        </div>
                       ) : (
-                        <Badge variant="info">Current</Badge>
+                        <div className="flex flex-col items-center gap-0.5">
+                          <Badge variant="info">Current</Badge>
+                          {item.openStages?.[0]?.dueDate && (
+                            <span className="text-[10px] text-slate-500 font-medium">
+                              Next: {formatDateDMY(item.openStages[0].dueDate)}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </td>
                     <td className="px-4 py-2.5 text-right whitespace-nowrap">

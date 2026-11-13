@@ -3,6 +3,7 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { CountryCost } from '@/models/CountryCost';
 import { Trade } from '@/models/Trade';
+import { rememberCache, delCachePattern } from '@/lib/redis';
 
 // GET /api/country-costs
 export async function GET(req: NextRequest) {
@@ -12,16 +13,19 @@ export async function GET(req: NextRequest) {
   try {
     await connectDB();
     const { searchParams } = new URL(req.url);
-    const tradeId = searchParams.get('trade_id');
+    const tradeId = searchParams.get('trade_id') || 'all';
 
-    const filter: any = {};
-    if (tradeId) {
-      filter.trade_id = tradeId;
-    }
-
-    const countryCosts = await CountryCost.find(filter)
-      .populate('trade_id', 'name')
-      .sort({ country: 1 });
+    const cacheKey = `master:country-costs:${tradeId}`;
+    const countryCosts = await rememberCache(cacheKey, 300, async () => {
+      const filter: any = {};
+      if (tradeId !== 'all') {
+        filter.trade_id = tradeId;
+      }
+      return await CountryCost.find(filter)
+        .populate('trade_id', 'name')
+        .sort({ country: 1 })
+        .lean();
+    });
 
     return NextResponse.json({
       success: true,
@@ -98,6 +102,8 @@ export async function POST(req: NextRequest) {
       entityId: countryCost._id.toString(),
       newValues: countryCost.toJSON(),
     });
+
+    await delCachePattern('master:country-costs*');
 
     return NextResponse.json({
       success: true,

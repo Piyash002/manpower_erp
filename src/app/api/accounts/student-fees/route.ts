@@ -38,7 +38,13 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status') || 'all';
 
     const filter: Record<string, any> = { isDeleted: { $ne: true } };
-    if (status !== 'all') filter.status = status;
+    if (status === 'Paid') {
+      filter.totalDuePaisa = { $lte: 0 };
+    } else if (status === 'Active') {
+      filter.totalDuePaisa = { $gt: 0 };
+    } else if (status !== 'all' && status !== 'Overdue' && status !== 'Upcoming') {
+      filter.status = status;
+    }
 
     let plans = await StudentFeePlan.find(filter)
       .populate(
@@ -48,6 +54,25 @@ export async function GET(req: NextRequest) {
       .populate('invoiceJournalEntryId', 'voucherNo status entryDate')
       .sort({ createdAt: -1 })
       .lean();
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+
+    if (status === 'Overdue') {
+      plans = plans.filter((p: any) => {
+        if ((p.totalDuePaisa || 0) <= 0) return false;
+        return (p.stages || []).some(
+          (st: any) => st.status !== 'Paid' && new Date(st.dueDate) < todayStart
+        );
+      });
+    } else if (status === 'Upcoming') {
+      plans = plans.filter((p: any) => {
+        if ((p.totalDuePaisa || 0) <= 0) return false;
+        return !(p.stages || []).some(
+          (st: any) => st.status !== 'Paid' && new Date(st.dueDate) < todayStart
+        );
+      });
+    }
 
     if (search) {
       plans = plans.filter((p: any) => {

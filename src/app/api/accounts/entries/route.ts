@@ -12,6 +12,7 @@ import {
 } from '@/lib/accounts-auth';
 import { createJournalEntrySchema } from '@/lib/accounts-validators';
 import { createJournalEntry } from '@/lib/accounts-engine';
+import { invalidateDashboardCache } from '@/lib/redis';
 
 export async function GET(req: NextRequest) {
   const auth = requireAccountsAuth(req, ACCOUNTS_READ_ROLES);
@@ -115,6 +116,8 @@ export async function POST(req: NextRequest) {
       ...parsed.data,
       user: auth.user,
     });
+
+    await invalidateDashboardCache();
 
     return NextResponse.json(
       {

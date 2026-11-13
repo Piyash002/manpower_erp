@@ -6,6 +6,7 @@ import {
   UserPlus,
   ShieldCheck,
   KeyRound,
+  Pencil,
   Trash2,
   CheckCircle2,
   AlertTriangle,
@@ -54,6 +55,16 @@ export function UserManagement() {
   const [isResetModalOpen, setIsResetModalOpen] = useState(false);
   const [selectedUserForReset, setSelectedUserForReset] = useState<any | null>(null);
   const [resetPassword, setResetPassword] = useState('');
+
+  // Edit User Modal State
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [editUserForm, setEditUserForm] = useState({
+    _id: '',
+    name: '',
+    username: '',
+    role: 'Counselor',
+    active: true,
+  });
 
   const fetchUsers = async () => {
     try {
@@ -156,6 +167,36 @@ export function UserManagement() {
     }
   };
 
+  // Handle Edit User (Update name, role, active)
+  const handleEditUser = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setErrorMsg('');
+
+    try {
+      const res = await fetch(`/api/users/${editUserForm._id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: editUserForm.name,
+          role: editUserForm.role,
+          active: editUserForm.active,
+        }),
+      });
+
+      const data = await res.json();
+      if (!res.ok || !data.success) {
+        throw new Error(data.message || 'Failed to update user');
+      }
+
+      setIsEditModalOpen(false);
+      showSuccess(`User @${editUserForm.username} updated successfully`);
+      fetchUsers();
+      fetchAuditLogs();
+    } catch (err: any) {
+      setErrorMsg(err.message);
+    }
+  };
+
   // Handle Delete User (PRD: Admin cannot delete themselves)
   const handleDeleteUser = async (userId: string, username: string) => {
     if (currentUser?.userId === userId) {
@@ -180,9 +221,18 @@ export function UserManagement() {
     }
   };
 
+  const roleDisplayNames: Record<string, string> = {
+    Admin: 'Administrator',
+    Counselor: 'Admission (Counselor)',
+    HR: 'HRM (HR Officer)',
+    Accountant: 'Accounts (Accountant)',
+    Viewer: 'Viewer (Read-Only)',
+  };
+
   const roleBadgeVariants: Record<string, 'purple' | 'info' | 'warning' | 'gray'> = {
     Admin: 'purple',
     Counselor: 'info',
+    HR: 'info',
     Accountant: 'warning',
     Viewer: 'gray',
   };
@@ -320,12 +370,11 @@ export function UserManagement() {
                   className="px-2.5 py-1.5 text-xs bg-white border border-slate-200 rounded-lg text-slate-700"
                 >
                   <option value="all">All Roles</option>
-                  <option value="Admin">Admin</option>
-                  <option value="HR">HR</option>
-                  <option value="Accountant">Accountant</option>
-                  <option value="Counselor">Counselor</option>
-                  <option value="Instructor">Instructor</option>
-                  <option value="Viewer">Viewer</option>
+                  <option value="Admin">Administrator (Full Access)</option>
+                  <option value="Counselor">Admission (Counselor)</option>
+                  <option value="HR">HRM (HR Officer)</option>
+                  <option value="Accountant">Accounts (Accountant)</option>
+                  <option value="Viewer">Viewer (Read-Only)</option>
                 </select>
                 <select
                   value={statusFilter}
@@ -377,7 +426,7 @@ export function UserManagement() {
           />
           <div className="bg-white border border-slate-200 rounded-xl shadow-xs overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-sm text-left">
+            <table className="w-full text-sm text-left min-w-[650px]">
               <thead className="bg-slate-50 border-b border-slate-200 text-xs font-semibold text-slate-600 uppercase">
                 <tr>
                   <th className="px-5 py-3">Full Name</th>
@@ -404,7 +453,7 @@ export function UserManagement() {
                       <td className="px-5 py-3.5 font-mono text-slate-600">@{u.username}</td>
                       <td className="px-5 py-3.5">
                         <Badge variant={roleBadgeVariants[u.role] || 'gray'} size="sm">
-                          {u.role}
+                          {roleDisplayNames[u.role] || u.role}
                         </Badge>
                       </td>
                       <td className="px-5 py-3.5">
@@ -423,14 +472,31 @@ export function UserManagement() {
                       <td className="px-5 py-3.5 text-xs text-slate-500">
                         {formatDate(u.lastLogin)}
                       </td>
-                      <td className="px-5 py-3.5 text-right space-x-2">
+                      <td className="px-5 py-3.5 text-right space-x-1.5">
+                        <button
+                          onClick={() => {
+                            setEditUserForm({
+                              _id: u._id,
+                              name: u.name,
+                              username: u.username,
+                              role: u.role,
+                              active: u.active ?? true,
+                            });
+                            setIsEditModalOpen(true);
+                          }}
+                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          title="Edit User Role & Permissions"
+                        >
+                          <Pencil className="w-4 h-4" />
+                        </button>
+
                         <button
                           onClick={() => {
                             setSelectedUserForReset(u);
                             setResetPassword('');
                             setIsResetModalOpen(true);
                           }}
-                          className="p-1.5 text-slate-500 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                          className="p-1.5 text-slate-500 hover:text-amber-600 hover:bg-amber-50 rounded-lg transition-colors"
                           title="Reset Password"
                         >
                           <KeyRound className="w-4 h-4" />
@@ -627,17 +693,22 @@ export function UserManagement() {
 
           <div>
             <label className="block font-semibold text-slate-700 uppercase mb-1">
-              Assigned Role *
+              Assigned Role (Module Access) *
             </label>
             <select
               value={newUserForm.role}
               onChange={(e) => setNewUserForm({ ...newUserForm, role: e.target.value })}
               className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-semibold"
             >
-              <option value="Counselor">Counselor (Admissions, Students Edit)</option>
-              <option value="Accountant">Accountant (Students View & Billing)</option>
-              <option value="Viewer">Viewer (Read-only)</option>
-              <option value="Admin">Administrator (Full Access)</option>
+              <optgroup label="Section-Specific Roles">
+                <option value="Counselor">🎓 Admission Officer (Admission Section Access)</option>
+                <option value="HR">👥 HRM Officer (HRM Section Access)</option>
+                <option value="Accountant">💰 Accounts Officer (Accounts Section Access)</option>
+              </optgroup>
+              <optgroup label="System Roles">
+                <option value="Admin">🛡️ System Administrator (Full Access to All 3 Sections)</option>
+                <option value="Viewer">👁️ Viewer (Read-only Access)</option>
+              </optgroup>
             </select>
           </div>
 
@@ -696,6 +767,95 @@ export function UserManagement() {
               className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
             >
               Update Password
+            </button>
+          </div>
+        </form>
+      </Modal>
+
+      {/* EDIT USER MODAL */}
+      <Modal
+        isOpen={isEditModalOpen}
+        onClose={() => setIsEditModalOpen(false)}
+        title="Edit System User"
+        description={`Update module role assignment or active status for @${editUserForm.username}`}
+        maxWidth="md"
+      >
+        <form onSubmit={handleEditUser} className="space-y-4 text-xs">
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Full Name *
+            </label>
+            <input
+              type="text"
+              required
+              value={editUserForm.name}
+              onChange={(e) => setEditUserForm({ ...editUserForm, name: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Username
+            </label>
+            <input
+              type="text"
+              disabled
+              value={`@${editUserForm.username}`}
+              className="w-full px-3 py-2 border border-slate-200 bg-slate-100 rounded-lg text-sm text-slate-600 font-mono cursor-not-allowed"
+            />
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Assigned Role (Module Access) *
+            </label>
+            <select
+              value={editUserForm.role}
+              onChange={(e) => setEditUserForm({ ...editUserForm, role: e.target.value })}
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-semibold"
+            >
+              <optgroup label="Section-Specific Roles">
+                <option value="Counselor">🎓 Admission Officer (Admission Section Access)</option>
+                <option value="HR">👥 HRM Officer (HRM Section Access)</option>
+                <option value="Accountant">💰 Accounts Officer (Accounts Section Access)</option>
+              </optgroup>
+              <optgroup label="System Roles">
+                <option value="Admin">🛡️ System Administrator (Full Access to All 3 Sections)</option>
+                <option value="Viewer">👁️ Viewer (Read-only Access)</option>
+              </optgroup>
+            </select>
+          </div>
+
+          <div>
+            <label className="block font-semibold text-slate-700 uppercase mb-1">
+              Account Status *
+            </label>
+            <select
+              value={editUserForm.active ? 'active' : 'inactive'}
+              onChange={(e) =>
+                setEditUserForm({ ...editUserForm, active: e.target.value === 'active' })
+              }
+              className="w-full px-3 py-2 border border-slate-300 rounded-lg text-sm text-slate-900 font-semibold"
+            >
+              <option value="active">Active (Access Allowed)</option>
+              <option value="inactive">Deactivated (Access Blocked)</option>
+            </select>
+          </div>
+
+          <div className="pt-3 flex justify-end gap-3 border-t border-slate-100">
+            <button
+              type="button"
+              onClick={() => setIsEditModalOpen(false)}
+              className="px-4 py-2 border border-slate-300 rounded-lg text-xs font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              className="px-5 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-semibold shadow-sm"
+            >
+              Save Changes
             </button>
           </div>
         </form>

@@ -8,6 +8,7 @@ import { BatchAssessment } from '@/models/BatchAssessment';
 import { StudentFeePlan } from '@/models/StudentFeePlan';
 import { ADMISSION_DASHBOARD_ROLES, resolveDateRange } from '@/lib/dashboard-helpers';
 import { paisaToTaka } from '@/lib/accounts-money';
+import { rememberCache } from '@/lib/redis';
 
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req, ADMISSION_DASHBOARD_ROLES);
@@ -26,17 +27,20 @@ export async function GET(req: NextRequest) {
     const batch = searchParams.get('batch')?.trim() || 'all';
     const search = searchParams.get('search')?.trim() || '';
 
-    const baseStudentMatch: Record<string, any> = {};
-    if (trade !== 'all') baseStudentMatch.trade_name = trade;
-    if (batch !== 'all') baseStudentMatch.batch = batch;
-    if (search) {
-      baseStudentMatch.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { student_no: { $regex: search, $options: 'i' } },
-        { mobile: { $regex: search, $options: 'i' } },
-        { passport_no: { $regex: search, $options: 'i' } },
-      ];
-    }
+    const cacheKey = `dashboard:admission:${range.preset}:${range.startIso}:${range.endIso}:${trade}:${batch}:${search}`;
+
+    const payload = await rememberCache(cacheKey, 30, async () => {
+      const baseStudentMatch: Record<string, any> = {};
+      if (trade !== 'all') baseStudentMatch.trade_name = trade;
+      if (batch !== 'all') baseStudentMatch.batch = batch;
+      if (search) {
+        baseStudentMatch.$or = [
+          { name: { $regex: search, $options: 'i' } },
+          { student_no: { $regex: search, $options: 'i' } },
+          { mobile: { $regex: search, $options: 'i' } },
+          { passport_no: { $regex: search, $options: 'i' } },
+        ];
+      }
 
     const rangedStudentMatch: Record<string, any> = {
       ...baseStudentMatch,
@@ -161,7 +165,7 @@ export async function GET(req: NextRequest) {
         ? paisaToTaka(feePlanDueAgg[0].totalDuePaisa || 0)
         : studentDueFallbackAgg[0]?.totalDue || 0;
 
-    return NextResponse.json({
+    return {
       success: true,
       range: {
         preset: range.preset,
@@ -213,7 +217,10 @@ export async function GET(req: NextRequest) {
           trade: b.trade_name,
         })),
       },
+    };
     });
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('Admission dashboard API error:', error);
     return NextResponse.json(

@@ -14,6 +14,7 @@ import {
 } from '@/lib/accounts-auth';
 import { ensureAccountsSeeded } from '@/lib/accounts-seed';
 import { collectStudentReceipt } from '@/lib/accounts/fees';
+import { invalidateDashboardCache } from '@/lib/redis';
 
 const createReceiptSchema = z.object({
   studentId: z.string().trim().min(1, 'studentId is required'),
@@ -102,6 +103,8 @@ export async function POST(req: NextRequest) {
       ...parsed.data,
       user: auth.user,
     });
+
+    await invalidateDashboardCache();
 
     return NextResponse.json(
       {

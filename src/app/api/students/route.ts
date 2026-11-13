@@ -12,6 +12,7 @@ import { generateStudentId } from '@/models/Counter';
 import { DEFAULT_DOCUMENT_CHECKLIST } from '@/lib/seed';
 import { createStudentFeePlanOnAdmission } from '@/lib/accounts/fees';
 import { paisaToTaka } from '@/lib/accounts-money';
+import { invalidateDashboardCache } from '@/lib/redis';
 
 // GET /api/students - List students with search, filters & overdue check
 export async function GET(req: NextRequest) {
@@ -517,6 +518,8 @@ export async function POST(req: NextRequest) {
         total_billed: totalBilledTaka,
       },
     });
+
+    await invalidateDashboardCache();
 
     const refreshedStudent = await Student.findById(newStudent._id).lean();
 

@@ -6,6 +6,7 @@ import { Trade } from '@/models/Trade';
 import { Student } from '@/models/Student';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Employee } from '@/models/Employee';
+import { delCachePattern } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -205,6 +206,8 @@ export async function PUT(
       },
     });
 
+    await delCachePattern('master:batches*');
+
     return NextResponse.json({
       success: true,
       message: 'Batch updated successfully',
@@ -256,6 +259,8 @@ export async function DELETE(
       entityId: id,
       newValues: { name: batch.name, batch_code: batch.batch_code },
     });
+
+    await delCachePattern('master:batches*');
 
     return NextResponse.json({
       success: true,

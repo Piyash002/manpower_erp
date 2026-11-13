@@ -6,6 +6,7 @@ import { Trade } from '@/models/Trade';
 import { Student } from '@/models/Student';
 import { BatchAssessment } from '@/models/BatchAssessment';
 import { Employee } from '@/models/Employee';
+import { rememberCache, delCachePattern } from '@/lib/redis';
 
 export const dynamic = 'force-dynamic';
 
@@ -21,88 +22,92 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status')?.trim() || 'all';
     const trade_id = searchParams.get('trade_id')?.trim() || 'all';
 
-    const query: any = {};
-    if (status !== 'all') {
-      query.status = status;
-    }
-    if (trade_id !== 'all') {
-      query.trade_id = trade_id;
-    }
-    if (search) {
-      const searchRegex = new RegExp(search, 'i');
-      query.$or = [{ name: searchRegex }, { batch_code: searchRegex }, { instructor: searchRegex }];
-    }
+    const cacheKey = `master:batches:${status}:${trade_id}:${search}`;
 
-    const batches = await Batch.find(query)
-      .populate('instructor_id', 'employee_id firstName lastName designation department')
-      .sort({ start_date: -1 })
-      .lean();
+    const enrichedBatches = await rememberCache(cacheKey, 60, async () => {
+      const query: any = {};
+      if (status !== 'all') {
+        query.status = status;
+      }
+      if (trade_id !== 'all') {
+        query.trade_id = trade_id;
+      }
+      if (search) {
+        const searchRegex = new RegExp(search, 'i');
+        query.$or = [{ name: searchRegex }, { batch_code: searchRegex }, { instructor: searchRegex }];
+      }
 
-    // Enrich each batch with deduplicated, synchronized trainee statistics
-    const enrichedBatches = await Promise.all(
-      batches.map(async (batch: any) => {
-        const batchId = batch._id;
+      const batches = await Batch.find(query)
+        .populate('instructor_id', 'employee_id firstName lastName designation department')
+        .sort({ start_date: -1 })
+        .lean();
 
-        const [assessments, studentsByBatch] = await Promise.all([
-          BatchAssessment.find({ batch_id: batchId }).lean(),
-          Student.find({
-            $or: [{ batch: batch.batch_code }, { batch: batch.name }],
-          })
-            .select('_id status')
-            .lean(),
-        ]);
+      // Enrich each batch with deduplicated, synchronized trainee statistics
+      return await Promise.all(
+        batches.map(async (batch: any) => {
+          const batchId = batch._id;
 
-        const enrolledIds = new Set<string>();
-        const assessmentByStudent = new Map<string, any>();
+          const [assessments, studentsByBatch] = await Promise.all([
+            BatchAssessment.find({ batch_id: batchId }).lean(),
+            Student.find({
+              $or: [{ batch: batch.batch_code }, { batch: batch.name }],
+            })
+              .select('_id status')
+              .lean(),
+          ]);
 
-        for (const s of studentsByBatch) {
-          enrolledIds.add(s._id.toString());
-        }
-        for (const a of assessments) {
-          const sid = a.student_id?.toString();
-          if (sid) {
-            assessmentByStudent.set(sid, a);
-            enrolledIds.add(sid);
+          const enrolledIds = new Set<string>();
+          const assessmentByStudent = new Map<string, any>();
+
+          for (const s of studentsByBatch) {
+            enrolledIds.add(s._id.toString());
           }
-        }
-
-        // Verify all IDs in assessmentByStudent exist in Student collection (skip orphaned rows)
-        if (assessmentByStudent.size > 0) {
-          const validStudentRows = await Student.find({
-            _id: { $in: Array.from(enrolledIds) },
-          })
-            .select('_id')
-            .lean();
-          const validSet = new Set(validStudentRows.map((v) => v._id.toString()));
-          for (const sid of Array.from(enrolledIds)) {
-            if (!validSet.has(sid)) enrolledIds.delete(sid);
+          for (const a of assessments) {
+            const sid = a.student_id?.toString();
+            if (sid) {
+              assessmentByStudent.set(sid, a);
+              enrolledIds.add(sid);
+            }
           }
-        }
 
-        let passedCount = 0;
-        let failedCount = 0;
-        let certificatesCount = 0;
-        for (const sid of enrolledIds) {
-          const a = assessmentByStudent.get(sid);
-          if (a?.result_status === 'Passed') passedCount++;
-          else if (a?.result_status === 'Failed') failedCount++;
-          if (a?.certificate_url) certificatesCount++;
-        }
-        const totalEnrolled = enrolledIds.size;
+          // Verify all IDs in assessmentByStudent exist in Student collection (skip orphaned rows)
+          if (assessmentByStudent.size > 0) {
+            const validStudentRows = await Student.find({
+              _id: { $in: Array.from(enrolledIds) },
+            })
+              .select('_id')
+              .lean();
+            const validSet = new Set(validStudentRows.map((v) => v._id.toString()));
+            for (const sid of Array.from(enrolledIds)) {
+              if (!validSet.has(sid)) enrolledIds.delete(sid);
+            }
+          }
 
-        return {
-          ...batch,
-          _id: batch._id.toString(),
-          stats: {
-            totalEnrolled,
-            passedCount,
-            failedCount,
-            pendingCount: Math.max(0, totalEnrolled - passedCount - failedCount),
-            certificatesCount,
-          },
-        };
-      })
-    );
+          let passedCount = 0;
+          let failedCount = 0;
+          let certificatesCount = 0;
+          for (const sid of enrolledIds) {
+            const a = assessmentByStudent.get(sid);
+            if (a?.result_status === 'Passed') passedCount++;
+            else if (a?.result_status === 'Failed') failedCount++;
+            if (a?.certificate_url) certificatesCount++;
+          }
+          const totalEnrolled = enrolledIds.size;
+
+          return {
+            ...batch,
+            _id: batch._id.toString(),
+            stats: {
+              totalEnrolled,
+              passedCount,
+              failedCount,
+              pendingCount: Math.max(0, totalEnrolled - passedCount - failedCount),
+              certificatesCount,
+            },
+          };
+        })
+      );
+    });
 
     return NextResponse.json({
       success: true,
@@ -204,6 +209,8 @@ export async function POST(req: NextRequest) {
         end_date: newBatch.end_date,
       },
     });
+
+    await delCachePattern('master:batches*');
 
     return NextResponse.json({
       success: true,

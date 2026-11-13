@@ -6,6 +6,7 @@ import { Student } from '@/models/Student';
 import { CountryCost } from '@/models/CountryCost';
 import { Batch } from '@/models/Batch';
 import { FeeTemplate } from '@/models/FeeTemplate';
+import { delCachePattern } from '@/lib/redis';
 
 // PUT /api/trades/[id] - Admin only
 export async function PUT(
@@ -54,6 +55,8 @@ export async function PUT(
       oldValues,
       newValues: trade.toJSON(),
     });
+
+    await delCachePattern('master:trades*');
 
     return NextResponse.json({
       success: true,
@@ -131,6 +134,8 @@ export async function DELETE(
       entityId: id,
       oldValues: trade.toJSON(),
     });
+
+    await delCachePattern('master:trades*');
 
     return NextResponse.json({
       success: true,

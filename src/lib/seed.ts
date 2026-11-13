@@ -103,7 +103,21 @@ async function runSeedDatabase() {
     });
   }
 
-  // 5. Seed Viewer if not exists
+  // 5. Seed HR Officer if not exists
+  const hrExists = await User.findOne({ username: 'hr' });
+  if (!hrExists) {
+    const hrHash = await hashPassword('HrManager12345');
+    await User.create({
+      name: 'Salma HR Officer',
+      username: 'hr',
+      passwordHash: hrHash,
+      role: 'HR',
+      active: true,
+      mustChangePassword: false,
+    });
+  }
+
+  // 6. Seed Viewer if not exists
   const viewerExists = await User.findOne({ username: 'viewer' });
   if (!viewerExists) {
     const viewerHash = await hashPassword('Viewer123456');

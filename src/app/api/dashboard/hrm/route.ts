@@ -6,6 +6,7 @@ import { DailyAttendance } from '@/models/DailyAttendance';
 import { Leave } from '@/models/Leave';
 import { PayslipBatch } from '@/models/PayslipBatch';
 import { HRM_DASHBOARD_ROLES, resolveDateRange } from '@/lib/dashboard-helpers';
+import { rememberCache } from '@/lib/redis';
 
 const PAYROLL_AMOUNT_ROLES = ['Admin', 'HR', 'Accountant'];
 
@@ -25,13 +26,16 @@ export async function GET(req: NextRequest) {
     );
     const department = searchParams.get('department')?.trim() || 'all';
 
-    const empMatch: Record<string, any> = {
-      is_deleted: { $ne: true },
-      status: { $in: ['Active', 'On Leave'] },
-    };
-    if (department !== 'all') {
-      empMatch.department = department;
-    }
+    const cacheKey = `dashboard:hrm:${auth.user.role}:${range.preset}:${range.startIso}:${range.endIso}:${department}`;
+
+    const payload = await rememberCache(cacheKey, 30, async () => {
+      const empMatch: Record<string, any> = {
+        is_deleted: { $ne: true },
+        status: { $in: ['Active', 'On Leave'] },
+      };
+      if (department !== 'all') {
+        empMatch.department = department;
+      }
 
     const now = new Date();
     const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate(), 0, 0, 0, 0));
@@ -153,7 +157,7 @@ export async function GET(req: NextRequest) {
       });
     }
 
-    return NextResponse.json({
+    return {
       success: true,
       canViewPayrollAmounts,
       range: {
@@ -200,7 +204,10 @@ export async function GET(req: NextRequest) {
       filterOptions: {
         departments: (allDepartments as string[]).filter(Boolean).sort(),
       },
+    };
     });
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('HRM dashboard API error:', error);
     return NextResponse.json(

@@ -9,6 +9,7 @@ import { Trade } from '@/models/Trade';
 import { Batch } from '@/models/Batch';
 import { seedDatabase } from '@/lib/seed';
 import { paisaToTaka } from '@/lib/accounts-money';
+import { rememberCache } from '@/lib/redis';
 
 export async function GET(req: NextRequest) {
   const auth = requireAuth(req, ['Admin', 'Counselor', 'Accountant', 'Viewer']);
@@ -26,13 +27,16 @@ export async function GET(req: NextRequest) {
     const status = searchParams.get('status');
     const search = searchParams.get('search');
 
-    const now = new Date();
-    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
-    const sixMonthsFromNow = new Date();
-    sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+    const cacheKey = `dashboard:stats:${trade || 'all'}:${batch || 'all'}:${startDate || ''}:${endDate || ''}:${status || 'all'}:${search || ''}`;
 
-    // Build dynamic student filter
-    const studentFilter: any = {};
+    const payload = await rememberCache(cacheKey, 30, async () => {
+      const now = new Date();
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+      const sixMonthsFromNow = new Date();
+      sixMonthsFromNow.setMonth(sixMonthsFromNow.getMonth() + 6);
+
+      // Build dynamic student filter
+      const studentFilter: any = {};
 
     if (trade && trade !== 'all') {
       studentFilter.trade_name = trade;
@@ -261,7 +265,7 @@ export async function GET(req: NextRequest) {
       };
     });
 
-    return NextResponse.json({
+    return {
       success: true,
       stats: {
         totalStudents,
@@ -282,7 +286,10 @@ export async function GET(req: NextRequest) {
         name: b.name,
         trade: b.trade_name,
       })),
+    };
     });
+
+    return NextResponse.json(payload);
   } catch (error: any) {
     console.error('Dashboard stats error:', error);
     return NextResponse.json(

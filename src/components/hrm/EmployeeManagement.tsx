@@ -594,7 +594,7 @@ export function EmployeeManagement() {
         </div>
       ) : viewMode === 'table' ? (
         <div className="bg-white rounded-xl border border-slate-200 shadow-xs overflow-x-auto">
-          <table className="w-full text-left text-sm">
+          <table className="w-full text-left text-sm min-w-[700px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
               <tr>
                 {isAdminOrHR && (

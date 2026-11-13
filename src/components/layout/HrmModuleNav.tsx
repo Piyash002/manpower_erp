@@ -16,19 +16,19 @@ export function HrmModuleNav() {
       label: 'Employees & Agents',
       href: '/hrm/employees',
       icon: UserCheck,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      allowed: ['Admin', 'HR'],
     },
     {
       label: 'Attendance & Calendar',
       href: '/attendance',
       icon: Clock,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      allowed: ['Admin', 'HR'],
     },
     {
       label: 'Payroll & Payslips',
       href: '/payroll',
       icon: Receipt,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      allowed: ['Admin', 'HR'],
     },
     {
       label: 'Users & Staff',
@@ -40,7 +40,7 @@ export function HrmModuleNav() {
       label: 'System Audit Logs',
       href: '/audit-logs',
       icon: FileText,
-      allowed: ['Admin', 'Counselor', 'Accountant', 'Viewer'],
+      allowed: ['Admin'],
     },
   ].filter((t) => t.allowed.includes(role));
 

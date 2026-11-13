@@ -3,6 +3,7 @@ import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { Trade } from '@/models/Trade';
 import { seedDatabase } from '@/lib/seed';
+import { rememberCache, delCachePattern } from '@/lib/redis';
 
 // GET /api/trades
 export async function GET(req: NextRequest) {
@@ -16,12 +17,14 @@ export async function GET(req: NextRequest) {
     const { searchParams } = new URL(req.url);
     const activeOnly = searchParams.get('active') === 'true';
 
-    const filter: any = {};
-    if (activeOnly) {
-      filter.active = true;
-    }
-
-    const trades = await Trade.find(filter).sort({ name: 1 });
+    const cacheKey = `master:trades:${activeOnly}`;
+    const trades = await rememberCache(cacheKey, 300, async () => {
+      const filter: any = {};
+      if (activeOnly) {
+        filter.active = true;
+      }
+      return await Trade.find(filter).sort({ name: 1 }).lean();
+    });
 
     return NextResponse.json({
       success: true,
@@ -75,6 +78,8 @@ export async function POST(req: NextRequest) {
       entityId: trade._id.toString(),
       newValues: trade.toJSON(),
     });
+
+    await delCachePattern('master:trades*');
 
     return NextResponse.json({
       success: true,

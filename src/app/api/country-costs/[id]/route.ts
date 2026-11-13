@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { requireAuth, createAuditLog } from '@/lib/auth';
 import { connectDB } from '@/lib/db';
 import { CountryCost } from '@/models/CountryCost';
+import { delCachePattern } from '@/lib/redis';
 
 // PUT /api/country-costs/[id] - Admin only
 export async function PUT(
@@ -44,6 +45,8 @@ export async function PUT(
       newValues: item.toJSON(),
     });
 
+    await delCachePattern('master:country-costs*');
+
     return NextResponse.json({
       success: true,
       message: 'Country cost updated successfully',
@@ -83,6 +86,8 @@ export async function DELETE(
       entityId: id,
       oldValues: item.toJSON(),
     });
+
+    await delCachePattern('master:country-costs*');
 
     return NextResponse.json({
       success: true,

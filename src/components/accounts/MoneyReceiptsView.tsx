@@ -111,10 +111,18 @@ export function MoneyReceiptsView() {
       const matched = duePlans.find((p) => String(p.studentId?._id || p.studentId) === preStudentId);
       if (matched) {
         setModalErr('');
+        const stages = [...(matched.stages || [])].sort((a: any, b: any) => a.stageNo - b.stageNo);
+        const nextPendingStage = stages.find(
+          (s: any) => (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0
+        );
+        const defaultAmountPaisa = nextPendingStage
+          ? (nextPendingStage.amountPaisa || 0) - (nextPendingStage.paidPaisa || 0)
+          : matched.totalDuePaisa;
+
         setForm({
           ...emptyForm(),
           studentId: preStudentId,
-          amountTaka: String(paisaToTaka(matched.totalDuePaisa)),
+          amountTaka: String(paisaToTaka(defaultAmountPaisa)),
         });
         setIsModalOpen(true);
       }
@@ -133,10 +141,21 @@ export function MoneyReceiptsView() {
   const openModal = () => {
     setModalErr('');
     const firstPlan = duePlans[0];
+    let defaultAmountTaka = '';
+    if (firstPlan) {
+      const stages = [...(firstPlan.stages || [])].sort((a: any, b: any) => a.stageNo - b.stageNo);
+      const nextPendingStage = stages.find(
+        (s: any) => (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0
+      );
+      const defaultAmountPaisa = nextPendingStage
+        ? (nextPendingStage.amountPaisa || 0) - (nextPendingStage.paidPaisa || 0)
+        : firstPlan.totalDuePaisa;
+      defaultAmountTaka = String(paisaToTaka(defaultAmountPaisa));
+    }
     setForm({
       ...emptyForm(),
       studentId: firstPlan?.studentId?._id || firstPlan?.studentId || '',
-      amountTaka: firstPlan ? String(paisaToTaka(firstPlan.totalDuePaisa)) : '',
+      amountTaka: defaultAmountTaka,
     });
     setIsModalOpen(true);
   };
@@ -395,7 +414,7 @@ export function MoneyReceiptsView() {
 
       <div className="bg-white rounded-xl border border-slate-200 shadow-2xs overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs">
+          <table className="w-full text-left text-xs min-w-[800px]">
             <thead className="bg-slate-50 border-b border-slate-200 text-[11px] font-semibold text-slate-500 uppercase">
               <tr>
                 <th className="px-4 py-3">Receipt No</th>
@@ -532,10 +551,21 @@ export function MoneyReceiptsView() {
                 const plan = duePlans.find(
                   (p) => (p.studentId?._id || p.studentId) === e.target.value
                 );
+                let defaultAmountTaka = '';
+                if (plan) {
+                  const stages = [...(plan.stages || [])].sort((a: any, b: any) => a.stageNo - b.stageNo);
+                  const nextPendingStage = stages.find(
+                    (s: any) => (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0
+                  );
+                  const defaultAmountPaisa = nextPendingStage
+                    ? (nextPendingStage.amountPaisa || 0) - (nextPendingStage.paidPaisa || 0)
+                    : plan.totalDuePaisa;
+                  defaultAmountTaka = String(paisaToTaka(defaultAmountPaisa));
+                }
                 setForm({
                   ...form,
                   studentId: e.target.value,
-                  amountTaka: plan ? String(paisaToTaka(plan.totalDuePaisa)) : '',
+                  amountTaka: defaultAmountTaka,
                 });
               }}
               className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg"
@@ -553,7 +583,29 @@ export function MoneyReceiptsView() {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block font-semibold text-slate-700 mb-1">Amount (BDT) *</label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="block font-semibold text-slate-700">Amount (BDT) *</label>
+                {(() => {
+                  const currentPlan = duePlans.find(
+                    (p) => (p.studentId?._id || p.studentId) === form.studentId
+                  );
+                  if (!currentPlan) return null;
+                  const totalDueTaka = paisaToTaka(currentPlan.totalDuePaisa);
+                  const isFullDue = Number(form.amountTaka) === totalDueTaka;
+                  return (
+                    <button
+                      type="button"
+                      onClick={() => setForm({ ...form, amountTaka: String(totalDueTaka) })}
+                      className={`text-[11px] font-semibold underline ${
+                        isFullDue ? 'text-slate-400' : 'text-blue-600 hover:text-blue-800'
+                      }`}
+                      title="Set amount to full outstanding due balance"
+                    >
+                      Pay Full Due ({formatPaisaBDT(currentPlan.totalDuePaisa)})
+                    </button>
+                  );
+                })()}
+              </div>
               <input
                 type="number"
                 step="0.01"
@@ -563,6 +615,39 @@ export function MoneyReceiptsView() {
                 onChange={(e) => setForm({ ...form, amountTaka: e.target.value })}
                 className="w-full px-3 py-2 text-sm border border-slate-300 rounded-lg font-mono"
               />
+              {(() => {
+                const currentPlan = duePlans.find(
+                  (p) => (p.studentId?._id || p.studentId) === form.studentId
+                );
+                if (!currentPlan) return null;
+                const stages = [...(currentPlan.stages || [])].sort((a: any, b: any) => a.stageNo - b.stageNo);
+                const nextPendingStage = stages.find(
+                  (s: any) => (s.amountPaisa || 0) - (s.paidPaisa || 0) > 0
+                );
+                const nextStageDueTaka = nextPendingStage
+                  ? paisaToTaka((nextPendingStage.amountPaisa || 0) - (nextPendingStage.paidPaisa || 0))
+                  : 0;
+
+                return (
+                  <div className="mt-1 flex items-center justify-between text-[11px] text-slate-500">
+                    {nextPendingStage && (
+                      <span>
+                        Stage #{nextPendingStage.stageNo} Due:{' '}
+                        <button
+                          type="button"
+                          onClick={() => setForm({ ...form, amountTaka: String(nextStageDueTaka) })}
+                          className="font-semibold text-emerald-700 hover:underline"
+                        >
+                          ৳{nextStageDueTaka.toLocaleString('en-IN')}
+                        </button>
+                      </span>
+                    )}
+                    <span>
+                      Total Due: <strong className="text-rose-600">{formatPaisaBDT(currentPlan.totalDuePaisa)}</strong>
+                    </span>
+                  </div>
+                );
+              })()}
             </div>
             <div>
               <label className="block font-semibold text-slate-700 mb-1">Method *</label>
@@ -748,7 +833,7 @@ export function MoneyReceiptsView() {
                   </span>
                   <input
                     type="file"
-                    accept="image/jpeg,image/png,image/webp,image/gif,application/pdf"
+                    accept="image/*,.pdf"
                     disabled={uploadingProof}
                     onChange={handleProofUpload}
                     className="hidden"

@@ -13,6 +13,7 @@ import { MoneyReceipt } from '@/models/MoneyReceipt';
 import { FeeRefund } from '@/models/FeeRefund';
 import { JournalEntry } from '@/models/JournalEntry';
 import { isWithin6Months } from '@/lib/formatters';
+import { invalidateDashboardCache } from '@/lib/redis';
 
 // GET /api/students/[id] - Full profile
 export async function GET(
@@ -302,6 +303,8 @@ export async function PUT(
       },
     });
 
+    await invalidateDashboardCache();
+
     return NextResponse.json({
       success: true,
       message: 'Student profile updated successfully',
@@ -364,6 +367,8 @@ export async function DELETE(
       entityId: id,
       oldValues: { student_no: student.student_no, name: student.name },
     });
+
+    await invalidateDashboardCache();
 
     return NextResponse.json({
       success: true,
